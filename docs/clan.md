@@ -114,10 +114,10 @@ Base flow skips it.
 
 ## Which troops it donates
 
-Every `donatetroop*.png` you have captured. A clan asks for whatever it asks for, so
-capture a crop for each troop you are happy to give away — pick **Another troop to
-donate** in the capture dialog and it files them as `donatetroop2.png`,
-`donatetroop3.png`, and so on. In the donate panel they are tried in name order and the
+Every `donatetroop*.png` on disk — thirteen ship with BasePilot, and your own captures
+sit alongside them. A clan asks for whatever it asks for, so capture a crop for any troop
+you are happy to give away that is not already covered: pick **Another troop to donate**
+in the capture dialog and it files them as the next free `donatetroopN.png`. In the donate panel they are tried in name order and the
 first one on screen is handed over. Adding a troop later needs no settings change: drop
 in another crop and it is used on the next visit.
 

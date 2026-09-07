@@ -57,10 +57,10 @@ reinforcements of its own. It only leaves once no Donate button and no badge rem
 it holds off donating while your elixir is under a floor you set. It keeps doing that
 through the long idle stretches of *Run until maxed*, when requests pile up unanswered.
 Every click is the game's own button, matched on screen rather than remembered as a
-coordinate, and the close button doubles as proof the menu opened and closed. Capture
-the buttons (plus a crop per troop you'll donate) once from your client with *Settings →
-Clan assist → **Capture templates*** — it crops them at the right scale for you — then
-leave it in **dry run** for a session to see what it recognises. Full setup and
+coordinate, and the close button doubles as proof the menu opened and closed. The button and troop templates it
+matches ship with BasePilot for 16:9 clients; on 16:10, or to add a troop, *Settings →
+Clan assist → **Capture templates*** crops them from your own client at the right scale.
+Leave it in **dry run** for a session first to see what it recognises. Full setup and
 mechanics: [docs/clan.md](docs/clan.md).
 
 **Loot tracking.** Every raid's gold, elixir, and dark elixir gains are read straight

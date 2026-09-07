@@ -224,7 +224,7 @@ class SettingsPage(QWidget):
         hint.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
         card.card_layout.addWidget(hint)
         card.card_layout.addWidget(SectionTitle('Templates'))
-        tpl_hint = QLabel('Clan assist clicks the game\'s own buttons, so it needs a crop of each one from your client: the clan menu button, its "<<" close button, Donate, the troop you donate, Send, and Request troops. Capture them once — open the game on the screen that shows each button, drag a box around it, save.')
+        tpl_hint = QLabel('Clan assist clicks buttons it matches from the game art, and a full set of crops ships for 16:9 clients — so there is usually nothing to do here. Capture your own if you play at 16:10, if a bundled template does not match your client, or to add a troop you want to donate: open the game on the screen that shows the button, drag a box around it, save.')
         tpl_hint.setWordWrap(True)
         tpl_hint.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
         card.card_layout.addWidget(tpl_hint)
