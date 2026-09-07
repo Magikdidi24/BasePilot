@@ -3,6 +3,8 @@ import random
 import threading
 from typing import Callable, List, Optional, Tuple
 from app.config import ASPECT_16_10, ASPECT_16_9, Config
+from app.core.clan import ClanAssistant, ClanOptions, missing_templates
+from app.core.loot_filter import TEMPLATE_NEXT_BASE, LootFilter, meets, read_enemy_loot
 from app.core.strategies import AttackStrategy, EdragStrategy, TroopSpamStrategy, _EDRAG_DELAY
 from app.core.upgrader import AUTO_UPGRADE_MODES, LIVE_UPGRADE_MODES, MODE_OFF, UpgradeAdvisor
 from app.core.village_state import read_hud_triplet_stable, read_village_state, read_village_state_stable
@@ -42,6 +44,10 @@ _WALL_MENU_WHEEL_CLICKS = 2  # ~3-4 rows per nudge; the OCR band spans the whole
 _WALL_ROW_STABLE_TOL = 30  # ref px: max y drift between consecutive frames before the row is trusted for a click
 _AUTO_UPGRADE_SCAN_INTERVAL_SECONDS = 600  # full popup scan is OCR-heavy (~15-25s); keep it rare vs the ~35s attack cycle
 _IDLE_RECHECK_SECONDS = 300  # while idling (storages full, nothing startable): wake, recover the screen, re-read state
+_CLAN_UNCALIBRATED_BACKOFF_SECONDS = 3600  # no chat button picked: say so once, not once per raid
+_NEXT_CLEAR_POLLS = 8  # ~4s for the skipped base's controls to leave the screen
+_NEXT_SETTLE_SECONDS = 1.0  # after the new base's controls appear, before reading its loot
+_LOOT_READ_POLLS = 6  # ~3s for the loot panel to render before calling it unreadable
 # Loot-tracker plausibility caps per snapshot interval (one battle): a raid tops out
 # well under these even with boosts — anything larger is an OCR misread that slipped
 # past the ≥0 filter (live repro: "+15.5M elixir" in one battle).
@@ -69,7 +75,7 @@ class Bot:
         self._suppress_loot_negative_error_once = False
 
     
-    def start(self, method, run_time_minutes, star_bonus = False, status_callback = None, loot_callback = None, multi_run_players = None, ranked_fill = False, upgrade_walls = False, earthquake_method = EARTHQUAKE_METHOD_CURVE, builder_base = False, loot_prioritise = 'both', wall_upgrade_threshold = 0, auto_upgrade = MODE_OFF, reserve_builders = 1, state_callback = None, upgrade_order = None):
+    def start(self, method, run_time_minutes, star_bonus = False, status_callback = None, loot_callback = None, multi_run_players = None, ranked_fill = False, upgrade_walls = False, earthquake_method = EARTHQUAKE_METHOD_CURVE, builder_base = False, loot_prioritise = 'both', wall_upgrade_threshold = 0, auto_upgrade = MODE_OFF, reserve_builders = 1, state_callback = None, upgrade_order = None, clan_options = None, loot_filter = None):
         '''Starts the bot loop. With ``multi_run_players``, runs a full session per enabled player.
         ``run_time_minutes <= 0`` (single Home Village runs only) means UNLIMITED — farm,
         upgrade and idle until the user stops the bot ("run until maxed").'''
@@ -94,7 +100,15 @@ class Bot:
         self._reserve_builders = max(0, int(reserve_builders or 0))
         self._upgrade_order = upgrade_order
         self._advisor = None  # one UpgradeAdvisor per session (it holds execution cooldowns)
-        logger.info(f'''Bot started. Method: {method}, Time: {'unlimited' if unlimited else f'{run_time_minutes}m'}, StarBonus: {star_bonus}, MultiRun: {mr}, RankedFill: {ranked_fill}, UpgradeWalls: {upgrade_walls}, WallThreshold: {self._wall_upgrade_threshold}, AutoUpgrade: {self._auto_upgrade_mode}, ReserveBuilders: {self._reserve_builders}, Earthquake: {earthquake_method}, BuilderBase: {builder_base}, LootPrioritise: {loot_prioritise}''')
+        self._clan_options = clan_options if clan_options is not None else ClanOptions()
+        self._loot_filter = loot_filter if loot_filter is not None else LootFilter()
+        self._loot_filter_off = False
+        self._bases_skipped = 0
+        self._clan = None  # one ClanAssistant per session (it holds the failure counter)
+        # Donate/request on the FIRST home visit of the session, then on their intervals.
+        self._clan_last_donate = 0
+        self._clan_last_request = 0
+        logger.info(f'''Bot started. Method: {method}, Time: {'unlimited' if unlimited else f'{run_time_minutes}m'}, StarBonus: {star_bonus}, MultiRun: {mr}, RankedFill: {ranked_fill}, UpgradeWalls: {upgrade_walls}, WallThreshold: {self._wall_upgrade_threshold}, AutoUpgrade: {self._auto_upgrade_mode}, ReserveBuilders: {self._reserve_builders}, Earthquake: {earthquake_method}, BuilderBase: {builder_base}, LootPrioritise: {loot_prioritise}, ClanDonate: {self._clan_options.donate}, ClanRequest: {self._clan_options.request}, ClanDryRun: {self._clan_options.dry_run}, LootFilter: {self._loot_filter.summary() if self._loot_filter.enabled else 'off'}''')
 
         try:
 
@@ -106,6 +120,10 @@ class Bot:
                 for player in queue:
                     self._check_stop()
                     self._switch_account_and_load_home(player.name)
+                    # Each account sits in its own clan: start this player's session
+                    # with a chat visit due instead of inheriting the last one's clocks.
+                    self._clan_last_donate = 0
+                    self._clan_last_request = 0
                     self._check_stop()
                     self._run_loop(method, duration, star_bonus, ranked_fill, upgrade_walls)
                     self._check_stop()
@@ -411,13 +429,108 @@ deselect, which would eat the upcoming Attack click.'''
             logger.warning('Auto-upgrade pass failed; continuing farm loop', exc_info = True)
             return None
 
-    def _emit_state(self, state = None, builders = None, lab = None, storages = None, note = None):
+    def _clan_assistant(self):
+        '''The session's single ClanAssistant (holds the failure counter that
+        disables the feature on a mis-calibrated screen).'''
+        if getattr(self, '_clan', None) is None:
+            self._clan = ClanAssistant(self.window, self.input, self.vision, self.config, self.stop_event,
+                                       self._clan_options, status_callback = getattr(self, '_status_callback', None))
+        return self._clan
+
+    def _clan_elixir_ok(self, opts):
+        '''True when there is enough elixir on the HUD to be giving troops away.
+
+        Read before the clan menu is opened — the menu covers the HUD, and a donation
+        the user cannot afford to replace is worse than a late one.
+
+        An unreadable HUD does NOT block donating: this is a courtesy floor, not a
+        spend guard (nothing here can spend anything), and the reading needs OCR, which
+        is absent on installs without Tesseract. It is logged either way.
+        '''
+        floor = int(getattr(opts, 'min_elixir', 0) or 0)
+        if floor <= 0:
+            return True
+        triplet = self._read_hud_triplet_stable()
+        if triplet is None:
+            logger.info('Clan assist: could not read the HUD (OCR unavailable?) — donating without the elixir check')
+            return True
+        elixir = triplet[1]
+        if elixir >= floor:
+            return True
+        logger.info('Clan assist: elixir %s is below the %s floor — skipping donations this pass', elixir, floor)
+        cb = getattr(self, '_status_callback', None)
+        if cb:
+            cb(f'''Clan: elixir {self._fmt_resource(elixir)} below {self._fmt_resource(floor)} — not donating yet''')
+        return False
+
+    def _maybe_clan_assist(self):
+        '''Interval-gated clan chat visit: donate to open requests, ask for
+        reinforcements. Home Village only, and called from the home screen — the chat
+        panel would swallow the Attack tap if it were opened any later.
+
+        Donations and requests are independent clocks (troops are asked for far less
+        often than clanmates ask for them), but a pass that is due on either clock
+        opens the chat once and does both errands that are due. Like the upgrade pass,
+        a failure here must never take down the farm loop.'''
+        opts = getattr(self, '_clan_options', None)
+        if opts is None or not opts.enabled or getattr(self, '_builder_base', False):
+            return None
+        now = time.monotonic()
+        donate_due = opts.donate and now - getattr(self, '_clan_last_donate', 0) >= opts.donate_interval_s
+        request_due = opts.request and now - getattr(self, '_clan_last_request', 0) >= opts.request_interval_s
+        if not donate_due and not request_due:
+            return None
+        missing = missing_templates(donate = donate_due, request = request_due,
+                                    donate_troop = opts.donate_troop,
+                                    have_chat_point = opts.chat_point is not None)
+        if missing:
+            # Nothing to match, so nothing to click. Park both clocks so this lands in
+            # the log once per session rather than once per raid.
+            self._clan_last_donate = now + _CLAN_UNCALIBRATED_BACKOFF_SECONDS
+            self._clan_last_request = now + _CLAN_UNCALIBRATED_BACKOFF_SECONDS
+            msg = f'''Clan assist: missing template(s) {', '.join(missing)} — capture them in Settings → Clan assist.'''
+            logger.warning(msg)
+            cb = getattr(self, '_status_callback', None)
+            if cb:
+                cb(msg)
+            return None
+        if donate_due and not self._clan_elixir_ok(opts):
+            donate_due = False
+            self._clan_last_donate = now  # re-check on the next donation interval
+            if not request_due:
+                return None
+        try:
+            assistant = self._clan_assistant()
+            if assistant.disabled:
+                return None
+            cb = getattr(self, '_status_callback', None)
+            if cb:
+                cb('Clan chat: donating...' if donate_due else 'Clan chat: requesting troops...')
+            result = assistant.run_pass(donate = donate_due, request = request_due)
+            # Only the errands actually attempted reset their clock: a pass that could
+            # not open the chat retries on the next lap instead of waiting out the
+            # interval, and the failure counter is what stops a broken setup.
+            if result.opened:
+                if donate_due:
+                    self._clan_last_donate = now
+                if request_due:
+                    self._clan_last_request = now
+            if cb:
+                cb(f'''Clan: {result.note}''')
+            return result
+        except InterruptedError:
+            raise
+        except Exception:
+            logger.warning('Clan assist pass failed; continuing farm loop', exc_info = True)
+            return None
+
+    def _emit_state(self, state = None, builders = None, lab = None, storages = None, note = None, skipped = None):
         '''Push a live-state update to the UI panel (best-effort, never raises).'''
         cb = getattr(self, '_state_callback', None)
         if not cb:
             return None
         try:
-            cb({ 'state': state, 'builders': builders, 'lab': lab, 'storages': storages, 'note': note })
+            cb({ 'state': state, 'builders': builders, 'lab': lab, 'storages': storages, 'note': note, 'skipped': skipped })
         except Exception:
             logger.debug('State callback failed', exc_info = True)
 
@@ -540,6 +653,8 @@ deselect, which would eat the upcoming Attack click.'''
             # The game disconnects after a few idle minutes — recovery clicks Reload
             # (after its own grace period) and walks back to the home screen.
             self._home_screen_recovery()
+            # Idling can last hours; clanmates still ask for troops in that time.
+            self._maybe_clan_assist()
             state = self._read_state_stable()
             if state is None:
                 continue
@@ -835,6 +950,7 @@ deselect, which would eat the upcoming Attack click.'''
         # duration_seconds == 0 → unlimited ("run until maxed"): only the user's Stop
         # ends the session; full storages park the loop in _maybe_idle instead.
         deadline = start_time + duration_seconds if duration_seconds else None
+        self._maybe_clan_assist()
         self._maybe_upgrade_walls(upgrade_walls)
         self._maybe_auto_upgrade()
         self._maybe_idle(deadline)
@@ -879,6 +995,7 @@ deselect, which would eat the upcoming Attack click.'''
                     return None
             else:
                 troop_failures = 0
+            self._maybe_clan_assist()
             self._maybe_upgrade_walls(upgrade_walls)
             self._maybe_auto_upgrade()
             self._maybe_idle(deadline)
@@ -1249,6 +1366,10 @@ deselect, which would eat the upcoming Attack click.'''
                 else:
                     self.input.click(rx, ry, pause = 0.1)
         self._wait_for_any_image(('surrender.png', 'endbattle.png'), timeout = 30)
+        # Battle prep: the base is on screen with its loot listed, and nothing has been
+        # deployed yet — the only moment Next is still an option.
+        if not ranked_fill:
+            self._skip_low_loot_bases()
         frame = self.window.screenshot()
         if frame is None:
             return None
@@ -1270,6 +1391,111 @@ deselect, which would eat the upcoming Attack click.'''
         return 'troop' if result is False else None
 
     
+    def _skip_low_loot_bases(self):
+        '''On the battle-prep screen: press Next while the base holds less than the
+        configured minimum loot.
+
+        Each Next costs another search fee, so the number of skips per cycle is capped
+        and the cap is the user's (Settings → Minimum loot to attack). Two things
+        deliberately fall through to attacking rather than stalling the farm loop: a
+        loot panel that cannot be read (OCR missing — the filter is an optimisation,
+        not a safety rail) and a missing Next button.
+        '''
+        lf = getattr(self, '_loot_filter', None)
+        if lf is None or not lf.enabled or getattr(self, '_loot_filter_off', False):
+            return None
+        if not get_template_path(TEMPLATE_NEXT_BASE).exists():
+            self._loot_filter_off = True  # say it once, not once per raid
+            msg = f'''Loot filter: {TEMPLATE_NEXT_BASE} not captured — attacking every base. Capture it in Settings → Clan assist → Capture templates.'''
+            logger.warning(msg)
+            cb = getattr(self, '_status_callback', None)
+            if cb:
+                cb(msg)
+            return None
+        for _ in range(max(1, int(lf.max_skips))):
+            self._check_stop()
+            loot = self._read_base_loot()
+            if loot is None:
+                logger.info('Loot filter: could not read this base loot (see the LootFilter lines) — attacking it')
+                return None
+            (gold, elixir, dark) = loot
+            if meets(loot, lf):
+                logger.info('Loot filter: base holds %s gold / %s elixir / %s dark — attacking', gold, elixir, dark)
+                return None
+            # Skipping costs a search fee, so a "too poor" verdict is confirmed on a
+            # second read before paying it. A read that changes its mind means the
+            # panel was still painting — attack rather than pay for a maybe.
+            confirm = self._read_base_loot(polls = 2)
+            if confirm is None or meets(confirm, lf):
+                logger.info('Loot filter: second read of this base disagreed (%s vs %s) — attacking it', loot, confirm)
+                return None
+            frame = self.window.screenshot()
+            if frame is None:
+                return None
+            self._update_config_size(frame)
+            (nx, ny) = self.vision.find_template(frame, TEMPLATE_NEXT_BASE)
+            if not nx:
+                logger.warning('Loot filter: %s gold / %s elixir is below %s but Next was not found — attacking this base', gold, elixir, lf.summary())
+                return None
+            self._bases_skipped = getattr(self, '_bases_skipped', 0) + 1
+            logger.info('Loot filter: skipping a base with %s gold / %s elixir (want %s) — %d skipped this session', gold, elixir, lf.summary(), self._bases_skipped)
+            cb = getattr(self, '_status_callback', None)
+            if cb:
+                cb(f'''Skipping base: {self._fmt_resource(gold)} gold / {self._fmt_resource(elixir)} elixir''')
+            self._emit_state(skipped = self._bases_skipped)
+            self.input.click(nx, ny, pause = 0.4)
+            if not self._wait_for_next_base():
+                logger.warning('Loot filter: the next base did not load — attacking whatever is on screen')
+                return None
+        logger.info('Loot filter: %d skips used on this cycle — attacking this base', lf.max_skips)
+
+    def _battle_prep_visible(self, frame):
+        '''True while the battle-prep controls (Surrender / End Battle) are on screen.'''
+        for name in ('surrender.png', 'endbattle.png'):
+            (x, _y) = self.vision.find_template(frame, name)
+            if x:
+                return True
+        return False
+
+    def _wait_for_next_base(self):
+        '''After pressing Next: let the old base clear, then wait for the new one.
+
+        Live repro: the loot read fired ~1s after Next, while the *old* battle-prep
+        screen was still up, so it came back unreadable and the bot attacked a base that
+        had not finished loading — "Troop sneaky not found!", because the deploy bar had
+        not rendered either. Waiting for the controls to disappear first is what makes
+        the wait that follows mean "the next base", not "the last one".
+        '''
+        for _ in range(_NEXT_CLEAR_POLLS):
+            frame = self.window.screenshot()
+            if frame is None:
+                break
+            self._update_config_size(frame)
+            if not self._battle_prep_visible(frame):
+                break
+            if self.stop_event.wait(0.5):
+                return False
+        (sx, _sy) = self._wait_for_any_image(('surrender.png', 'endbattle.png'), timeout = 30, error = False)
+        if not sx:
+            return False
+        if self.stop_event.wait(_NEXT_SETTLE_SECONDS):  # let the loot panel paint
+            return False
+        return True
+
+    def _read_base_loot(self, polls = _LOOT_READ_POLLS):
+        '''OCR the enemy loot panel, retrying while it has not rendered yet. Returns the
+        triplet or None once the polls are spent.'''
+        for _ in range(max(1, int(polls))):
+            frame = self.window.screenshot()
+            if frame is not None:
+                self._update_config_size(frame)
+                loot = read_enemy_loot(frame)
+                if loot is not None:
+                    return loot
+            if self.stop_event.wait(0.5):
+                return None
+        return None
+
     def _get_strategy(self, method_id):
         cb = getattr(self, '_status_callback', None)
         eq = getattr(self, '_earthquake_method', EARTHQUAKE_METHOD_CURVE)

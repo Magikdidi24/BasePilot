@@ -80,9 +80,17 @@ def get_template_path(template_name):
     '''
 Return ``templates/<16_10|16_9>/…`` for the active aspect (see :class:`app.config.Config`).
 ``template_name`` should be a filename like ``attack.png`` (not a subpath with ``..``).
+
+A file of the same name under ``<user data dir>/templates/<aspect>/`` wins over the
+bundled one. The released exe unpacks its templates read-only, so that drop-in
+folder is the only way to add art (e.g. ``donatetroop.png`` for clan assist) or
+replace a template that does not match your client, without rebuilding.
 '''
     from app.config import Config
     sub = Config().aspect_key
+    override = get_user_app_data_dir() / 'templates' / sub / template_name
+    if override.is_file():
+        return override
     return get_resource_path(f'''templates/{sub}/{template_name}''')
 
 
