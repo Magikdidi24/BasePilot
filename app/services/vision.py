@@ -1561,7 +1561,11 @@ with one inner list per Y-cluster (characters left-to-right) after clustering, f
                 cfg = tesseract_config
             _ = min_confidence
             chars = VisionService.find_chars_ocr(screen_img, region = region, preprocess = preprocess, white_text = white_text, tesseract_config = cfg, cc_filter_blobs = cc_filter_blobs, cc_min_area = cc_min_area, cc_max_area = cc_max_area, save_preprocess_png = save_preprocess_png, roi_upscale = roi_upscale, ocr_debug_box_path = ocr_debug_box_path, ocr_debug_boxes_png_path = ocr_debug_boxes_png_path, psm10_glyph_confidence = psm10_glyph_confidence)
-            digit_chars = [ c for c in chars if c.text.isdigit() or c.text == 'l' ]  # [recovered: decompiler dropped the isdigit() disjunct; 'l' is kept because merge_numeric_cluster maps it to '1']
+            # find_chars_ocr returns None when Tesseract itself is unavailable, and every
+            # caller here is written for "no numbers found" rather than an exception (live:
+            # the wall gate died with TypeError in a process that had not put Tesseract on
+            # the path).
+            digit_chars = [ c for c in chars or () if c.text.isdigit() or c.text == 'l' ]  # [recovered: decompiler dropped the isdigit() disjunct; 'l' is kept because merge_numeric_cluster maps it to '1']
             if not digit_chars:
                 return []
             if y_tolerance_px is None:

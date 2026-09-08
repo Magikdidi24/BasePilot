@@ -1,6 +1,8 @@
 import time
 import random
 import threading
+import cv2
+import numpy as np
 from typing import Callable, List, Optional, Tuple
 from app.config import ASPECT_16_10, ASPECT_16_9, Config
 from app.core.clan import ClanAssistant, ClanOptions, missing_templates
@@ -39,7 +41,17 @@ _TROOP_FAILURE_LIMIT = 4
 _TROOP_RETRY_WAIT_SECONDS = 15  # training is instant since the Mar 2025 "Clash Anytime" update — this only lets the UI settle
 _RELOAD_GRACE_SECONDS = 180  # let a quick phone check finish before reconnecting over it
 _WALL_BATCH_MAX_ADDS = 15
-_WALL_MENU_SCROLL_STEPS = 8  # OCR positions polled: as-opened + 7 wheel nudges down the list
+# How deep the Wall row sits depends on the village: it is the last entry of "Other
+# upgrades", and that list grows with every building the village owns. A fixed cap of 8
+# stops was two nudges short on a TH15 account (live: the row first appeared at stop 9,
+# and the list ended at stop 10) — 705 passes in one log gave up with "OCR missed at all
+# scroll positions" without ever reaching it. Scrolling now stops when the list stops
+# moving, and this is only the safety cap.
+_WALL_MENU_SCROLL_STEPS = 20
+# Mean absolute pixel difference over the menu ROI between two stops. Live separation is
+# wide: 9.7-23.8 while the list is still travelling, 0.9-1.5 once it has hit the bottom.
+_WALL_MENU_BOTTOM_DIFF = 4.0
+_WALL_MENU_OPEN_SECONDS = 1.2  # the builder popup renders ~1s after the click (0.8s frames are still empty)
 _WALL_MENU_WHEEL_CLICKS = 2  # ~3-4 rows per nudge; the OCR band spans the whole popup so a nudge cannot jump the Wall row past it
 _WALL_ROW_STABLE_TOL = 30  # ref px: max y drift between consecutive frames before the row is trusted for a click
 _AUTO_UPGRADE_SCAN_INTERVAL_SECONDS = 600  # full popup scan is OCR-heavy (~15-25s); keep it rare vs the ~35s attack cycle
@@ -60,6 +72,16 @@ _LOOT_DELTA_MAX_MAIN = 3000000
 _LOOT_DELTA_MAX_DARK = 50000
 _WALL_POPUP_SETTLE_POLLS = 6  # ~3s for the batch popup to stop animating before a frame is trusted
 _WALL_REMOVE_ATTEMPTS = 2  # a remove click sent mid-animation is swallowed; verify and retry once
+_WALL_ADD_ATTEMPTS = 3  # same for Add Wall: the count is re-read, and a click that changed nothing is repeated
+_WALL_POPUP_ANIMATION_SECONDS = 0.6  # the batch popup keeps animating after it appears, and swallows clicks while it does
+# Pace for the add clicks. The popup animates its new total after every add and drops
+# anything sent into that window: live, four adds a second apart all landed (x1 -> x4)
+# while the same clicks half a second apart were all swallowed.
+_WALL_ADD_CLICK_PAUSE = 0.9
+# Mean abs pixel difference over the price that counts as "the batch changed". Live:
+# 5.0-17.7 for one wall added, exactly 0.00 between two settled frames of an
+# untouched popup.
+_WALL_COST_CHANGE_DIFF = 0.5
 _WALL_MENU_SCROLL_BASELINE: dict[str, tuple[int, int]] = {
     ASPECT_16_9: (1305, 605),
     ASPECT_16_10: (1305, 672) }
@@ -352,18 +374,40 @@ past the bottom is a harmless no-op, so this can be called repeatedly.
 
     
     def _find_wall_row_once(self):
-        '''One fresh screenshot → Wall label OCR, both polarities (dark popup text first).'''
+        '''One fresh screenshot → Wall label OCR, both polarities (dark popup text first).
+
+        Returns ``(frame, point)``; the frame comes back so the caller can tell a list
+        that is still travelling from one that has hit its bottom without paying for a
+        second capture.
+        '''
         frame = self.window.screenshot()
         if frame is None:
-            return None
+            return (None, None)
         self._update_config_size(frame)
         # Blob filter kills the small label glyphs at this capture size (live A/B:
         # 0/83 hits with filter, 14/83 without), keep it off.
         for white in (False, True):
             pt = VisionService.find_wall_labels_top_center_ocr(frame, white_text = white, cc_filter_blobs = False)
             if pt:
-                return pt
-        return None
+                return (frame, pt)
+        return (frame, None)
+
+    def _wall_menu_signature(self, frame):
+        '''A thumbnail of the builder-menu ROI, for telling "the list moved" from "the
+        list is at its end". None when there is no frame.
+
+        The same ROI the row OCR reads, so no new geometry: the village animating behind
+        the translucent popup is the only thing that changes once the list has stopped,
+        and that is worth about 1.5 in mean abs difference against 10-24 for a nudge.
+        '''
+        if frame is None:
+            return None
+        (h, w) = frame.shape[:2]
+        (rx, ry, rw, rh) = VisionService.top_middle_square_roi(w, h)
+        roi = frame[ry:ry + rh, rx:rx + rw]
+        if not roi.size:
+            return None
+        return cv2.resize(roi, (48, 48)).astype(np.int16)
 
 
     def _wall_menu_scroll_point(self):
@@ -754,11 +798,11 @@ deselect, which would eat the upcoming Attack click.'''
         # walls whenever it can pay and keep gold for matchmaking.
         if pair.elixir.redness < 0.2 and pair.elixir.cost_roi_xywh and pair.elixir.center:
             logger.info('Wall upgrade: paying with elixir (redness %.2f)', pair.elixir.redness)
-            self.input.click(pause = 0.3, *pair.elixir.center)
+            self.input.click(pause = 0.3, rand = False, *pair.elixir.center)
             picked = True
         elif pair.gold.redness < 0.2 and pair.gold.cost_roi_xywh and pair.gold.center:
             logger.info('Wall upgrade: paying with gold (redness %.2f)', pair.gold.redness)
-            self.input.click(pause = 0.3, *pair.gold.center)
+            self.input.click(pause = 0.3, rand = False, *pair.gold.center)
             picked = True
         frame = self.window.screenshot()
         if frame is None:
@@ -782,7 +826,7 @@ deselect, which would eat the upcoming Attack click.'''
             return None
         (ox, oy) = self.vision.find_template(frame, 'okay.png')
         if ox:
-            self.input.click(ox, oy, pause = 0.3)
+            self.input.click(ox, oy, pause = 0.3, rand = False)
             logger.info('Wall upgrade batch confirmed')
 
     
@@ -810,6 +854,100 @@ deselect, which would eat the upcoming Attack click.'''
                 return (frame, None)
         return (frame, None)
 
+    def _wall_button_strip_roi(self, frame, pair):
+        '''ROI over the batch popup's button row — Remove Wall, Add Wall, the two costs.
+
+        Anchored on the cost text, because that is the one part of the popup that is read
+        reliably. The add/remove art is a nine-pixel-wide sliver at the authoring
+        resolution, so on a small window it matches dozens of places at 0.75+ — including
+        the "Wall (Level 14) x 1" title one row above the buttons. The rightmost /
+        leftmost tie-break inside those finders then picks exactly that false hit: live at
+        1299x731 both Add Wall and Remove Wall resolved to (620, 519), 63 px above the
+        real buttons, so the add clicks sailed over the top of the popup while the batch
+        counted them as added. Nothing above the cost text is a button.
+        '''
+        (fh, fw) = frame.shape[:2]
+        top = fh // 2
+        rois = []
+        if pair is not None:
+            rois = [ r for r in (pair.gold.cost_roi_xywh, pair.elixir.cost_roi_xywh) if r ]
+        if rois:
+            top = max(top, min((int(r[1]) for r in rois)))
+        return (fw // 4, top, fw // 2, max(1, fh - top))
+
+    def _wall_cost_signature(self, frame, pair):
+        '''The batch price as pixels. It changes with every wall added or removed, so it
+        is how a click that landed is told from one the popup swallowed.
+
+        Widened around the cost ROI on purpose: that ROI is a 41x9 slice of the middle of
+        the number, and a batch going from 2,000,000 to 4,000,000 changes only the leading
+        digit, which falls outside it — three adds in a row read as "nothing happened"
+        while the popup counted happily up to x4. Three ROI widths across covers the whole
+        price, and two settled frames of an untouched popup differ by exactly 0.00, so
+        there is no noise to leave headroom for.
+        '''
+        if frame is None or pair is None:
+            return None
+        (fh, fw) = frame.shape[:2]
+        parts = []
+        for slot in (pair.gold, pair.elixir):
+            roi = getattr(slot, 'cost_roi_xywh', None)
+            if not roi:
+                continue
+            (x, y, w, h) = (int(roi[0]), int(roi[1]), max(1, int(roi[2])), max(1, int(roi[3])))
+            crop = frame[max(0, y - h):min(fh, y + 2 * h), max(0, x - w):min(fw, x + 2 * w)]
+            if crop.size:
+                parts.append(cv2.resize(crop, (72, 24)).astype(np.int16))
+        return parts or None
+
+    @staticmethod
+    def _wall_cost_changed(before, after):
+        '''True when the two price readings differ (or either could not be taken — an
+        unreadable price is not evidence that the click was lost).'''
+        if not before or not after or len(before) != len(after):
+            return True
+        return any((float(np.mean(np.abs(a - b))) >= _WALL_COST_CHANGE_DIFF for (b, a) in zip(before, after)))
+
+    def _wait_for_wall_batch_popup(self, polls = _WALL_POPUP_SETTLE_POLLS):
+        '''True once the batch popup is up, judged by its Add Wall button.'''
+        frame = None
+        for _ in range(max(1, int(polls))):
+            self._check_stop()
+            (frame, pair) = self._wall_batch_state(polls = 1)
+            if frame is not None and pair is not None:
+                strip = self._wall_button_strip_roi(frame, pair)
+                if VisionService.find_active_addwall(frame, region = strip)[0]:
+                    return True
+            if self.stop_event.wait(0.4):
+                return False
+        _dump_debug_frame(frame if frame is not None else None, 'wallbatch')
+        return False
+
+    def _add_one_wall(self, frame, pair, strip_roi):
+        '''Put one wall into the batch, verified. Returns ``(frame, pair, added)``.
+
+        Verified for the same reason removing is: the popup animates for about a second
+        after each add and a click sent into that window is dropped silently. Counting the
+        clicks instead of the walls is what let a pass report "3 wall(s) added to batch"
+        and buy one.
+        '''
+        for attempt in range(_WALL_ADD_ATTEMPTS):
+            (awx, awy) = VisionService.find_active_addwall(frame, region = strip_roi)
+            if not awx:
+                return (frame, pair, False)
+            before = self._wall_cost_signature(frame, pair)
+            self.input.click(awx, awy, pause = _WALL_ADD_CLICK_PAUSE, rand = False)
+            (new_frame, new_pair) = self._wall_batch_state()
+            if new_pair is None:
+                return (new_frame if new_frame is not None else frame, pair, False)
+            after = self._wall_cost_signature(new_frame, new_pair)
+            (frame, pair) = (new_frame, new_pair)
+            if self._wall_cost_changed(before, after):
+                return (frame, pair, True)
+            logger.info('Wall upgrade: add click %d/%d left the batch unchanged — retrying', attempt + 1, _WALL_ADD_ATTEMPTS)
+            _dump_debug_frame(frame, 'walladd')
+        return (frame, pair, False)
+
     def _remove_one_wall(self, frame, pair, mid_roi, why):
         '''Take one wall back out of the batch, verified. Returns the new (frame, pair).
 
@@ -823,7 +961,7 @@ deselect, which would eat the upcoming Attack click.'''
             if not rwx:
                 logger.info('Wall upgrade: no Remove Wall button to click')
                 return (frame, pair)
-            self.input.click(rwx, rwy, pause = 0.4)
+            self.input.click(rwx, rwy, pause = 0.4, rand = False)
             (new_frame, new_pair) = self._wall_batch_state()
             if new_pair is None:
                 return (new_frame if new_frame is not None else frame, pair)
@@ -855,14 +993,16 @@ deselect, which would eat the upcoming Attack click.'''
         # popup scrolls with the mouse wheel without closing; touch-drags scroll too but
         # overshoot past Wall (it now sits mid-list, not at the end). Poll the OCR at each
         # position and wheel down a notch between misses.
-        if self.stop_event.wait(0.3):
+        if self.stop_event.wait(_WALL_MENU_OPEN_SECONDS):
             return None
         wall_pt = None
         candidate = None
         scrolls = 0
+        signature = None
+        stalls = 0
         for _ in range(_WALL_MENU_SCROLL_STEPS * 2):
             self._check_stop()
-            found = self._find_wall_row_once()
+            (frame, found) = self._find_wall_row_once()
             if found:
                 if candidate and abs(found[1] - candidate[1]) <= self.config.scale_scalar(_WALL_ROW_STABLE_TOL):
                     wall_pt = found
@@ -877,6 +1017,19 @@ deselect, which would eat the upcoming Attack click.'''
                     return None
                 continue
             candidate = None
+            # The end of the list is the end of the hunt: the Wall row is the last entry,
+            # so once the list has stopped travelling there is nothing further down to
+            # find, and another nudge would only cost time. Two still stops are required
+            # because the list also sits still for a beat mid-flick.
+            new_signature = self._wall_menu_signature(frame)
+            if signature is not None and new_signature is not None and float(np.mean(np.abs(new_signature - signature))) < _WALL_MENU_BOTTOM_DIFF:
+                stalls += 1
+                if stalls >= 2:
+                    logger.info('Wall upgrade: reached the end of the builder list after %d nudge(s) with no Wall row', scrolls)
+                    break
+            else:
+                stalls = 0
+            signature = new_signature
             scrolls += 1
             if scrolls >= _WALL_MENU_SCROLL_STEPS:
                 break
@@ -884,9 +1037,12 @@ deselect, which would eat the upcoming Attack click.'''
             if self.stop_event.wait(0.5):
                 return None
         if not wall_pt:
-            logger.info('Wall upgrade: Wall label OCR missed at all scroll positions — skipping this pass')
+            logger.info('Wall upgrade: no Wall row in the builder list — skipping this pass')
+            # The builder popup is still open at this point, and an open popup swallows
+            # the next tap — including the Attack one.
+            self._deselect_wall_ui()
             return None
-        self.input.click(pause = 0.6, *wall_pt)
+        self.input.click(pause = 0.6, rand = False, *wall_pt)
         # Clicking the Wall row pans the camera to a wall before the selection bar
         # renders (often >1s) — poll for Upgrade More instead of trusting one early
         # frame (live rate before polling: ~1 success in 8 passes).
@@ -922,7 +1078,20 @@ deselect, which would eat the upcoming Attack click.'''
                     logger.debug('Wall upgrade: wallrow debug dump failed', exc_info = True)
                 self._dismiss_okay_or_exit_on_frame(frame)
             return None
-        self.input.click(umx, umy, pause = 0.4)
+        self.input.click(umx, umy, pause = 0.4, rand = False)
+        # Wait for the batch popup by the one control only it has. The wall selection bar
+        # underneath carries the same pair of cost buttons, so "the costs are readable" is
+        # true a beat before Upgrade More has actually opened anything — and the first add
+        # of the pass then went to whatever sat where Add Wall was about to be (live: two
+        # clicks in a row, batch unchanged, pass abandoned with nothing bought).
+        if not self._wait_for_wall_batch_popup():
+            logger.info('Wall upgrade: the batch popup never opened after Upgrade More — dismissing')
+            self._deselect_wall_ui()
+            return None
+        # It is open, but it is still sliding in, and a click sent into that animation is
+        # dropped without a trace (live: the first two adds of a pass, both lost).
+        if self.stop_event.wait(_WALL_POPUP_ANIMATION_SECONDS):
+            return None
         # Add walls to the batch while at least one resource can still pay the total.
         added = 0
         for _ in range(_WALL_BATCH_MAX_ADDS):
@@ -937,19 +1106,18 @@ deselect, which would eat the upcoming Attack click.'''
                 break
             if pair.gold.redness >= 0.2 and pair.elixir.redness >= 0.2:
                 break
-            # Mid-bottom only: the real Add Wall button sits in the popup's center cluster.
-            # A plain bottom-half search grabs the home Attack! button's green checkmark
-            # (bottom-left, still visible beside the popup) once +1 greys out.
-            (fh, fw) = frame.shape[:2]
-            mid_roi = (fw // 4, fh // 2, fw // 2, fh - fh // 2)
-            (awx, awy) = VisionService.find_active_addwall(frame, region = mid_roi)
-            if not awx:
+            # Mid-bottom, and no higher than the cost text: the real Add Wall button sits
+            # in the popup's center cluster. A plain bottom-half search grabs the home
+            # Attack! button's green checkmark (bottom-left, still visible beside the
+            # popup) once +1 greys out, and a full-height one grabs the popup's own title.
+            strip_roi = self._wall_button_strip_roi(frame, pair)
+            (frame, pair, ok) = self._add_one_wall(frame, pair, strip_roi)
+            if not ok:
                 break
-            self.input.click(awx, awy, pause = 0.3)
             added += 1
-        if added == 0:
-            self._deselect_wall_ui()
-            return None
+        # No dismissal when nothing could be added: the popup opens with one wall already
+        # in the batch, and buying that one is the whole point of the pass. Only a popup
+        # that was never open (checked above) is worth walking away from.
         self._check_stop()
         (frame, pair) = self._wall_batch_state()
         if pair is None:
@@ -957,8 +1125,7 @@ deselect, which would eat the upcoming Attack click.'''
             _dump_debug_frame(frame, 'wallbatch')
             self._deselect_wall_ui()
             return None
-        (fh, fw) = frame.shape[:2]
-        mid_roi = (fw // 4, fh // 2, fw // 2, fh - fh // 2)
+        mid_roi = self._wall_button_strip_roi(frame, pair)
         if added and pair.gold.redness >= 0.2 and pair.elixir.redness >= 0.2:
             # Last add pushed the total over both resources — take one back before confirming.
             # The batch always overshoots by one when it stops for affordability (the check
