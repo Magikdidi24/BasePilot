@@ -53,9 +53,29 @@ _LOOT_READ_POLLS = 6  # ~3s for the loot panel to render before calling it unrea
 # past the ≥0 filter (live repro: "+15.5M elixir" in one battle).
 _LOOT_DELTA_MAX_MAIN = 3000000
 _LOOT_DELTA_MAX_DARK = 50000
+_WALL_POPUP_SETTLE_POLLS = 6  # ~3s for the batch popup to stop animating before a frame is trusted
+_WALL_REMOVE_ATTEMPTS = 2  # a remove click sent mid-animation is swallowed; verify and retry once
 _WALL_MENU_SCROLL_BASELINE: dict[str, tuple[int, int]] = {
     ASPECT_16_9: (1305, 605),
     ASPECT_16_10: (1305, 672) }
+
+def _dump_debug_frame(frame, prefix):
+    '''Save a frame to the debug dir; returns the path or None. Never raises.'''
+    if frame is None:
+        return None
+    try:
+        import cv2 as _cv2
+        from app.utils.common import get_user_app_data_dir
+        dbg = get_user_app_data_dir() / 'debug'
+        dbg.mkdir(parents = True, exist_ok = True)
+        path = dbg / f'''{prefix}_{int(time.time())}.jpg'''
+        _cv2.imwrite(str(path), frame, [_cv2.IMWRITE_JPEG_QUALITY, 88])
+        logger.info('Debug frame saved to %s', path)
+        return path
+    except Exception:
+        logger.debug('Debug frame dump failed', exc_info = True)
+        return None
+
 
 class Bot:
     '''Main Bot Logic.'''
@@ -679,9 +699,15 @@ deselect, which would eat the upcoming Attack click.'''
 
 
     def _upgrade_walls_pick_resource_and_okay(self):
-        '''Fresh frame → click an affordable resource slot → Okay. If neither resource can pay, close the popup instead (never confirm a red cost).'''
-        frame = self.window.screenshot()
+        '''Settled frame → click an affordable resource slot → Okay. If neither resource can
+        pay, close the popup instead (never confirm a red cost).'''
+        (frame, settled) = self._wall_batch_state()
         if frame is None:
+            return None
+        if settled is None:
+            logger.info('Wall upgrade: batch popup gone before the confirm — nothing bought this pass')
+            _dump_debug_frame(frame, 'wallfail')
+            self._deselect_wall_ui()
             return None
         self._update_config_size(frame)
         pair = VisionService.upgrade_cost_redness_by_resource_icons(frame)
@@ -736,6 +762,53 @@ deselect, which would eat the upcoming Attack click.'''
             logger.info('Wall upgrade batch confirmed')
 
     
+    def _wall_batch_state(self, polls = _WALL_POPUP_SETTLE_POLLS):
+        '''Fresh frame plus its cost-button reading, once the batch popup is readable.
+
+        Returns ``(frame, pair)``, or ``(frame, None)`` when the popup stayed unreadable.
+
+        One frame is not evidence. The popup animates for around a second after every add
+        or remove, and its cost icons do not match while it does — so treating the first
+        unreadable frame as "the popup is closed" ended batches one frame after a
+        successful add and threw the whole batch away unconfirmed (live repro: "cost
+        buttons not visible — popup not open" immediately after "1 wall(s) added").
+        '''
+        frame = None
+        for _ in range(max(1, int(polls))):
+            self._check_stop()
+            frame = self.window.screenshot()
+            if frame is not None:
+                self._update_config_size(frame)
+                pair = VisionService.upgrade_cost_redness_by_resource_icons(frame)
+                if pair.gold.cost_roi_xywh or pair.elixir.cost_roi_xywh:
+                    return (frame, pair)
+            if self.stop_event.wait(0.5):
+                return (frame, None)
+        return (frame, None)
+
+    def _remove_one_wall(self, frame, pair, mid_roi, why):
+        '''Take one wall back out of the batch, verified. Returns the new (frame, pair).
+
+        Verified because a single click is not reliable here: one sent while the popup is
+        still animating is swallowed silently (live repro: the count stayed at x2 and the
+        batch was discarded, then the same click at the same spot worked a second later).
+        '''
+        logger.info('Wall upgrade: removing one wall — %s', why)
+        for attempt in range(_WALL_REMOVE_ATTEMPTS):
+            (rwx, rwy) = VisionService.find_active_removewall(frame, region = mid_roi)
+            if not rwx:
+                logger.info('Wall upgrade: no Remove Wall button to click')
+                return (frame, pair)
+            self.input.click(rwx, rwy, pause = 0.4)
+            (new_frame, new_pair) = self._wall_batch_state()
+            if new_pair is None:
+                return (new_frame if new_frame is not None else frame, pair)
+            (frame, pair) = (new_frame, new_pair)
+            if pair.gold.redness < 0.2 or pair.elixir.redness < 0.2:
+                return (frame, pair)
+            logger.info('Wall upgrade: batch still unaffordable after remove %d/%d', attempt + 1, _WALL_REMOVE_ATTEMPTS)
+        return (frame, pair)
+
     def _upgrade_walls(self):
         '''Open builder menu, scroll to Wall, add walls → remove if both red → Okay.'''
         frame = self.window.screenshot()
@@ -830,16 +903,13 @@ deselect, which would eat the upcoming Attack click.'''
         added = 0
         for _ in range(_WALL_BATCH_MAX_ADDS):
             self._check_stop()
-            frame = self.window.screenshot()
-            if frame is None:
-                return None
-            self._update_config_size(frame)
-            pair = VisionService.upgrade_cost_redness_by_resource_icons(frame)
-            if not pair.gold.cost_roi_xywh and not pair.elixir.cost_roi_xywh:
+            (frame, pair) = self._wall_batch_state()
+            if pair is None:
                 # The cost buttons are the only reliable proof the multi-upgrade popup is
                 # actually open — addwall/removewall false-positive on home-screen greens
                 # (incl. the Attack button checkmark), so never click blind.
-                logger.info('Wall upgrade: cost buttons not visible — popup not open, stopping batch')
+                logger.info('Wall upgrade: batch popup unreadable after %d polls — stopping batch', _WALL_POPUP_SETTLE_POLLS)
+                _dump_debug_frame(frame, 'wallbatch')
                 break
             if pair.gold.redness >= 0.2 and pair.elixir.redness >= 0.2:
                 break
@@ -857,25 +927,24 @@ deselect, which would eat the upcoming Attack click.'''
             self._deselect_wall_ui()
             return None
         self._check_stop()
-        frame = self.window.screenshot()
-        if frame is None:
+        (frame, pair) = self._wall_batch_state()
+        if pair is None:
+            logger.info('Wall upgrade: batch popup unreadable before confirming — dismissing')
+            _dump_debug_frame(frame, 'wallbatch')
+            self._deselect_wall_ui()
             return None
-        self._update_config_size(frame)
-        pair = VisionService.upgrade_cost_redness_by_resource_icons(frame)
         (fh, fw) = frame.shape[:2]
         mid_roi = (fw // 4, fh // 2, fw // 2, fh - fh // 2)
         if added and pair.gold.redness >= 0.2 and pair.elixir.redness >= 0.2:
             # Last add pushed the total over both resources — take one back before confirming.
-            (rwx, rwy) = VisionService.find_active_removewall(frame, region = mid_roi)
-            if rwx:
-                self.input.click(rwx, rwy, pause = 0.4)
+            # The batch always overshoots by one when it stops for affordability (the check
+            # runs before the add), so this removal is what makes the difference between a
+            # confirmed batch and a discarded one.
+            (frame, pair) = self._remove_one_wall(frame, pair, mid_roi, 'unaffordable on both resources')
         elif added > 1 and pair.elixir.redness >= 0.2 and pair.gold.redness < 0.2 and pair.gold.cost_roi_xywh:
             # Gold will pay (elixir can't) — drop one wall so a maxed batch never drains gold
             # to 0. Find a Match costs ~1300 gold; a zeroed gold storage blocks all attacking.
-            (rwx, rwy) = VisionService.find_active_removewall(frame, region = mid_roi)
-            if rwx:
-                logger.info('Wall upgrade: gold is the payer — removing one wall to keep the attack entry fee')
-                self.input.click(rwx, rwy, pause = 0.4)
+            (frame, pair) = self._remove_one_wall(frame, pair, mid_roi, 'gold is the payer — keeping the attack entry fee')
         logger.info('Wall upgrade: %d wall(s) added to batch', added)
         self._upgrade_walls_pick_resource_and_okay()
 
