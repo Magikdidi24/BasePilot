@@ -373,27 +373,43 @@ past the bottom is a harmless no-op, so this can be called repeatedly.
 
 
     def _should_upgrade_walls(self):
-        '''True when a full-storage hero-bar icon shows, or HUD gold/elixir is at/above the configured threshold.'''
+        '''True when a wall pass is worth what it costs.
+
+        A pass is expensive: it opens the builder menu, OCR-scrolls to find the Wall row,
+        batches walls and confirms — far longer than a raid cycle. So the threshold the
+        user set (*Settings → Wall upgrade threshold*) is the gate, and the HUD numbers
+        decide against it.
+
+        A full-storage icon on its own is NOT enough to spend that time: those fire from
+        ~85% of a storage and say nothing about what a wall costs. The icons only stand
+        in when the HUD cannot be read, and when the threshold is 0 — which the UI
+        defines as "only upgrade when storages are full".
+        '''
         frame = self.window.screenshot()
         if frame is None:
             return False
         self._update_config_size(frame)
-        (gx, gy) = VisionService.find_active_hgoldfull(frame)
-        (ex, ey) = VisionService.find_active_helixirfull(frame)
-        if gx is not None or ex is not None:
-            logger.info('Wall upgrades: full-storage icon detected')
-            return True
+        (gx, _gy) = VisionService.find_active_hgoldfull(frame)
+        (ex, _ey) = VisionService.find_active_helixirfull(frame)
+        icons_full = gx is not None or ex is not None
         threshold = int(getattr(self, '_wall_upgrade_threshold', 0) or 0)
         if threshold <= 0:
-            return False
-        groups = VisionService.extract_top_right_hud_numbers(frame)
-        triplet = VisionService.parse_hud_resources_triplet(groups)
+            if icons_full:
+                logger.info('Wall upgrades: full-storage icon detected (threshold is 0)')
+            return icons_full
+        # Consecutive-frame agreement: a single HUD read is corrupted often enough that
+        # acting on one costs a whole pointless pass either way.
+        triplet = self._read_hud_triplet_stable()
         if triplet is None:
-            return False
-        (gold, elixir, _) = triplet
+            if icons_full:
+                logger.info('Wall upgrades: HUD unreadable but a full-storage icon shows — running the pass')
+            return icons_full
+        (gold, elixir, _dark) = triplet
         if gold >= threshold or elixir >= threshold:
             logger.info('Wall upgrades: loot gold=%s elixir=%s reached threshold %s', gold, elixir, threshold)
             return True
+        logger.info('Wall upgrades: gold=%s elixir=%s below threshold %s — skipping the pass%s',
+                    gold, elixir, threshold, ' (full-storage icon ignored)' if icons_full else '')
         return False
 
 

@@ -106,7 +106,7 @@ class SettingsPage(QWidget):
         self._earthquake.addItems(list(EARTHQUAKE_METHOD_OPTIONS))
         card.card_layout.addWidget(self._earthquake)
         card.card_layout.addWidget(SectionTitle('Wall upgrade threshold'))
-        wall_hint = QLabel('With "Upgrade walls" on, upgrade as soon as gold or elixir reaches this amount — before storages fill up and raids stop earning. 0 = only upgrade when storages are full.')
+        wall_hint = QLabel('With "Upgrade walls" on, only spend time on a wall pass once gold or elixir reaches this amount — a pass opens the builder menu and reads it, which costs far longer than a raid, so it is not worth doing on loot that cannot buy a wall. 0 = only upgrade when storages are full.')
         wall_hint.setWordWrap(True)
         wall_hint.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
         card.card_layout.addWidget(wall_hint)
