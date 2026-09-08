@@ -156,11 +156,11 @@ def donate_troop_template_names():
     Add a troop by capturing another crop; no code or settings change needed.
     '''
     from app.config import Config
-    from app.utils.common import get_resource_path
+    from app.utils.common import get_resource_path, user_template_dirs
     names: List[str] = []
     aspect = Config().aspect_key
-    for folder in (get_user_app_data_dir() / 'templates' / aspect,
-                   get_resource_path(f'''templates/{aspect}''')):
+    for folder in [ d / aspect for d in user_template_dirs() ] + [
+                   get_resource_path(f'''templates/{aspect}''')]:
         try:
             found = sorted(p.name for p in folder.glob('donatetroop*.png') if p.is_file())
         except OSError:

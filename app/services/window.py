@@ -243,6 +243,7 @@ fails. Candidates with a CROSVM surface are sorted first.
         if not selection.is_set():
             return self._auto_detect_child()
         wanted_title = selection.title.strip().lower()
+        matches = []
         for cand in self.enumerate_windows():
             if wanted_title and cand.title.strip().lower() != wanted_title:
                 continue
@@ -251,9 +252,17 @@ fails. Candidates with a CROSVM surface are sorted first.
             (surface_hwnd, _) = self._resolve_surface(cand.top_hwnd, cand.top_class, selection.child_class)
             if not surface_hwnd:
                 continue
-            self.enumerate_windows()
-            return surface_hwnd
-        return 0
+            matches.append(surface_hwnd)
+        if not matches:
+            return 0
+        if len(matches) > 1:
+            # Two emulator windows with the same title cannot be told apart by a pin that
+            # only records title and class, and two BasePilot profiles would then both
+            # drive the first one. Say so rather than picking silently.
+            logger.warning('%d windows match the pinned selection %r — using the first (HWND %s). Give the clients different window titles to run them side by side.',
+                           len(matches), selection.title, matches[0])
+        self.enumerate_windows()
+        return matches[0]
 
     
     def _auto_detect_child(self):

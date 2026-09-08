@@ -129,6 +129,10 @@ BasePilot.exe --autostart --minutes 0 --walls --upgrades maxer --donate --reques
 and `--request` arm clan assist (capture its templates first — see
 [docs/clan.md](docs/clan.md)).
 
+Farming more than one account — the Players page runs them one after another, and
+`--profile NAME` gives a second BasePilot window its own settings, window pin and log:
+[docs/two-accounts.md](docs/two-accounts.md).
+
 ## Army setup
 
 ![Saved Recipes showing Army 1: 42 Valkyries, 11 Earthquake spells, and 1 Log Launcher, with
