@@ -4,7 +4,7 @@ import threading
 from typing import Callable, List, Optional, Tuple
 from app.config import ASPECT_16_10, ASPECT_16_9, Config
 from app.core.clan import ClanAssistant, ClanOptions, missing_templates
-from app.core.loot_filter import TEMPLATE_NEXT_BASE, LootFilter, meets, read_enemy_loot
+from app.core.loot_filter import TEMPLATE_NEXT_BASE, LootFilter, combine_reads, meets, read_enemy_loot
 from app.core.strategies import AttackStrategy, EdragStrategy, TroopSpamStrategy, _EDRAG_DELAY
 from app.core.upgrader import AUTO_UPGRADE_MODES, LIVE_UPGRADE_MODES, MODE_OFF, UpgradeAdvisor
 from app.core.village_state import read_hud_triplet_stable, read_village_state, read_village_state_stable
@@ -45,9 +45,14 @@ _WALL_ROW_STABLE_TOL = 30  # ref px: max y drift between consecutive frames befo
 _AUTO_UPGRADE_SCAN_INTERVAL_SECONDS = 600  # full popup scan is OCR-heavy (~15-25s); keep it rare vs the ~35s attack cycle
 _IDLE_RECHECK_SECONDS = 300  # while idling (storages full, nothing startable): wake, recover the screen, re-read state
 _CLAN_UNCALIBRATED_BACKOFF_SECONDS = 3600  # no chat button picked: say so once, not once per raid
+# "never done" for the clan clocks. They are compared against time.monotonic(), which
+# restarts at boot, so a plain 0 means "done at boot" — on a machine up for less than the
+# request interval that silently held reinforcement requests back for the first half hour.
+_CLAN_CLOCK_NEVER = float('-inf')
 _NEXT_CLEAR_POLLS = 8  # ~4s for the skipped base's controls to leave the screen
 _NEXT_SETTLE_SECONDS = 1.0  # after the new base's controls appear, before reading its loot
 _LOOT_READ_POLLS = 6  # ~3s for the loot panel to render before calling it unreadable
+_LOOT_READ_SAMPLES = 3  # reads folded into one verdict (a single read drops digits ~half the time)
 # Loot-tracker plausibility caps per snapshot interval (one battle): a raid tops out
 # well under these even with boosts — anything larger is an OCR misread that slipped
 # past the ≥0 filter (live repro: "+15.5M elixir" in one battle).
@@ -126,8 +131,8 @@ class Bot:
         self._bases_skipped = 0
         self._clan = None  # one ClanAssistant per session (it holds the failure counter)
         # Donate/request on the FIRST home visit of the session, then on their intervals.
-        self._clan_last_donate = 0
-        self._clan_last_request = 0
+        self._clan_last_donate = _CLAN_CLOCK_NEVER
+        self._clan_last_request = _CLAN_CLOCK_NEVER
         logger.info(f'''Bot started. Method: {method}, Time: {'unlimited' if unlimited else f'{run_time_minutes}m'}, StarBonus: {star_bonus}, MultiRun: {mr}, RankedFill: {ranked_fill}, UpgradeWalls: {upgrade_walls}, WallThreshold: {self._wall_upgrade_threshold}, AutoUpgrade: {self._auto_upgrade_mode}, ReserveBuilders: {self._reserve_builders}, Earthquake: {earthquake_method}, BuilderBase: {builder_base}, LootPrioritise: {loot_prioritise}, ClanDonate: {self._clan_options.donate}, ClanRequest: {self._clan_options.request}, ClanDryRun: {self._clan_options.dry_run}, LootFilter: {self._loot_filter.summary() if self._loot_filter.enabled else 'off'}''')
 
         try:
@@ -142,8 +147,8 @@ class Bot:
                     self._switch_account_and_load_home(player.name)
                     # Each account sits in its own clan: start this player's session
                     # with a chat visit due instead of inheriting the last one's clocks.
-                    self._clan_last_donate = 0
-                    self._clan_last_request = 0
+                    self._clan_last_donate = _CLAN_CLOCK_NEVER
+                    self._clan_last_request = _CLAN_CLOCK_NEVER
                     self._check_stop()
                     self._run_loop(method, duration, star_bonus, ranked_fill, upgrade_walls)
                     self._check_stop()
@@ -512,8 +517,11 @@ deselect, which would eat the upcoming Attack click.'''
         if opts is None or not opts.enabled or getattr(self, '_builder_base', False):
             return None
         now = time.monotonic()
-        donate_due = opts.donate and now - getattr(self, '_clan_last_donate', 0) >= opts.donate_interval_s
-        request_due = opts.request and now - getattr(self, '_clan_last_request', 0) >= opts.request_interval_s
+        # A donate interval of 0 means "every time we are home", i.e. after each raid:
+        # clanmates' requests expire, and the visit is cheap next to an attack cycle.
+        donate_due = opts.donate and (opts.donate_interval_s <= 0
+                                      or now - getattr(self, '_clan_last_donate', _CLAN_CLOCK_NEVER) >= opts.donate_interval_s)
+        request_due = opts.request and now - getattr(self, '_clan_last_request', _CLAN_CLOCK_NEVER) >= opts.request_interval_s
         if not donate_due and not request_due:
             return None
         missing = missing_templates(donate = donate_due, request = request_due,
@@ -1567,19 +1575,28 @@ deselect, which would eat the upcoming Attack click.'''
             return False
         return True
 
-    def _read_base_loot(self, polls = _LOOT_READ_POLLS):
-        '''OCR the enemy loot panel, retrying while it has not rendered yet. Returns the
-        triplet or None once the polls are spent.'''
+    def _read_base_loot(self, polls = _LOOT_READ_POLLS, samples = _LOOT_READ_SAMPLES):
+        '''OCR the enemy loot panel and fold several reads into one.
+
+        Retries while the panel has not rendered yet, then keeps reading until it has
+        ``samples`` successful reads to combine — a single read of this panel is wrong
+        about half the time on a live client (dropped digit: 705,559 read as 70,559),
+        and one low read is the difference between skipping a good base and raiding it.
+        Returns the combined triplet, or None once the polls are spent.
+        '''
+        reads = []
         for _ in range(max(1, int(polls))):
             frame = self.window.screenshot()
             if frame is not None:
                 self._update_config_size(frame)
                 loot = read_enemy_loot(frame)
                 if loot is not None:
-                    return loot
-            if self.stop_event.wait(0.5):
-                return None
-        return None
+                    reads.append(loot)
+                    if len(reads) >= max(1, int(samples)):
+                        break
+            if self.stop_event.wait(0.35):
+                break
+        return combine_reads(reads)
 
     def _get_strategy(self, method_id):
         cb = getattr(self, '_status_callback', None)

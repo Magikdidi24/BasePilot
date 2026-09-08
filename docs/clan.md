@@ -106,7 +106,8 @@ Clan assist: elixir 120000 is below the 500000 floor — skipping donations this
 ## When it runs
 
 From the home screen, between raids, on two independent clocks (*Settings → Clan assist
-→ How often*): donations every 5 minutes by default, requests every 30. A visit due on
+→ How often*): donations **after every raid** by default (the interval shows as "every
+raid" at 0), requests every 30 minutes. A visit due on
 either clock opens the menu once and does both errands that are due. It also runs while
 the bot idles under *Run until maxed* — those stretches last hours, and clanmates keep
 asking for troops through them. Multi-run gives each account its own visit. The Builder

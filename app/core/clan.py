@@ -130,7 +130,7 @@ class ClanOptions:
     chat_point_aspect: Optional[str] = None  # aspect key the point was picked on
     donate_troop: str = DONATE_TROOP_AUTO
     donate_count: int = 0  # 0 = keep giving until the troop greys out
-    donate_interval_s: int = 300
+    donate_interval_s: int = 0  # 0 = donate on every home visit (after each raid)
     request_interval_s: int = 1800
     min_elixir: int = 500000  # skip the donate errand below this much elixir; 0 = no check
 

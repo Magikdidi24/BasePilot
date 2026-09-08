@@ -111,6 +111,24 @@ def read_enemy_loot(frame):
     return parse_enemy_loot(groups)
 
 
+def combine_reads(reads):
+    """Fold several reads of the same panel into one, keeping the largest value seen
+    for each resource. Returns None when nothing was readable.
+
+    OCR drops digits far more often than it invents them. Measured live on a base
+    holding 705,559 gold: three of six reads came back 70,559 — the same panel, a
+    dropped digit, a tenfold error, and enough to skip a base that easily cleared the
+    minimum. Invented digits are the rarer failure and are already caught by the
+    implausibility cap, so the largest reading per resource is the one to trust.
+    """
+    usable = [r for r in reads if r is not None]
+    if not usable:
+        return None
+    return (max(r[0] for r in usable),
+            max(r[1] for r in usable),
+            max(r[2] for r in usable))
+
+
 def meets(loot, loot_filter):
     '''True when the base clears the minimums — and when the loot could not be read,
     which is deliberate: an unreadable panel must not stop the bot from attacking.'''
