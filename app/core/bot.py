@@ -537,7 +537,8 @@ deselect, which would eat the upcoming Attack click.'''
             return True
         triplet = self._read_hud_triplet_stable()
         if triplet is None:
-            logger.info('Clan assist: could not read the HUD (OCR unavailable?) — donating without the elixir check')
+            logger.info('Clan assist: no trustworthy HUD reading — donating without the elixir check '
+                        '(the bars animate for a second or two after a raid; earlier lines say if a reading was rejected)')
             return True
         elixir = triplet[1]
         if elixir >= floor:
