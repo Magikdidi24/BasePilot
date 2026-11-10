@@ -23,9 +23,10 @@ def same_tesseract():
     if not (ocr_backend.tesserocr and shutil.which('tesseract')):
         return False
     import pytesseract
-    # UB-Mannheim builds report e.g. 5.5.3.20260724: compare major.minor.patch only
-    wheel = tuple(int(x) for x in ocr_backend.tesserocr.tesseract_version().split()[1].split('.')[:3])
-    return pytesseract.get_tesseract_version().release[:3] == wheel
+    # The full version, build number included: on the Windows runner UB-Mannheim's
+    # 5.5.3.20260724 and the wheel's own 5.5.3 read a few words differently.
+    wheel = tuple(int(x) for x in re.findall(r'\d+', ocr_backend.tesserocr.tesseract_version().split()[1]))
+    return pytesseract.get_tesseract_version().release == wheel
 
 
 @unittest.skipUnless(same_tesseract(), 'needs tesserocr and a tesseract binary of the same version')
