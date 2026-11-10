@@ -1011,16 +1011,7 @@ very narrow glyphs (common for ``image_to_boxes``), which would falsely read as 
                     return best_c
                 return best_any
             except (pytesseract.TesseractNotFoundError, OSError):
-                
-                try:
-                    
-                    try:
-                        return None
-                    except (TypeError, ValueError, KeyError):
-                        math.nan
-
-                except (TypeError, ValueError):
-                    math.nan
+                return math.nan  # [recovered: pycdc garbled this into a "try: return None" block]
 
 
 
@@ -1147,11 +1138,7 @@ with ``psm10_glyph_confidence``, labels include the estimated confidence.
                 return chars
             except pytesseract.TesseractNotFoundError:
                 VisionService._log_tesseract_missing()
-                
-                try:
-                    return None
-                except ValueError:
-                    []
+                return []  # [recovered: pycdc garbled this into a "try: return None" block]
 
 
 
@@ -1231,12 +1218,7 @@ Returns:
                 return words
             except pytesseract.TesseractNotFoundError:
                 VisionService._log_tesseract_missing()
-                
-                try:
-                    return None
-                except (ValueError, TypeError):
-                    []
-                    conf = -1
+                return []  # [recovered: pycdc garbled this into a "try: return None" block -> callers iterating the words crashed without Tesseract]
 
 
 
@@ -1458,10 +1440,6 @@ with one inner list per Y-cluster (characters left-to-right) after clustering, f
                 cfg = tesseract_config
             _ = min_confidence
             chars = VisionService.find_chars_ocr(screen_img, region = region, preprocess = preprocess, white_text = white_text, tesseract_config = cfg, cc_filter_blobs = cc_filter_blobs, cc_min_area = cc_min_area, cc_max_area = cc_max_area, save_preprocess_png = save_preprocess_png, roi_upscale = roi_upscale, ocr_debug_box_path = ocr_debug_box_path, ocr_debug_boxes_png_path = ocr_debug_boxes_png_path, psm10_glyph_confidence = psm10_glyph_confidence)
-            # find_chars_ocr returns None when Tesseract itself is unavailable, and every
-            # caller here is written for "no numbers found" rather than an exception (live:
-            # the wall gate died with TypeError in a process that had not put Tesseract on
-            # the path).
             digit_chars = [ c for c in chars or () if c.text.isdigit() or c.text == 'l' ]  # [recovered: decompiler dropped the isdigit() disjunct; 'l' is kept because merge_numeric_cluster maps it to '1']
             if not digit_chars:
                 return []
@@ -1588,9 +1566,7 @@ Among all tokens that pass filters, picks by: (1) **full alnum name inside OCR t
 then Tesseract confidence — so a short side label does not beat the full username.
 Extra kwargs are forwarded (e.g. ``min_confidence``, ``preprocess``).
 '''
-            matches = VisionService.find_words_ocr(screen_img, **{
-                'region': region,
-                'query': word_or_phrase })
+            matches = VisionService.find_words_ocr(screen_img, region = region, query = word_or_phrase, **kwargs)  # [recovered: pycdc dropped the **kwargs merge -> the name search ran without white_text, match_alnum_only or fuzzy_min_ratio]
             if not matches:
                 return (None, None)
             case_sensitive = bool(kwargs.get('case_sensitive', False))
