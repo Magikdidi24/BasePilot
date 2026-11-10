@@ -35,8 +35,9 @@ CLAN_REQUEST_INTERVAL_M_MIN = 5
 CLAN_REQUEST_INTERVAL_M_MAX = 240
 # Loot filter (see app/core/loot_filter.py): the minimum a base must hold to be worth
 # the army and the minutes. Thousands, so the UI stays readable; 0 disables the check.
-ATTACK_MIN_GOLD_K_DEFAULT = 500
-ATTACK_MIN_ELIXIR_K_DEFAULT = 500
+# 0 = off: opt-in, because every Next costs a search fee and a default would change farming for everyone.
+ATTACK_MIN_GOLD_K_DEFAULT = 0
+ATTACK_MIN_ELIXIR_K_DEFAULT = 0
 ATTACK_MIN_LOOT_K_MAX = 5000
 ATTACK_MAX_SKIPS_DEFAULT = 10
 ATTACK_MAX_SKIPS_MAX = 50

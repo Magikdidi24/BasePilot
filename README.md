@@ -55,9 +55,9 @@ It only stops when you tell it to.
 keeping enough gold for match entry fees.
 
 **Loot filter.** Reads the loot a matched base is holding and presses **Next** until one
-clears your minimums (500k gold and 500k elixir by default), so an army is never spent on
-a 40k base. Bounded by a skip cap, because every Next costs another search fee. Set it in
-*Settings -> Minimum loot to attack*; the Run page counts the bases it skipped.
+clears your minimums, so an army is never spent on a 40k base. Off until you set the
+minimums in *Settings -> Minimum loot to attack*, and bounded by a skip cap, because every
+Next costs another search fee; the Run page counts the bases it skipped.
 
 **Clan assist (beta).** Between raids it opens the clan menu and serves every open
 request — longest-waiting first, following the game's own "!" badge for the ones the
