@@ -1,4 +1,5 @@
 """Regression tests for the October 2026 UI fixes (efebolukbasi/BasePilot#6-#9)."""
+import ctypes
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -7,7 +8,7 @@ import numpy as np
 
 from app.core.bot import Bot
 from app.core.upgrader import UpgradeAdvisor
-from app.services.window import WindowService
+from app.services.window import WindowService, bgra_dib_to_bgr
 
 FRAME = np.zeros((731, 1299, 3), dtype=np.uint8)
 
@@ -136,6 +137,16 @@ class AutoUpgradeGateTests(unittest.TestCase):
         self.assertIsNone(advisor.scan())
         self.assertFalse(advisor._open_builder_popup())
         advisor.input.click.assert_not_called()
+
+
+class CaptureConversionTests(unittest.TestCase):
+    def test_one_copy_conversion_matches_the_old_pil_path(self):
+        import cv2
+        from PIL import Image
+        (w, h) = (37, 23)
+        raw = (ctypes.c_ubyte * (w * h * 4))(*np.random.default_rng(1).integers(0, 256, w * h * 4).tolist())
+        old = cv2.cvtColor(np.array(Image.frombuffer('RGBA', (w, h), bytes(raw), 'raw', 'BGRA', 0, 1)), cv2.COLOR_RGBA2BGR)
+        self.assertTrue(np.array_equal(bgra_dib_to_bgr(raw, w, h), old))
 
 
 class WindowTests(unittest.TestCase):

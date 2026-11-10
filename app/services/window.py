@@ -4,7 +4,6 @@ from ctypes import wintypes
 from dataclasses import dataclass
 import numpy as np
 import cv2
-from PIL import Image
 from typing import List, Optional, Tuple
 from app.utils.logger import setup_logger
 from app.utils.window_settings_store import WindowSelection, load_window_selection
@@ -17,6 +16,30 @@ WM_MOUSEWHEEL = 522
 WHEEL_DELTA = 120
 _CHILD_CLASS_PREFIX = 'CROSVM'
 _MINIMIZED_COORD = -30000  # Windows parks minimized windows at (-32000, -32000)
+
+_PW_RENDERFULLCONTENT = 2
+
+
+class _BITMAPINFOHEADER(ctypes.Structure):
+    _fields_ = [
+        ('biSize', wintypes.DWORD),
+        ('biWidth', ctypes.c_long),
+        ('biHeight', ctypes.c_long),
+        ('biPlanes', wintypes.WORD),
+        ('biBitCount', wintypes.WORD),
+        ('biCompression', wintypes.DWORD),
+        ('biSizeImage', wintypes.DWORD),
+        ('biXPelsPerMeter', ctypes.c_long),
+        ('biYPelsPerMeter', ctypes.c_long),
+        ('biClrUsed', wintypes.DWORD),
+        ('biClrImportant', wintypes.DWORD)]
+
+
+def bgra_dib_to_bgr(buffer, width, height):
+    '''Top-down 32-bit DIB bytes (B, G, R, A) to an OpenCV BGR frame, in one copy (it used to
+    go bytes() -> PIL -> numpy -> cvtColor: 6-20 ms per frame at 1080p-1440p).'''
+    return cv2.cvtColor(np.frombuffer(buffer, np.uint8).reshape(height, width, 4), cv2.COLOR_BGRA2BGR)
+
 
 @dataclass
 class WindowCandidate:
@@ -348,6 +371,27 @@ Outer window size in pixels (``GetWindowRect``), same basis as :meth:`screenshot
         except Exception:
             return False
 
+    def _print_window(self, width, height):
+        '''PrintWindow into a 32-bit DIB. Every GDI handle is released on every path: one
+        leaked per frame exhausts the process's 10k GDI objects during a multi-day run.'''
+        hwnd_dc = self.user32.GetWindowDC(self.hwnd)
+        mem_dc = self.gdi32.CreateCompatibleDC(hwnd_dc)
+        hbitmap = self.gdi32.CreateCompatibleBitmap(hwnd_dc, width, height)
+        previous = self.gdi32.SelectObject(mem_dc, hbitmap)
+        try:
+            if not self.user32.PrintWindow(self.hwnd, mem_dc, _PW_RENDERFULLCONTENT):
+                return None  # a failed capture is not a (black) frame
+            bmi = _BITMAPINFOHEADER(ctypes.sizeof(_BITMAPINFOHEADER), width, -height, 1, 32, 0)  # top-down, BI_RGB
+            buffer = (ctypes.c_ubyte * (width * height * 4))()
+            if not self.gdi32.GetDIBits(hwnd_dc, hbitmap, 0, height, ctypes.byref(buffer), ctypes.byref(bmi), 0):
+                return None
+            return bgra_dib_to_bgr(buffer, width, height)
+        finally:
+            self.gdi32.SelectObject(mem_dc, previous)  # DeleteObject refuses a bitmap still selected into a DC
+            self.gdi32.DeleteObject(hbitmap)
+            self.gdi32.DeleteDC(mem_dc)
+            self.user32.ReleaseDC(self.hwnd, hwnd_dc)
+
     def screenshot(self):
         '''Captures a screenshot of the window.
 
@@ -370,47 +414,7 @@ Outer window size in pixels (``GetWindowRect``), same basis as :meth:`screenshot
             height = rect.bottom - rect.top
             if width <= 0 or height <= 0:
                 return None
-            hwndDC = self.user32.GetWindowDC(self.hwnd)
-            mfcDC = self.gdi32.CreateCompatibleDC(hwndDC)
-            hbitmap = self.gdi32.CreateCompatibleBitmap(hwndDC, width, height)
-            self.gdi32.SelectObject(mfcDC, hbitmap)
-            PW_RENDERFULLCONTENT = 2
-            self.user32.PrintWindow(self.hwnd, mfcDC, PW_RENDERFULLCONTENT)
-            
-            class BITMAPINFOHEADER(ctypes.Structure):
-                _fields_ = [
-                    ('biSize', wintypes.DWORD),
-                    ('biWidth', ctypes.c_long),
-                    ('biHeight', ctypes.c_long),
-                    ('biPlanes', wintypes.WORD),
-                    ('biBitCount', wintypes.WORD),
-                    ('biCompression', wintypes.DWORD),
-                    ('biSizeImage', wintypes.DWORD),
-                    ('biXPelsPerMeter', ctypes.c_long),
-                    ('biYPelsPerMeter', ctypes.c_long),
-                    ('biClrUsed', wintypes.DWORD),
-                    ('biClrImportant', wintypes.DWORD)]
-
-            bmi = BITMAPINFOHEADER()
-            bmi.biSize = ctypes.sizeof(BITMAPINFOHEADER)
-            bmi.biWidth = width
-            bmi.biHeight = -height
-            bmi.biPlanes = 1
-            bmi.biBitCount = 32
-            bmi.biCompression = 0
-            buf_size = width * height * 4
-            buffer = (ctypes.c_byte * buf_size)()  # [recovered: decompiler dropped the array-type parens; caused every capture to fail]
-            self.gdi32.GetDIBits(hwndDC, hbitmap, 0, height, ctypes.byref(buffer), ctypes.byref(bmi), 0)
-            img = Image.frombuffer('RGBA', (width, height), bytes(buffer), 'raw', 'BGRA', 0, 1)
-            frame = np.array(img)
-            if frame.shape[2] == 4:
-                frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2BGR)
-            else:
-                frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-            self.gdi32.DeleteObject(hbitmap)
-            self.gdi32.DeleteDC(mfcDC)
-            self.user32.ReleaseDC(self.hwnd, hwndDC)
-            return frame
+            return self._print_window(width, height)
         except Exception as e:
             logger.error(f'''Screenshot failed: {e}''')
             return None
