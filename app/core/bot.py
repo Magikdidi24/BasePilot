@@ -60,6 +60,7 @@ _WALL_RETRY_SECONDS = 600  # a wall pass that bought nothing fails the same way 
 # Oct 2026 HUD: the Build panel's card list fills the right edge, above its tab bar.
 _BUILD_PANEL_ROI_FRAC = (0.70, 0.08, 0.30, 0.80)  # x, y, w, h as fractions of the capture
 _LABEL_FALLBACK_AFTER = 1.0  # s of template misses before also reading the control's label (OCR is slower)
+_BATTLE_LABEL_AFTER = 20  # s; during a live battle none of the end buttons shows for a while, and OCR on every poll loads the CPU next to the game
 _IDLE_RECHECK_SECONDS = 300  # while idling (storages full, nothing startable): wake, recover the screen, re-read state
 _CLAN_UNCALIBRATED_BACKOFF_SECONDS = 3600  # no chat button picked: say so once, not once per raid
 # "never done" for the clan clocks. They are compared against time.monotonic(), which
@@ -317,12 +318,11 @@ wall upgrades for the first pre-Attack snapshot that would otherwise count as an
         '''Home Village screen: its builder chip, else the Battle and Build buttons together with
         no Builder Base chip (the Oct 2026 HUD redrew the chip; a stale chip template must not
         leave recovery looping on a screen that is already home).'''
-        chip_roi = VisionService.bottom_half_region(frame)  # Oct 2026: counters sit above Build, bottom right
-        if self._find_home_village_builder(frame, chip_roi)[0]:
+        bottom = VisionService.bottom_half_region(frame)  # Oct 2026: the counters sit above Build, bottom right
+        if self._find_home_village_builder(frame, bottom)[0]:
             return True
-        if self.vision.find_template(frame, 'mbuilder.png', region = chip_roi)[0]:
+        if self.vision.find_template(frame, 'mbuilder.png', region = bottom)[0]:
             return False
-        bottom = VisionService.bottom_half_region(frame)
         return bool(self.vision.find_template(frame, 'attack.png', region = bottom)[0] and self.vision.find_template(frame, 'build.png')[0])
 
     
@@ -1516,7 +1516,7 @@ deselect, which would eat the upcoming Attack click.'''
     
     def _bb_end_battle_and_return_home(self):
         '''Wait for natural battle end, dismiss Okay, then tap BB Return Home.'''
-        (ex, ey) = self._wait_for_image('endbattle.png', timeout = 90, error = False)
+        (ex, ey) = self._wait_for_image('endbattle.png', timeout = 90, error = False, label_after = _BATTLE_LABEL_AFTER)
         if ex:
             self.input.click(ex, ey, pause = 0.15)
         else:
@@ -1860,7 +1860,7 @@ deselect, which would eat the upcoming Attack click.'''
             return None
         # A battle that ends on its own goes straight to the results screen: stop waiting
         # for End Battle as soon as that screen is up (it cost up to 60 s per raid).
-        (x, _y) = self._wait_for_any_image(('endbattle.png', 'returnhome.png', 'chestclaim.png'), timeout = 60, error = False)
+        (x, _y) = self._wait_for_any_image(('endbattle.png', 'returnhome.png', 'chestclaim.png'), timeout = 60, error = False, label_after = _BATTLE_LABEL_AFTER)
         if x:
             frame = self.window.screenshot()
             (bx, by) = self.vision.find_control(frame, 'endbattle.png', region = self._search_region_for_template(frame, 'endbattle.png', None, None, 200)) if frame is not None else (None, None)
@@ -2441,7 +2441,7 @@ OCR is limited to the right half of the window unless ``region`` is passed expli
         return self.vision.find_template(frame, template, threshold = threshold, region = search_region)
 
     
-    def _wait_for_any_image(self, templates, timeout = 10, error = True, threshold = 0.8, region = None, region_from_frame = None):
+    def _wait_for_any_image(self, templates, timeout = 10, error = True, threshold = 0.8, region = None, region_from_frame = None, label_after = _LABEL_FALLBACK_AFTER):
         '''First ordered template match wins (checked left-to-right each frame).'''
         start = time.time()
         while time.time() - start < timeout:
@@ -2454,7 +2454,7 @@ OCR is limited to the right half of the window unless ``region`` is passed expli
             self._update_config_size(frame)
             if self._battle_rewards.handle(frame):
                 continue
-            ocr = time.time() - start >= _LABEL_FALLBACK_AFTER
+            ocr = time.time() - start >= label_after
             search_region = region
             if search_region is None and region_from_frame is not None:  # [recovered: both conditions were inverted]
                 search_region = region_from_frame(frame)
@@ -2474,7 +2474,7 @@ OCR is limited to the right half of the window unless ``region`` is passed expli
         return (None, None)
 
     
-    def _wait_for_image(self, template, timeout = 10, error = True, region = None, y_anchor = None, y_slop = 200, threshold = 0.8):
+    def _wait_for_image(self, template, timeout = 10, error = True, region = None, y_anchor = None, y_slop = 200, threshold = 0.8, label_after = _LABEL_FALLBACK_AFTER):
         start = time.time()
         while time.time() - start < timeout:
             self._check_stop()
@@ -2487,7 +2487,7 @@ OCR is limited to the right half of the window unless ``region`` is passed expli
             if self._battle_rewards.handle(frame):
                 continue
             search_region = self._search_region_for_template(frame, template, region, y_anchor, y_slop)
-            ocr = time.time() - start >= _LABEL_FALLBACK_AFTER
+            ocr = time.time() - start >= label_after
             (x, y) = self.vision.find_control(frame, template, threshold = threshold, region = search_region, ocr = ocr)
             if x:
                 return (x, y)
