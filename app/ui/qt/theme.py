@@ -215,6 +215,14 @@ QSpinBox#DurationSpin {{
     max-height: 28px;
     padding: 2px 6px;
 }}
+/* Qt 6.12: a styled spin box without buttons (the duration) got a 1 px wide edit field,
+   so its value never showed, unless its button sub-controls take no room */
+QSpinBox#DurationSpin::up-button, QSpinBox#DurationSpin::down-button {{
+    subcontrol-origin: border;
+    width: 0px;
+    height: 0px;
+    border: none;
+}}
 QSpinBox:disabled, QSpinBox#DurationSpin:disabled {{
     color: {t['text_faint']};
     background-color: {t['surface']};
