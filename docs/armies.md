@@ -44,5 +44,7 @@ A different routine: **12 Electro Dragons** placed individually around the diamo
 
 ## Builder Base
 
-Baby Dragon is the only supported strategy. Night Witches is listed in the UI but is still under
-development.
+Any army works, so Baby Dragon and Night Witches run the same routine. Every troop card on the
+bar (found by the green swap button under it) is deployed along the top edges of the diamond,
+then the Battle Machine or the Flying Machine on a random edge. Unless loot is set to elixir
+only, the cards are tapped again a few seconds later.
