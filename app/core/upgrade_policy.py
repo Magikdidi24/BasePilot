@@ -102,12 +102,9 @@ def choose_upgrade(rows, resources, free_builders, policy):
         candidates = [r for r in candidates if not is_town_hall_row(r)]
     if not candidates:
         return None
-    # Dark elixir rows get first claim regardless of raw cost: DE is the scarcest
-    # resource and hero upgrades (its main sink) are the long pole to maxing — a
-    # 175k-DE hero row must never lose to a 3M-gold trap on number size alone.
-    de_rows = [r for r in candidates if r.resource == RESOURCE_DARK]
-    pool = de_rows or candidates
+    # Raw cost decides, whatever the resource: dark elixir rows no longer get first claim
+    # (the user's choice), so a hero row is picked only when it is the priciest left.
     chooser = min if policy.order == ORDER_CHEAPEST else max
-    pick = chooser(pool, key = (lambda r: r.cost))
+    pick = chooser(candidates, key = (lambda r: r.cost))
     logger.info('Policy(%s/%s): picking %s (cost %s %s)', policy.mode, policy.order, pick.label, pick.cost, pick.resource)
     return pick

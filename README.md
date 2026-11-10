@@ -56,7 +56,8 @@ page and uses the same mode:
 - **Maxer** — starts an affordable upgrade and never touches your Town Hall. Priciest
   first by default, since a farmed account is builder-limited rather than loot-limited;
   switch to cheapest first in *Settings → Upgrade order* to spread builders across more
-  jobs. Dark elixir upgrades (heroes) always get first claim either way.
+  jobs. The raw cost decides whatever the resource, so a dark elixir upgrade (a hero) goes
+  first only when it is the priciest left.
 - **Rusher** — takes the Town Hall as soon as it's affordable.
 - **Dry run** — logs what it *would* start and clicks nothing. Good first setting.
 

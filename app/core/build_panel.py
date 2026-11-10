@@ -201,7 +201,7 @@ def _checked_reread(vision, frame, box, column):
     it fits what that pass saw: as many digits as the column has characters when a group is
     garbled ("1s20" "000" for 1 520 000), else the clean groups as its tail. With the
     padding around the box, a re-read drops or adds a glyph (1 000 or 190 000 for "10 000"),
-    and a cost read too low gets first claim in the policy.'''
+    and a cost read too low passes can_pay and skews the policy's order.'''
     cost = _ocr_cost(vision, frame, box)
     if cost is None:
         return None

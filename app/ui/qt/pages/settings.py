@@ -122,7 +122,7 @@ class SettingsPage(QWidget):
         wall_row.addStretch()
         card.card_layout.addLayout(wall_row)
         card.card_layout.addWidget(SectionTitle('Upgrade order'))
-        order_hint = QLabel('Priciest first soaks full storages into the biggest jobs (best when the bot farms loot faster than builders free up). Dark elixir upgrades (heroes) always get first claim either way.')
+        order_hint = QLabel('Priciest first soaks full storages into the biggest jobs (best when the bot farms loot faster than builders free up). The raw cost decides, whatever the resource: a dark elixir upgrade (a hero) goes first only when it is the priciest left.')
         order_hint.setWordWrap(True)
         order_hint.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
         card.card_layout.addWidget(order_hint)
