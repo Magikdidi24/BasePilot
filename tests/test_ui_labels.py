@@ -12,6 +12,11 @@ from app.services.vision import CONTROL_LABELS, VisionService
 FRAME = np.zeros((731, 1299, 3), dtype=np.uint8)
 
 
+def fresh():
+    """A new capture: find_label caches OCR words per frame object."""
+    return np.zeros((731, 1299, 3), dtype=np.uint8)
+
+
 def word(text, left, top=600, width=None, height=20):
     return SimpleNamespace(text=text, left=left, top=top, width=width or 12 * len(text), height=height)
 
@@ -24,29 +29,44 @@ class LabelTests(unittest.TestCase):
     @patch.object(VisionService, 'find_words_ocr')
     def test_battle_does_not_match_ranked_battle(self, ocr):
         ocr.return_value = [word('Ranked', 20), word('Battle', 100)]
-        self.assertEqual(VisionService.find_label(FRAME, 'Battle'), (None, None))
+        self.assertEqual(VisionService.find_label(fresh(), 'Battle'), (None, None))
         ocr.return_value = [word('Ranked', 20), word('Battle', 100), word('Battle', 400)]
-        self.assertEqual(VisionService.find_label(FRAME, 'Battle'), (436, 610))
+        self.assertEqual(VisionService.find_label(fresh(), 'Battle'), (436, 610))
 
     @patch.object(VisionService, 'find_words_ocr')
     def test_ocr_typo_still_matches_and_later_passes_are_tried(self, ocr):
         ocr.side_effect = [[], [], [word('Retum', 20), word('Home', 92)]]
-        self.assertEqual(VisionService.find_label(FRAME, 'Return Home'), (80, 610))
+        self.assertEqual(VisionService.find_label(fresh(), 'Return Home'), (80, 610))
         self.assertEqual([(c.kwargs['preprocess'], c.kwargs['white_text']) for c in ocr.call_args_list],
                          [(False, False), (True, True), (True, False)])
 
     @patch.object(VisionService, 'find_words_ocr')
     def test_two_line_label_and_stray_glyphs(self, ocr):
         ocr.return_value = [word('Return', 20, top=600), word('Home', 32, top=624)]
-        self.assertEqual(VisionService.find_label(FRAME, 'Return Home'), (56, 622))
+        self.assertEqual(VisionService.find_label(fresh(), 'Return Home'), (56, 622))
         ocr.return_value = [word("Vattack'l", 20)]
-        self.assertIsNotNone(VisionService.find_label(FRAME, 'Attack')[0])
+        self.assertIsNotNone(VisionService.find_label(fresh(), 'Attack')[0])
         ocr.return_value = [word('Attack', 20), word('Log', 100)]
-        self.assertIsNone(VisionService.find_label(FRAME, 'Attack')[0])
+        self.assertIsNone(VisionService.find_label(fresh(), 'Attack')[0])
+
+    @patch.object(VisionService, 'find_words_ocr')
+    def test_misread_end_battle_is_not_battle(self, ocr):
+        for first in ('d', 'Ed', '—'):
+            ocr.return_value = [word(first, 20, width=30), word('Battle', 56)]
+            self.assertIsNone(VisionService.find_label(fresh(), 'Battle')[0], first)
+
+    @patch.object(VisionService, 'find_words_ocr', return_value=[])
+    def test_labels_on_one_frame_share_the_ocr_runs(self, ocr):
+        frame = fresh()
+        VisionService.find_label(frame, 'Return Home')
+        VisionService.find_label(frame, 'Claim Reward')
+        self.assertEqual(ocr.call_count, 3)
+        VisionService.find_label(fresh(), 'Return Home')
+        self.assertEqual(ocr.call_count, 6)
 
     @patch.object(VisionService, 'find_words_ocr', return_value=None)
     def test_missing_tesseract_is_a_miss(self, _ocr):
-        self.assertEqual(VisionService.find_label(FRAME, 'Battle'), (None, None))
+        self.assertEqual(VisionService.find_label(fresh(), 'Battle'), (None, None))
 
     @patch.object(VisionService, 'find_label', return_value=(5, 6))
     @patch.object(VisionService, 'find_template')

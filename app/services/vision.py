@@ -122,6 +122,9 @@ try:
         'endbattle.png': 'End Battle',
         'findnow.png': 'Find Now',
         'savedrecipes.png': 'Saved Recipes'}
+    # OCR words of the last frame read by find_label, per pass: the labels looked up on one
+    # poll share one set of Tesseract runs. Holding the frame keeps its id from being reused.
+    _LABEL_OCR_CACHE = {'frame': None, 'region': None, 'passes': {}}
     _WHITE_TEXT_BRIGHTNESS_FLOOR = 190
     _CC_INK_AREA_AT_BASELINE: Dict[str, Tuple[int, int]] = {
         ASPECT_16_9: (80, 500),
@@ -1740,15 +1743,20 @@ a new run, so neighbouring buttons ("Ranked Battle" beside "Battle") stay separa
             segments = []
             for w in sorted(words, key = lambda b: b.left):
                 yc = w.top + w.height / 2
+                best = None
                 for seg in segments:
                     last = seg[-1]
                     h = max(last.height, w.height)
                     gap = w.left - (last.left + last.width)
                     if abs(last.top + last.height / 2 - yc) <= 0.6 * h and -0.5 * h <= gap <= 1.5 * h:
-                        seg.append(w)
-                        break
-                else:
+                        # nearest run, not the first one created: a wide junk token must not
+                        # adopt a word that sits right after its real neighbour
+                        if best is None or abs(gap) < best[0]:
+                            best = (abs(gap), seg)
+                if best is None:
                     segments.append([w])
+                else:
+                    best[1].append(w)
             return segments
 
         @staticmethod
@@ -1778,20 +1786,29 @@ Passes: white low-saturation ink (the game's button text on coloured buttons), t
 generic light-on-dark and dark-on-light binarizations.'''
             want = VisionService._label_key(label)
             (fh, fw) = screen_img.shape[:2]
-            (x, y, w, h) = region if region is not None else (0, 0, fw, fh)
-            hsv = cv2.cvtColor(screen_img[y:y + h, x:x + w], cv2.COLOR_BGR2HSV)
-            ink = np.full((fh, fw), 255, np.uint8)  # full frame so region coordinates stay valid
-            ink[y:y + h, x:x + w][(hsv[..., 1] <= 70) & (hsv[..., 2] >= 200)] = 0
-            ink_bgr = cv2.cvtColor(ink, cv2.COLOR_GRAY2BGR)
             upscale = 2 if fh < 1000 else 1
-            passes = ((ink_bgr, False, False), (screen_img, True, True), (screen_img, True, False))
-            for (img, preprocess, white) in passes:
-                words = VisionService.find_words_ocr(img, region, preprocess = preprocess, white_text = white, roi_upscale = upscale) or []
+            cache = _LABEL_OCR_CACHE
+            if cache['frame'] is not screen_img or cache['region'] != region:
+                cache.update(frame = screen_img, region = region, passes = {})
+            for i in range(3):
+                words = cache['passes'].get(i)
+                if words is None:
+                    if i == 0:
+                        (x, y, w, h) = region if region is not None else (0, 0, fw, fh)
+                        hsv = cv2.cvtColor(screen_img[y:y + h, x:x + w], cv2.COLOR_BGR2HSV)
+                        ink = np.full((fh, fw), 255, np.uint8)  # full frame so region coordinates stay valid
+                        ink[y:y + h, x:x + w][(hsv[..., 1] <= 70) & (hsv[..., 2] >= 200)] = 0
+                        words = VisionService.find_words_ocr(cv2.cvtColor(ink, cv2.COLOR_GRAY2BGR), region, preprocess = False, white_text = False, roi_upscale = upscale)
+                    else:
+                        words = VisionService.find_words_ocr(screen_img, region, preprocess = True, white_text = i == 1, roi_upscale = upscale)
+                    words = cache['passes'][i] = words or []
                 segs = VisionService._label_segments(words)
                 candidates = segs + [a + b for a in segs for b in segs if a is not b and VisionService._stacked(a, b)]
                 for seg in candidates:
                     got = VisionService._label_key(''.join(b.text for b in seg))
-                    if not got:
+                    # The run's first word must hold the label's start: "Vattack'l" is "Attack"
+                    # with border noise, but "d" + "Battle" is End Battle misread, not Battle.
+                    if not got or want[:3] not in VisionService._label_key(seg[0].text):
                         continue
                     if (want in got and len(got) - len(want) <= 2) or difflib.SequenceMatcher(None, got, want).ratio() >= min_ratio:
                         x0 = min(b.left for b in seg)

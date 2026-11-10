@@ -65,6 +65,7 @@ class EventTests(unittest.TestCase):
         bot.stop_event, bot.input, bot.window = self.stop, self.input, self.window
         bot.vision = Mock()
         bot.vision.find_control.return_value = (40, 570)
+        self.window.screenshot.return_value = np.zeros((731, 1299, 3), dtype=np.uint8)
         bot._update_config_size = Mock()
         bot._search_region_for_template = Mock(return_value=None)
         bot._battle_rewards = Mock()

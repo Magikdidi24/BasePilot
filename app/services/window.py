@@ -99,6 +99,14 @@ class WindowService:
         if now < getattr(self, '_next_find_at', 0):
             return False
         self._next_find_at = now + 30
+        selection = load_window_selection()
+        if selection is not None and selection.is_set():
+            # Only the pinned window may come back: auto-detect could pick another client
+            # (two profiles, two games) and send it this bot's clicks.
+            self.hwnd = self._resolve_hwnd(selection)
+            if self.hwnd:
+                logger.info(f'''Pinned game window re-attached (HWND: {self.hwnd})''')
+            return bool(self.hwnd)
         return self.find_window()
 
     def find_window(self):

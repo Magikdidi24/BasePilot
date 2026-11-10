@@ -97,6 +97,15 @@ class WallTests(unittest.TestCase):
         bot._maybe_upgrade_walls(True)
         self.assertEqual(bot._should_upgrade_walls.call_count, 1)  # backed off: not even re-checked
 
+    def test_add_remove_band_sits_above_the_price_cards(self):
+        bot = make_bot()
+        frame = np.zeros((900, 1600, 3), dtype=np.uint8)
+        cost = lambda x: SimpleNamespace(cost_roi_xywh=(x, 728, 100, 22))
+        (x, y, w, h) = bot._wall_button_strip_roi(frame, SimpleNamespace(gold=cost(440), elixir=cost(615)))
+        self.assertEqual(y + h, 728)            # never the price row (a hit there is a purchase click)
+        self.assertGreater(y, 540)              # nor the 'Wall (Lv N) xK' title above the buttons
+        self.assertTrue(x <= 430 and x + w >= 735)  # both buttons of the live October frame
+
     def test_wall_card_is_read_in_the_build_panel(self):
         bot = make_bot()
         bot.vision.find_words_ocr.return_value = [SimpleNamespace(text='Wall', top=500, height=20, center=(1050, 510))]
@@ -104,6 +113,18 @@ class WallTests(unittest.TestCase):
         self.assertEqual(pt, (1050, 510))
         region = bot.vision.find_words_ocr.call_args.args[1]
         self.assertGreaterEqual(region[0], int(1299 * 0.7))  # right-hand panel, not the old top-center popup
+
+
+class IdleGateTests(unittest.TestCase):
+    @patch('app.core.bot.read_village_state')
+    def test_no_idling_on_the_october_hud(self, state):
+        bot = make_bot()
+        bot._auto_upgrade_mode = 'maxer'
+        bot._emit_village_state = Mock()
+        state.return_value = SimpleNamespace(storages_full=True, free_builders=None, gold_full=True, elixir_full=True)
+        bot.vision.find_template.side_effect = lambda f, name, **kw: (1200, 650) if name == 'build.png' else (None, None)
+        self.assertIsNone(bot._maybe_idle(None))
+        bot.stop_event.wait.assert_not_called()  # returned at once instead of idling
 
 
 class AutoUpgradeGateTests(unittest.TestCase):
@@ -118,17 +139,30 @@ class AutoUpgradeGateTests(unittest.TestCase):
 
 
 class WindowTests(unittest.TestCase):
-    def test_dead_handle_is_re_resolved_but_not_on_every_frame(self):
+    def dead_window(self):
         ws = WindowService.__new__(WindowService)
         ws.hwnd = 1234
         ws.user32 = Mock()
         ws.user32.IsWindow.return_value = False
         ws.find_window = Mock(return_value=False)
+        ws._resolve_hwnd = Mock(return_value=0)
+        return ws
+
+    @patch('app.services.window.load_window_selection', return_value=SimpleNamespace(is_set=lambda: False))
+    def test_dead_handle_is_re_resolved_but_not_on_every_frame(self, _sel):
+        ws = self.dead_window()
         self.assertFalse(ws._ensure_hwnd())
         self.assertFalse(ws._ensure_hwnd())
         ws.find_window.assert_called_once()
         ws.user32.IsWindow.return_value = True
         self.assertTrue(ws._ensure_hwnd())
+
+    @patch('app.services.window.load_window_selection', return_value=SimpleNamespace(is_set=lambda: True))
+    def test_pinned_window_never_falls_back_to_another_client(self, _sel):
+        ws = self.dead_window()
+        self.assertFalse(ws._ensure_hwnd())
+        ws._resolve_hwnd.assert_called_once()
+        ws.find_window.assert_not_called()  # find_window would auto-detect any Clash window
 
 
 if __name__ == '__main__':

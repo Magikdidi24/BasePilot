@@ -9,7 +9,7 @@ from app.config import ASPECT_16_10, ASPECT_16_9, Config
 from app.core.clan import ClanAssistant, ClanOptions, missing_templates
 from app.core.loot_filter import TEMPLATE_NEXT_BASE, LootFilter, combine_reads, meets, read_enemy_loot
 from app.core.strategies import AttackStrategy, EdragStrategy, TroopSpamStrategy, _EDRAG_DELAY
-from app.core.upgrader import AUTO_UPGRADE_MODES, LIVE_UPGRADE_MODES, MODE_OFF, UpgradeAdvisor
+from app.core.upgrader import AUTO_UPGRADE_MODES, LIVE_UPGRADE_MODES, MODE_OFF, UpgradeAdvisor, is_october_build_panel_hud
 from app.core.village_state import read_hud_triplet_stable, read_village_state, read_village_state_stable
 from app.services.input import InputService
 from app.services.vision import BOTTOM_HALF_BOT_TEMPLATES, TOP_HALF_BOT_TEMPLATES, VisionService
@@ -148,6 +148,7 @@ class Bot:
         self._wall_upgrade_threshold = max(0, int(wall_upgrade_threshold or 0))
         self._auto_upgrade_mode = auto_upgrade if auto_upgrade in AUTO_UPGRADE_MODES else MODE_OFF
         self._auto_upgrade_last_scan = 0
+        self._wall_retry_at = 0
         self._reserve_builders = max(0, int(reserve_builders or 0))
         self._upgrade_order = upgrade_order
         self._advisor = None  # one UpgradeAdvisor per session (it holds execution cooldowns)
@@ -175,6 +176,7 @@ class Bot:
                     # with a chat visit due instead of inheriting the last one's clocks.
                     self._clan_last_donate = _CLAN_CLOCK_NEVER
                     self._clan_last_request = _CLAN_CLOCK_NEVER
+                    self._wall_retry_at = 0
                     self._check_stop()
                     self._run_loop(method, duration, star_bonus, ranked_fill, upgrade_walls)
                     self._check_stop()
@@ -737,6 +739,10 @@ deselect, which would eat the upcoming Attack click.'''
         self._emit_village_state(state, 'farming')
         if state is None:
             return None
+        if is_october_build_panel_hud(self.vision, frame):
+            # Idling waits for a spend that the new HUD cannot make (auto-upgrade is off there)
+            # and for a builder count read where the old chip was: it would idle for good.
+            return None
         reserve = getattr(self, '_reserve_builders', 1)
         free = state.free_builders
         # Spend eagerly: ANY full storage with a spare builder is money leaking (live
@@ -928,13 +934,19 @@ deselect, which would eat the upcoming Attack click.'''
         counted them as added. Nothing above the cost text is a button.
         '''
         (fh, fw) = frame.shape[:2]
-        top = fh // 2
         rois = []
         if pair is not None:
             rois = [ r for r in (pair.gold.cost_roi_xywh, pair.elixir.cost_roi_xywh) if r ]
-        if rois:
-            top = max(top, min((int(r[1]) for r in rois)))
-        return (fw // 4, top, fw // 2, max(1, fh - top))
+        if not rois:
+            return (fw // 4, fh // 2, fw // 2, fh - fh // 2)
+        # Oct 2026 batch popup (live frame): Remove Wall / Add Wall form a row right ABOVE
+        # the two price cards, under the 'Wall (Lv N) xK' title. Search that band only:
+        # never the price row (a sliver hit there is a purchase click), never the title.
+        top = min(int(r[1]) for r in rois)
+        x0 = max(0, min(int(r[0]) for r in rois) - int(0.03 * fw))
+        x1 = min(fw, max(int(r[0] + r[2]) for r in rois) + int(0.03 * fw))
+        y0 = max(0, top - int(0.18 * fh))
+        return (x0, y0, max(1, x1 - x0), max(1, top - y0))
 
     def _wall_cost_signature(self, frame, pair):
         '''The batch price as pixels. It changes with every wall added or removed, so it
@@ -1869,7 +1881,7 @@ deselect, which would eat the upcoming Attack click.'''
             return None
         # A battle that ends on its own goes straight to the results screen: stop waiting
         # for End Battle as soon as that screen is up (it cost up to 60 s per raid).
-        (x, _y) = self._wait_for_any_image(('endbattle.png', 'returnhome.png', 'chestclaim.png'), timeout = 60, error = False, label_after = _BATTLE_LABEL_AFTER)
+        (x, _y) = self._wait_for_any_image(('endbattle.png', 'returnhome.png', 'chestclaim.png'), timeout = 60, error = False, region_from_frame = VisionService.bottom_half_region, label_after = _BATTLE_LABEL_AFTER)
         if x:
             frame = self.window.screenshot()
             (bx, by) = self.vision.find_control(frame, 'endbattle.png', region = self._search_region_for_template(frame, 'endbattle.png', None, None, 200)) if frame is not None else (None, None)
