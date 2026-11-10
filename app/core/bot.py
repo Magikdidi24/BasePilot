@@ -1400,9 +1400,11 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                 logger.info('Builder Base: battle over after %ds — returning home', int(now - start))
                 self.input.click(*point, pause = 0.3)
                 return True
-            card = abilities.next_tap(now, frame)
-            if card is not None:
-                self.input.click(*card, pause = 0.1, rand = False)  # the card again: the troop's ability
+            ability = abilities.next_tap(now, frame)
+            if ability is not None:
+                self.input.click(*ability.card, pause = 0.1, rand = False)  # the card again: the troop's ability
+                logger.info('Builder Base: %s ability at %ds%s', ability.troop or 'unknown', int(now - start),
+                            f' (health {ability.health:.0%})' if ability.health is not None else '')
             if now - last_deploy >= _BB_REDEPLOY_AFTER and VisionService.find_all_template_centers(
                     frame, _BB_CARD_SWAP_TEMPLATE, region = VisionService.bottom_half_region(frame), max_matches = 1):
                 logger.info('Builder Base: troops back on the bar (next stage) — deploying them')

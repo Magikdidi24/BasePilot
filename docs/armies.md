@@ -51,11 +51,11 @@ profile:
 
 | Troop | Order | Lands | Ability (its card tapped again) |
 |---|---|---|---|
-| Battle Machine / Copter | first, the tank | the entry point | from 8 s, at 18 s at the latest (it charges) |
+| Battle Machine / Copter | first, the tank | the entry point | at 20 s, then every 20 s (it charges) |
 | Boxer Giant | right behind | the entry point | Boxer Block once under 75 % health (2-15 s) |
 | Power P.E.K.K.A | right behind | the entry point | Overcharge once under 60 % health (4-16 s) |
 | Raged Barbarian | behind the tanks | the entry point | Rage (passive, first 22 s) |
-| Bomber | 1.5 s later, behind the tanks | the entry point | Bouncing Bomb at 3 s, then every 12 s |
+| Bomber | 1.5 s later, behind the tanks | the entry point | Bouncing Bomb at 3 s, then each time it has recharged |
 | Cannon Cart | behind the tanks | the entry point | none (stays a cart) |
 | Sneaky Archer | support | the entry point | Cloak (passive, first 11 s) |
 | Drop Ship | support | the entry point | Skeleton Bomb once under 85 % health (4-9 s) |
@@ -71,8 +71,12 @@ Abilities go at the right moment, not all at once. During the fight each card sh
 troop's health bar; an ability fires once its troop is engaged (health under the share
 above), never before the first time of its range and at the second at the latest. One tap
 per poll, the most hurt troop first, never two of one troop kind within 1.2 s, and none
-for a dead troop (its card turns grey). The timings are first guesses from Builder Base 2.0
-guides, to tune on live battles.
+for a dead troop (its card turns grey). A troop card's background tells its ability's state:
+green ready, red recharging, grey used (blue: not deployed yet); it is only tapped while green,
+and tapped again if it stays green (a lost tap). Only the machine charges its ability: tapped
+too early, the game answers "You need to wait...", so it goes on time. The timings are first
+guesses from Builder Base 2.0 guides, to tune on live battles (each ability is logged with
+the troop's health).
 
 A battle is never ended early: no End Battle, no Surrender. When troops come back to the bar
 for the next stage (a reinforcement's swap button shows), the troops still in colour on the
