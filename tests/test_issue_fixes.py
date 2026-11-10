@@ -176,5 +176,20 @@ class WindowTests(unittest.TestCase):
         ws.find_window.assert_not_called()  # find_window would auto-detect any Clash window
 
 
+
+class LoggerTests(unittest.TestCase):
+    def test_module_loggers_share_one_rotating_file_handler(self):
+        import logging
+        import tempfile
+        from logging.handlers import RotatingFileHandler
+        from app.utils.logger import setup_logger
+        path = tempfile.mkstemp(suffix='.log')[1]
+        a = setup_logger('ShareTestA', log_file=path)
+        b = setup_logger('ShareTestB', log_file=path)
+        fa = [h for h in a.handlers if isinstance(h, RotatingFileHandler)]
+        fb = [h for h in b.handlers if isinstance(h, RotatingFileHandler)]
+        self.assertEqual(len(fa), 1)
+        self.assertIs(fa[0], fb[0])  # one open file: rollover can rename it on Windows
+
 if __name__ == '__main__':
     unittest.main()
