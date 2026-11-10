@@ -10,6 +10,7 @@ to ``<user data dir>/templates/<aspect>/<name>``, which
 with the released exe too, without rebuilding.
 '''
 from __future__ import annotations
+from pathlib import Path
 from typing import Optional
 
 import cv2
@@ -23,7 +24,7 @@ from app.core.loot_filter import LOOT_TEMPLATE_SPECS
 from app.services.window import WindowService
 from app.ui.qt.theme import SPACING, TOKENS
 from app.ui.qt.widgets import neutral_button, primary_button
-from app.utils.common import ensure_dir, get_user_app_data_dir
+from app.utils.common import ensure_dir, get_resource_path, get_user_app_data_dir
 from app.utils.logger import setup_logger
 
 logger = setup_logger('TemplateCapture')
@@ -95,6 +96,12 @@ class TemplateCaptureDialog(QDialog):
         for (filename, label, _required) in CLAN_TEMPLATE_SPECS + LOOT_TEMPLATE_SPECS:
             self._name.addItem(f'''{label}  ({filename})''', filename)
         self._name.addItem('Another troop to donate  (next free slot)', _TROOP_SLOT)
+        # Every bundled template too, so a button a game update redrew can be recaptured
+        # (attack.png, returnhome.png, multiupgrade.png...) without typing its name.
+        listed = {self._name.itemData(i) for i in range(self._name.count())}
+        bundled = {p.name for d in ('16_9', '16_10') for p in get_resource_path(f'templates/{d}').glob('*.png')}
+        for filename in sorted(bundled - listed):
+            self._name.addItem(filename, filename)
         pick_row.addWidget(self._name, stretch = 1)
         btn_save = primary_button('Save', parent = self)
         btn_save.clicked.connect(self._on_save)
@@ -186,11 +193,17 @@ class TemplateCaptureDialog(QDialog):
         if self._aspect_key not in ASPECT_BASELINE:
             self._status.setText('The game is not rendering at ~16:9 or ~16:10, so a template cropped from it would never match. Fix the window first (Settings → Game window).')
             return None
-        name = self._name.currentData()
+        # currentData() still belongs to the selected entry while the user types over it:
+        # only trust it when the text is that entry's own.
+        idx = self._name.findText(self._name.currentText())
+        name = self._name.itemData(idx) if idx >= 0 else None
         if name == _TROOP_SLOT:
             name = self._next_troop_slot()
         if not name:
-            name = self._name.currentText().strip()
+            name = Path(self._name.currentText().strip()).name  # a file name, never a path
+            if not name:
+                self._status.setText('Pick a template or type its file name first.')
+                return None
             if not name.lower().endswith('.png'):
                 name = f'''{name}.png'''
         # Author at the reference resolution: find_template scales templates by
