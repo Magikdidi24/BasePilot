@@ -30,15 +30,23 @@ class TroopProfile:
 
 
 PROFILES = {
-    MACHINE: TroopProfile(order = 0, spread = False, gap = 0.0, ability_at = 16.0),  # the tank, ability left to charge
-    'pekka': TroopProfile(order = 1, spread = False, gap = 0.4, ability_at = 9.0),  # Overcharge once in the base
-    'bomber': TroopProfile(order = 2, spread = False, gap = 1.5, ability_at = 3.0, ability_every = 12.0),  # walls, behind the tanks
-    'witch': TroopProfile(order = 3, spread = False, gap = 2.0, ability_at = 6.0),  # behind the tanks; Bat Swarm
+    MACHINE: TroopProfile(order = 0, spread = False, gap = 0.0, ability_at = 16.0),  # the tank; its ability grows while it charges
+    'boxer': TroopProfile(order = 1, spread = False, gap = 0.4, ability_at = 7.0),  # tank: Boxer Block shield once under fire
+    'pekka': TroopProfile(order = 1, spread = False, gap = 0.4, ability_at = 9.0),  # tank and damage: Overcharge once in the base
+    'barbarian': TroopProfile(order = 2, spread = False, gap = 1.0, ability_at = None),  # Rage (22 s, passive): right behind the tanks
+    'bomber': TroopProfile(order = 2, spread = False, gap = 1.5, ability_at = 3.0, ability_every = 12.0),  # walls: Bouncing Bomb, recharges
+    'cannoncart': TroopProfile(order = 2, spread = False, gap = 1.0, ability_at = None),  # stays a mobile cart (Mortar Mode left off)
+    'archer': TroopProfile(order = 3, spread = False, gap = 1.0, ability_at = None),  # Cloak (11 s, passive): behind the tanks
+    'dropship': TroopProfile(order = 3, spread = False, gap = 1.5, ability_at = 6.0),  # Skeleton Bomb over the walls
+    'minion': TroopProfile(order = 3, spread = False, gap = 1.0, ability_at = None),  # Power Shot (passive)
+    'witch': TroopProfile(order = 3, spread = False, gap = 2.0, ability_at = 6.0),  # behind the tanks: Bat Swarm
+    'babydragon': TroopProfile(order = 3, spread = True, gap = 1.0, ability_at = 5.0),  # Tantrum: stronger with no air unit near, so apart; Fiery Sneeze
 }
 UNKNOWN = TroopProfile(order = 9, spread = True, gap = 0.3, ability_at = 10.0)
 
-# (troop, template of its card portrait), cut from live GPG bars
-TROOP_TEMPLATES = (('pekka', 'bbpekka.png'), ('bomber', 'bbbomber.png'), ('witch', 'bbwitch.png'))
+# (troop, template of its card portrait), cut from a live GPG bar and from the Change Troops
+# menu, whose portraits are drawn at the bar's scale (the bar's templates match it at 0.96+)
+TROOP_TEMPLATES = tuple((troop, f'bb{troop}.png') for troop in PROFILES if troop != MACHINE)
 _MATCH_MIN = 0.8
 # A card whose troop died in the last stage is drawn in grey but its portrait still matches
 # (0.86 measured): colour tells. Mean HSV saturation of a portrait, live GPG: 75-160 alive,
@@ -117,7 +125,7 @@ def plan(cards, machine, entry, front, frame_height, rng = random):
     spread ones take the ``front`` slots in turn.'''
     jitter = _ENTRY_JITTER * frame_height
     near = lambda: (int(entry[0] + rng.uniform(-jitter, jitter)), int(entry[1] + rng.uniform(-jitter, jitter)))
-    groups = sorted({c.troop for c in cards}, key = lambda t: PROFILES.get(t, UNKNOWN).order)
+    groups = sorted({c.troop for c in cards}, key = lambda t: (PROFILES.get(t, UNKNOWN).order, t))
     steps = []
     if machine is not None:
         steps.append(Step(machine, near(), 0.0, PROFILES[MACHINE]))

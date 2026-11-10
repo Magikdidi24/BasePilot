@@ -66,6 +66,14 @@ class BarTests(unittest.TestCase):
         self.assertEqual([c.troop for c in cards], ['witch', 'bomber'])
         self.assertTrue(abs(cards[0].tap[0] - 351) <= 20)  # the second card, the one in colour
 
+    def test_every_troop_of_the_change_troops_menu(self):
+        # the menu draws the portraits at the bar's scale: each card is read as a bar card
+        # whose swap button would sit under it
+        frame = canvas('gpg767_bb_change_troops', 300, 470)
+        troops = ['barbarian', 'archer', 'boxer', 'minion', 'bomber', 'babydragon', 'cannoncart', 'witch', 'dropship', 'pekka']
+        swaps = [(round(360.2 + 86.2 * i) + 14, 587) for i in range(len(troops))]
+        self.assertEqual([bb_strategy.identify(VisionService, frame, s) for s in swaps], troops)
+
     def test_an_unknown_card_is_no_troop(self):
         frame = canvas('gpg767_bb_bar', 100, 640)
         self.assertEqual(bb_strategy.identify(VisionService, frame, (900, 732)), '')  # an empty reinforcement slot

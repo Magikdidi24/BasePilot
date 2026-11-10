@@ -52,9 +52,16 @@ profile:
 | Troop | Order | Lands | Ability (its card tapped again) |
 |---|---|---|---|
 | Battle Machine / Copter | first, the tank | the entry point | at 16 s, charged |
+| Boxer Giant | right behind | the entry point | Boxer Block shield at 7 s |
 | Power P.E.K.K.A | right behind | the entry point | Overcharge at 9 s |
+| Raged Barbarian | behind the tanks | the entry point | Rage (passive, first 22 s) |
 | Bomber | 1.5 s later, behind the tanks | the entry point | Bouncing Bomb at 3 s, then every 12 s |
+| Cannon Cart | behind the tanks | the entry point | none (stays a cart) |
+| Sneaky Archer | support | the entry point | Cloak (passive, first 11 s) |
+| Drop Ship | support | the entry point | Skeleton Bomb at 6 s |
+| Beta Minion | support | the entry point | Power Shot (passive) |
 | Night Witch | 2 s later, behind the tanks | the entry point | Bat Swarm at 6 s |
+| Baby Dragon | support | apart, a slot each along the front (Tantrum) | Fiery Sneeze at 5 s |
 | any other troop | last | a slot of its own along the front | at 10 s |
 
 The entry point is one of three spots along the top edges of the diamond (the bottom edges
