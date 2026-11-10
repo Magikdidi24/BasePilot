@@ -9,9 +9,10 @@ from app.config import ASPECT_16_10, ASPECT_16_9, Config
 from app.core.clan import ClanAssistant, ClanOptions, missing_templates
 from app.core.loot_filter import TEMPLATE_NEXT_BASE, LootFilter, combine_reads, meets, read_enemy_loot
 from app.core.strategies import AttackStrategy, EdragStrategy, TroopSpamStrategy, _EDRAG_DELAY
-from app.core.build_panel import BuildPanelUpgrader, wall_upgrade_button
+from app.core.build_panel import BuildPanelUpgrader, gem_prompt_visible, wall_upgrade_button
+from app.core.upgrade_menu import RESOURCE_ELIXIR, RESOURCE_GOLD
 from app.core.upgrader import AUTO_UPGRADE_MODES, LIVE_UPGRADE_MODES, MODE_OFF, UpgradeAdvisor, is_october_build_panel_hud
-from app.core.village_state import read_hud_triplet_stable, read_village_state, read_village_state_stable
+from app.core.village_state import read_hud_triplet_stable, read_village_state, read_village_state_stable, storages_full
 from app.services.input import InputService
 from app.services.vision import BOTTOM_HALF_BOT_TEMPLATES, TOP_HALF_BOT_TEMPLATES, VisionService
 from app.services.window import WindowService
@@ -81,6 +82,30 @@ _LOOT_READ_SAMPLES = 3  # reads folded into one verdict (a single read drops dig
 _LOOT_DELTA_MAX_MAIN = 3000000
 _LOOT_DELTA_MAX_DARK = 50000
 
+# The game's own Android dialogs when it drops the server: "Connection lost / Try again"
+# and, after a few idle minutes, "Anyone there? / Reload game". Their only action is a
+# cyan text button about 0.1 H under the title, left-aligned with it; reloading spends nothing.
+_RECONNECT_TITLES = ('Connection lost', 'Anyone there')
+
+
+def reconnect_button(vision, frame):
+    '''Center of the reconnect button of a connection dialog, or None.'''
+    (h, w) = frame.shape[:2]
+    for title in _RECONNECT_TITLES:
+        (tx, ty) = vision.find_label(frame, title, region = (int(0.2 * w), int(0.3 * h), int(0.6 * w), int(0.35 * h)))
+        if tx is None:
+            continue
+        (x0, x1) = (max(0, int(tx - 0.12 * w)), min(w, int(tx + 0.15 * w)))
+        (y0, y1) = (min(h, int(ty + 0.04 * h)), min(h, int(ty + 0.16 * h)))
+        hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
+        cyan = (hsv[..., 0] >= 80) & (hsv[..., 0] <= 105) & (hsv[..., 1] >= 50) & (hsv[..., 2] >= 140)
+        if cyan.sum() < 20:
+            continue
+        (ys, xs) = np.nonzero(cyan)
+        return (x0 + int((xs.min() + xs.max()) // 2), y0 + int((ys.min() + ys.max()) // 2))
+    return None
+
+
 def _dump_debug_frame(frame, prefix):
     '''Save a frame to the debug dir; returns the path or None. Never raises.'''
     if frame is None:
@@ -142,8 +167,9 @@ class Bot:
         self._auto_upgrade_last_scan = 0
         self._wall_retry_at = 0
         self._reserve_builders = max(0, int(reserve_builders or 0))
-        self._upgrade_walls = bool(upgrade_walls)
+        self._walls_enabled = bool(upgrade_walls)  # not _upgrade_walls: that is the wall-pass method
         self._panel_upgrader = None
+        self._reload_first_seen = None  # a dialog seen before an earlier Stop must not skip this session's grace
         self._upgrade_order = upgrade_order
         self._advisor = None  # one UpgradeAdvisor per session (it holds execution cooldowns)
         self._clan_options = clan_options if clan_options is not None else ClanOptions()
@@ -165,12 +191,22 @@ class Bot:
                     raise RuntimeError('Multi-run: no players marked Run')
                 for player in queue:
                     self._check_stop()
-                    self._switch_account_and_load_home(player.name)
+                    try:
+                        self._switch_account_and_load_home(player.name)
+                    except InterruptedError:
+                        raise
+                    except Exception:
+                        # one unreadable name must not cost the accounts after it
+                        logger.error('Multi-run: could not switch to %r — skipping this account', player.name, exc_info = True)
+                        self._recover_safely()
+                        continue
                     # Each account sits in its own clan: start this player's session
                     # with a chat visit due instead of inheriting the last one's clocks.
                     self._clan_last_donate = _CLAN_CLOCK_NEVER
                     self._clan_last_request = _CLAN_CLOCK_NEVER
                     self._wall_retry_at = 0
+                    self._gold_pinned = self._elixir_pinned = False  # the last account's cap is not this one's
+                    self._panel_upgrader = None  # nor its failed-card cooldowns
                     self._check_stop()
                     self._run_loop(method, duration, star_bonus, upgrade_walls)
                     self._check_stop()
@@ -328,7 +364,7 @@ wall upgrades for the first pre-Attack snapshot that would otherwise count as an
         if self._find_home_village_builder(frame, bottom)[0]:
             return True
         if self.vision.find_template(frame, 'mbuilder.png', region = bottom)[0]:
-            return False
+            return bool(getattr(self, '_builder_base', False))  # the other village, unless that is where we farm
         return bool(self.vision.find_template(frame, 'attack.png', region = bottom)[0] and self.vision.find_template(frame, 'build.png')[0])
 
     
@@ -461,7 +497,9 @@ past the bottom is a harmless no-op, so this can be called repeatedly.
 
 
     def _should_upgrade_walls(self):
-        '''True when a wall pass is worth what it costs.
+        '''The resources a wall pass may spend (a set of RESOURCE_GOLD / RESOURCE_ELIXIR, empty
+        when the pass is not worth what it costs). Only those pay: walls bought with elixir
+        because gold was full would drain the elixir the laboratory needs.
 
         A pass is expensive: it opens the builder menu, OCR-scrolls to find the Wall row,
         batches walls and confirms — far longer than a raid cycle. So the threshold the
@@ -475,30 +513,30 @@ past the bottom is a harmless no-op, so this can be called repeatedly.
         '''
         frame = self.window.screenshot()
         if frame is None:
-            return False
+            return frozenset()
         self._update_config_size(frame)
-        (gx, _gy) = VisionService.find_active_hgoldfull(frame)
-        (ex, _ey) = VisionService.find_active_helixirfull(frame)
-        icons_full = gx is not None or ex is not None
+        full = frozenset(r for (r, on) in zip((RESOURCE_GOLD, RESOURCE_ELIXIR), storages_full(frame)) if on)
+        icons_full = bool(full)
         threshold = int(getattr(self, '_wall_upgrade_threshold', 0) or 0)
         if threshold <= 0:
             if icons_full:
-                logger.info('Wall upgrades: full-storage icon detected (threshold is 0)')
-            return icons_full
+                logger.info('Wall upgrades: full storage (%s), threshold is 0', ', '.join(sorted(full)))
+            return full
         # Consecutive-frame agreement: a single HUD read is corrupted often enough that
         # acting on one costs a whole pointless pass either way.
         triplet = self._read_hud_triplet_stable()
         if triplet is None:
             if icons_full:
-                logger.info('Wall upgrades: HUD unreadable but a full-storage icon shows — running the pass')
-            return icons_full
+                logger.info('Wall upgrades: HUD unreadable but a storage is full (%s) — running the pass', ', '.join(sorted(full)))
+            return full
         (gold, elixir, _dark) = triplet
-        if gold >= threshold or elixir >= threshold:
-            logger.info('Wall upgrades: loot gold=%s elixir=%s reached threshold %s', gold, elixir, threshold)
-            return True
+        enough = frozenset(r for (r, v) in ((RESOURCE_GOLD, gold), (RESOURCE_ELIXIR, elixir)) if v >= threshold)
+        if enough:
+            logger.info('Wall upgrades: loot gold=%s elixir=%s reached threshold %s (paying with %s)', gold, elixir, threshold, ', '.join(sorted(enough)))
+            return enough
         logger.info('Wall upgrades: gold=%s elixir=%s below threshold %s — skipping the pass%s',
                     gold, elixir, threshold, ' (full-storage icon ignored)' if icons_full else '')
-        return False
+        return frozenset()
 
 
     def _deselect_wall_ui(self):
@@ -511,7 +549,10 @@ deselect, which would eat the upcoming Attack click.'''
 
     def _maybe_upgrade_walls(self, upgrade_walls):
         '''Upgrade walls on home when enabled and loot is high enough (threshold or full storages).'''
-        if not upgrade_walls or time.monotonic() < getattr(self, '_wall_retry_at', 0) or not self._should_upgrade_walls():  # [recovered: decompiler dropped the second `not`, so it upgraded only when storages were NOT full]
+        if not upgrade_walls or time.monotonic() < getattr(self, '_wall_retry_at', 0):
+            return None
+        resources = self._should_upgrade_walls()
+        if not resources:  # [recovered: decompiler dropped the second `not`, so it upgraded only when storages were NOT full]
             return None
         cb = getattr(self, '_status_callback', None)
         if cb:
@@ -519,9 +560,11 @@ deselect, which would eat the upcoming Attack click.'''
         self._loot_snapshot_before_attack()
         for i in range(_WALL_SINGLE_MAX):
             self._check_stop()
-            if i and not self._should_upgrade_walls():
-                break
-            bought = self._upgrade_walls()
+            if i:
+                resources = self._should_upgrade_walls()
+                if not resources:
+                    break
+            bought = self._upgrade_walls(resources)
             self._deselect_wall_ui()
             if not bought:
                 self._wall_retry_at = time.monotonic() + _WALL_RETRY_SECONDS
@@ -563,6 +606,10 @@ deselect, which would eat the upcoming Attack click.'''
             logger.warning('Auto-upgrade pass failed; continuing farm loop', exc_info = True)
             return None
 
+    def _effective_reserve(self):
+        '''Builders kept free for walls; with wall upgrades off they would only sit idle.'''
+        return getattr(self, '_reserve_builders', 1) if getattr(self, '_walls_enabled', False) else 0
+
     def _build_panel_upgrader(self):
         if getattr(self, '_panel_upgrader', None) is None:
             self._panel_upgrader = BuildPanelUpgrader(self.window, self.input, self.vision, self.config, self.stop_event)
@@ -571,9 +618,7 @@ deselect, which would eat the upcoming Attack click.'''
     def _build_panel_pass(self, mode):
         '''October 2026 HUD: one upgrade and one research from the Build panel, never with
         the goblin and never through a gem prompt (see :mod:`app.core.build_panel`).'''
-        # The reserve keeps a builder for walls; with walls off it would only sit idle.
-        reserve = getattr(self, '_reserve_builders', 1) if getattr(self, '_upgrade_walls', False) else 0
-        note = self._build_panel_upgrader().run_pass(mode, reserve_builders = reserve, order = getattr(self, '_upgrade_order', None),
+        note = self._build_panel_upgrader().run_pass(mode, reserve_builders = self._effective_reserve(), order = getattr(self, '_upgrade_order', None),
                                              builder_base = getattr(self, '_builder_base', False))
         logger.info('Upgrades: %s', note)
         cb = getattr(self, '_status_callback', None)
@@ -752,15 +797,11 @@ deselect, which would eat the upcoming Attack click.'''
         if frame is None:
             return None
         self._update_config_size(frame)
-        state = read_village_state(frame)
+        state = read_village_state(frame, self.config)
         self._emit_village_state(state, 'farming')
         if state is None:
             return None
-        if is_october_build_panel_hud(self.vision, frame):
-            # Idling waits for a spend that the new HUD cannot make (auto-upgrade is off there)
-            # and for a builder count read where the old chip was: it would idle for good.
-            return None
-        reserve = getattr(self, '_reserve_builders', 1)
+        reserve = self._effective_reserve()
         free = state.free_builders
         # Spend eagerly: ANY full storage with a spare builder is money leaking (live
         # pain: Grand Warden started with elixir, then the free builder sat next to a
@@ -795,7 +836,7 @@ deselect, which would eat the upcoming Attack click.'''
             # farming until both numbers pin at their caps.
             logger.info('Idle gate: storages ~full but still filling (gold pinned=%s, elixir pinned=%s) — farming on', getattr(self, '_gold_pinned', False), getattr(self, '_elixir_pinned', False))
             return None
-        reserve = getattr(self, '_reserve_builders', 1)
+        reserve = self._effective_reserve()
         cb = getattr(self, '_status_callback', None)
         logger.info('Idle gate: nothing startable with storages full (%s) — pausing attacks, rechecking every %ds', state.summary(), _IDLE_RECHECK_SECONDS)
         while True:
@@ -815,6 +856,10 @@ deselect, which would eat the upcoming Attack click.'''
             self._home_screen_recovery()
             # Idling can last hours; clanmates still ask for troops in that time.
             self._maybe_clan_assist()
+            # A builder or the lab may have freed up: one pass spends on it right here
+            # (it only reads the chips when nothing is free).
+            self._maybe_auto_upgrade(force = True)
+            self._safely('Wall pass', self._maybe_upgrade_walls, getattr(self, '_walls_enabled', False))
             state = self._read_state_stable()
             if state is None:
                 continue
@@ -838,7 +883,7 @@ deselect, which would eat the upcoming Attack click.'''
         self._emit_village_state(state, 'farming')
 
 
-    def _upgrade_walls(self):
+    def _upgrade_walls(self, resources = (RESOURCE_ELIXIR, RESOURCE_GOLD)):
         '''Open builder menu, scroll to Wall, add walls → remove if both red → Okay.'''
         frame = self.window.screenshot()
         if frame is None:
@@ -904,9 +949,9 @@ deselect, which would eat the upcoming Attack click.'''
             self._deselect_wall_ui()
             return None
         self.input.click(pause = 0.6, rand = False, *wall_pt)
-        return self._buy_selected_wall()
+        return self._buy_selected_wall(resources)
 
-    def _buy_selected_wall(self):
+    def _buy_selected_wall(self, resources = (RESOURCE_ELIXIR, RESOURCE_GOLD)):
         '''The Wall card selected a wall: tap that wall's own Upgrade button (elixir first,
         then gold), then confirm its upgrade dialog the gem-safe way. True when bought.'''
         tile = None
@@ -917,7 +962,7 @@ deselect, which would eat the upcoming Attack click.'''
             if frame is None:
                 return None
             self._update_config_size(frame)
-            tile = wall_upgrade_button(self.vision, frame)
+            tile = wall_upgrade_button(self.vision, frame, resources)
             if tile:
                 break
             if self.stop_event.wait(0.5):
@@ -943,7 +988,11 @@ deselect, which would eat the upcoming Attack click.'''
         green Claim button outranks its grey X; both have their own art (exit.png does
         not match).'''
         # allow_okay=False for screens the caller has not inspected: their Okay may confirm a purchase.
-        names = ['okay.png', 'exit.png'] if allow_okay else ['exit.png']
+        # A gem on screen means a gem purchase is on offer: never its Okay, only an X.
+        if allow_okay and gem_prompt_visible(self.vision, frame):
+            logger.warning('Popup with a gem icon: closing it, not pressing its Okay')
+            allow_okay = False
+        names = ['okay.png', 'exit.png', 'closex.png'] if allow_okay else ['exit.png', 'closex.png']
         for extra in ('claim_btn.png', 'dailyreward_x.png', 'needgold_x.png'):
             if get_template_path(extra).exists():
                 names.append(extra)
@@ -1007,17 +1056,23 @@ deselect, which would eat the upcoming Attack click.'''
         # ends the session; full storages park the loop in _maybe_idle instead.
         deadline = start_time + duration_seconds if duration_seconds else None
         self._maybe_clan_assist()
-        self._maybe_upgrade_walls(upgrade_walls)
+        self._safely('Wall pass', self._maybe_upgrade_walls, upgrade_walls)
         self._maybe_auto_upgrade()
-        self._maybe_idle(deadline)
+        self._safely('Idle gate', self._maybe_idle, deadline)
         cb = getattr(self, '_status_callback', None)
         troop_failures = 0
         while deadline is None or time.time() < deadline:
             self._check_stop()
-            outcome = self._find_match_and_attack(method_id)
-            if outcome != 'no_attack':
-                self._return_home()
-            self._home_screen_recovery()
+            outcome = 'no_attack'
+            try:
+                outcome = self._find_match_and_attack(method_id)
+                if outcome != 'no_attack':
+                    self._return_home()
+            except InterruptedError:
+                raise
+            except Exception:
+                logger.error('Attack cycle failed (outcome so far: %s)', outcome, exc_info = True)
+            self._recover_safely()
             if outcome in ('troop', 'no_attack'):
                 # A cycle that never reached a battle used to count as a success and loop
                 # silently (efebolukbasi/BasePilot#7, #9); it now backs off like missing troops.
@@ -1035,7 +1090,7 @@ deselect, which would eat the upcoming Attack click.'''
                         troop_failures = 0
                         if self.stop_event.wait(_IDLE_RECHECK_SECONDS):
                             return None
-                        self._home_screen_recovery()
+                        self._recover_safely()
                         continue
                     msg = f'''{what} {troop_failures} times in a row — stopping. Check the army / saved recipe, and that the game shows the home village.'''
                     logger.warning(msg)
@@ -1054,9 +1109,9 @@ deselect, which would eat the upcoming Attack click.'''
             else:
                 troop_failures = 0
             self._maybe_clan_assist()
-            self._maybe_upgrade_walls(upgrade_walls)
+            self._safely('Wall pass', self._maybe_upgrade_walls, upgrade_walls)
             self._maybe_auto_upgrade()
-            self._maybe_idle(deadline)
+            self._safely('Idle gate', self._maybe_idle, deadline)
             self.input.scroll(*self._scroll_point(), 5)
             if self.stop_event.wait(random.uniform(0.15, 0.25)):
                 return None
@@ -1087,54 +1142,31 @@ deselect, which would eat the upcoming Attack click.'''
                 cb(msg)
             return None
         self._maybe_auto_upgrade()
+        failures = 0
         while time.time() - start_time < duration_seconds:
             self._check_stop()
-            self.input.scroll(*self._scroll_point(), 20)
-            if self.stop_event.wait(random.uniform(0.1, 0.25)):
-                return None
-            (ax, ay) = self._wait_for_image('attack.png', timeout = 10)
-            if not ax:
-                logger.warning('Builder Base: attack.png not found')
+            try:
+                attacked = self._bb_attack_once(cb)
+            except InterruptedError:
+                raise
+            except Exception:
+                logger.error('Builder Base: attack cycle failed', exc_info = True)
+                attacked = False
+            # A missed end (no End Battle, stars or Surrender in time) leaves the battle or its
+            # results on screen: walk back to the village before anything else.
+            self._recover_safely()
+            if not attacked:
+                failures += 1
+                if failures >= _TROOP_FAILURE_LIMIT:
+                    msg = f'''Builder Base: {failures} cycles in a row without a battle — stopping. Check that the Builder Base is on screen.'''
+                    logger.warning(msg)
+                    if cb:
+                        cb(msg)
+                    return None
+                if self.stop_event.wait(_TROOP_RETRY_WAIT_SECONDS):
+                    return None
                 continue
-            self.input.click(ax, ay, pause = 0.15)
-            (fx, fy) = self._wait_for_image('findnow.png', timeout = 10)
-            if not fx:
-                logger.warning('Builder Base: findnow.png not found')
-                continue
-            self.input.click(fx, fy, pause = 0.15)
-            (bx, by) = self._wait_for_image(_BB_CARD_SWAP_TEMPLATE, timeout = 30, error = False)
-            if not bx:
-                msg = 'Builder Base: troop cards not found after Find Now'
-                logger.warning(msg)
-                if cb:
-                    cb(msg)
-                continue
-            frame = self.window.screenshot()
-            if frame is None:
-                continue
-            self._update_config_size(frame)
-            (h, w) = frame.shape[:2]
-            cy = h // 2
-            cx = w // 2
-            self.input.move(cx, cy)
-            if self.stop_event.wait(0.05):
-                return None
-            self.input.scroll(cx, cy, 4)
-            if self.stop_event.wait(0.15):
-                return None
-            frame = self.window.screenshot()
-            if frame is None:
-                continue
-            self._update_config_size(frame)
-            if not self._deploy_bb_army(frame):
-                logger.warning('Builder Base: troop cards lost after zoom nudge / deploy failed')
-                continue
-            if self._loot_prioritise == 'elixir':
-                self._bb_surrender_and_return_home()
-            elif self._loot_prioritise == 'gold':
-                self._bb_gold_prioritise_end_battle_and_return_home()
-            else:
-                self._bb_end_battle_and_return_home()
+            failures = 0
             self._bb_collect_elixir_cart_after_attack()
             self._maybe_auto_upgrade()
             if star_bonus and self._is_bb_star_bonus_finished():
@@ -1143,6 +1175,75 @@ deselect, which would eat the upcoming Attack click.'''
             if self.stop_event.wait(random.uniform(0.35, 0.6)):
                 return None
         return None
+
+    def _bb_attack_once(self, cb):
+        '''One Builder Base battle: Battle → Find Now → deploy → end it per loot_prioritise.
+        False when no battle was played (a control never showed up).'''
+        self.input.scroll(*self._scroll_point(), 20)
+        if self.stop_event.wait(random.uniform(0.1, 0.25)):
+            self._check_stop()
+        (ax, ay) = self._wait_for_image('attack.png', timeout = 10)
+        if not ax:
+            logger.warning('Builder Base: attack.png not found')
+            return False
+        self.input.click(ax, ay, pause = 0.15)
+        (fx, fy) = self._wait_for_image('findnow.png', timeout = 10)
+        if not fx:
+            logger.warning('Builder Base: findnow.png not found')
+            return False
+        self.input.click(fx, fy, pause = 0.15)
+        (bx, by) = self._wait_for_image(_BB_CARD_SWAP_TEMPLATE, timeout = 30, error = False)
+        if not bx:
+            msg = 'Builder Base: troop cards not found after Find Now'
+            logger.warning(msg)
+            if cb:
+                cb(msg)
+            return False
+        frame = self.window.screenshot()
+        if frame is None:
+            return False
+        self._update_config_size(frame)
+        (h, w) = frame.shape[:2]
+        (cx, cy) = (w // 2, h // 2)
+        self.input.move(cx, cy)
+        if self.stop_event.wait(0.05):
+            self._check_stop()
+        self.input.scroll(cx, cy, 4)
+        if self.stop_event.wait(0.15):
+            self._check_stop()
+        frame = self.window.screenshot()
+        if frame is None:
+            return False
+        self._update_config_size(frame)
+        if not self._deploy_bb_army(frame):
+            logger.warning('Builder Base: troop cards lost after zoom nudge / deploy failed')
+            return False
+        if self._loot_prioritise == 'elixir':
+            self._bb_surrender_and_return_home()
+        elif self._loot_prioritise == 'gold':
+            self._bb_gold_prioritise_end_battle_and_return_home()
+        else:
+            self._bb_end_battle_and_return_home()
+        return True
+
+    def _recover_safely(self):
+        '''Home-screen recovery that cannot end the run (a long reward overlay raises).'''
+        try:
+            self._home_screen_recovery()
+        except InterruptedError:
+            raise
+        except Exception:
+            logger.error('Recovery failed; the next cycle starts from whatever screen is up', exc_info = True)
+
+    def _safely(self, what, fn, *args):
+        '''Run a between-raids hook; an error in it is logged, the farm loop goes on.'''
+        try:
+            return fn(*args)
+        except InterruptedError:
+            raise
+        except Exception:
+            logger.error('%s failed; the farm loop goes on', what, exc_info = True)
+            return None
 
     
     def _bb_pan_down_left_from_center(self):
@@ -1218,8 +1319,8 @@ deselect, which would eat the upcoming Attack click.'''
         swaps = VisionService.find_all_template_centers(frame, _BB_CARD_SWAP_TEMPLATE, region = roi, max_matches = 12, suppress_pad_frac = _BB_TEMPLATE_SUPPRESS_PAD)
         heroes = [self.vision.find_template(frame, t, region = roi)[0] for t in (_BB_BATTLE_MACHINE_TEMPLATE, _BB_FLYING_MACHINE_TEMPLATE)]
         hero_x = next((x for x in heroes if x), None)
-        lift = self.config.scale_scalar(_BB_CARD_ABOVE_SWAP)
-        near = self.config.scale_scalar(_BB_CARD_ABOVE_SWAP)  # a card is ~1.4x that wide
+        lift = int(round(_BB_CARD_ABOVE_SWAP * frame.shape[0] / 1600))  # 16:10 reference px; the bar scales with the height
+        near = lift  # a card is ~1.4x that wide
         cards = [(x, y - lift) for (x, y) in sorted(swaps) if hero_x is None or abs(x - hero_x) > near]
         if not cards:
             return False
@@ -1746,6 +1847,31 @@ Returns (``"return"`` | ``"chest"``, x, y) or (None, None, None) on timeout.
                     return None
                 continue
             self._update_config_size(frame)
+            # First: the game dims everything behind this dialog, and the buttons under it
+            # (End Battle, Return Home...) still match, so any earlier check would eat the pass.
+            (lx, ly) = self.vision.find_template(frame, 'reload.png') if get_template_path('reload.png').exists() else (None, None)
+            if not lx:
+                (lx, ly) = reconnect_button(self.vision, frame) or (None, None)
+            if lx:
+                now = time.monotonic()
+                first = getattr(self, '_reload_first_seen', None)
+                if first is None:
+                    self._reload_first_seen = now
+                    logger.warning('Recovery: connection-lost dialog detected — waiting %ds before reloading (another device may be using the account)', _RELOAD_GRACE_SECONDS)
+                    # Wait it out here: spread over farm cycles, the grace costs four failed
+                    # cycles and stops a timed run right as the game reconnects.
+                    if self.stop_event.wait(_RELOAD_GRACE_SECONDS):
+                        return None
+                    continue
+                if now - first >= _RELOAD_GRACE_SECONDS:
+                    logger.warning('Recovery: connection-lost dialog persisted — clicking RELOAD')
+                    self.input.click(lx, ly, pause = 1.0)
+                    self._reload_first_seen = None
+                    if self.stop_event.wait(10):
+                        return None
+                if self.stop_event.wait(2):
+                    return None
+                continue
             if self._battle_rewards.handle(frame):
                 continue
             if self._dismiss_okay_or_exit_on_frame(frame):
@@ -1771,23 +1897,6 @@ Returns (``"return"`` | ``"chest"``, x, y) or (None, None, None) on timeout.
                 if self.stop_event.wait(0.5):
                     return None
                 continue
-            if get_template_path('reload.png').exists():
-                (lx, ly) = self.vision.find_template(frame, 'reload.png')
-                if lx:
-                    now = time.monotonic()
-                    first = getattr(self, '_reload_first_seen', None)
-                    if first is None:
-                        self._reload_first_seen = now
-                        logger.warning('Recovery: connection-lost dialog detected — waiting %ds before reloading (another device may be using the account)', _RELOAD_GRACE_SECONDS)
-                    elif now - first >= _RELOAD_GRACE_SECONDS:
-                        logger.warning('Recovery: connection-lost dialog persisted — clicking RELOAD')
-                        self.input.click(lx, ly, pause = 1.0)
-                        self._reload_first_seen = None
-                        if self.stop_event.wait(10):
-                            return None
-                    if self.stop_event.wait(2):
-                        return None
-                    continue
             if self._home_hud_visible(frame):
                 self._reload_first_seen = None
                 return None

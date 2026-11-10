@@ -63,19 +63,58 @@ class VillageState:
         return f'builders {b} free, lab {l} free, storages {s}'
 
 
-def read_village_state(frame):
+# October 2026 HUD: the gold and elixir bars sit at the top right and fill from right to
+# left. Just right of a bar's left cap (live 16:10: x 1528-1540 of 1920, cap at ~1526), in
+# screen heights from the right edge, plus each bar's y band.
+_BAR_LEFT_END_X = (0.3267, 0.3167)
+_GOLD_BAR_Y = (0.0383, 0.0483)
+_ELIXIR_BAR_Y = (0.0967, 0.1067)
+
+
+def is_october_hud(frame):
+    (h, w) = frame.shape[:2]
+    return VisionService.find_template(frame, 'build.png', region = (w // 2, h // 2, w - w // 2, h - h // 2))[0] is not None
+
+
+def storages_full(frame):
+    '''``(gold_full, elixir_full)`` on the home screen: a storage is full when the left end
+    of its bar is coloured (~96%+). The old full-storage icons matched any filled stretch
+    of the October 2026 bars, so they read "full" at 10M of 14M.'''
+    if not is_october_hud(frame):
+        # Not the home screen (a panel moves the bars, a dialog covers them): unknown, and
+        # "full" is the claim that triggers spending, so it is not made blind. The old HUD's
+        # full-storage icons are gone from the game; their templates match any bar now.
+        return (False, False)
+    (h, w) = frame.shape[:2]
+    (x0, x1) = (int(w - _BAR_LEFT_END_X[0] * h), int(w - _BAR_LEFT_END_X[1] * h))
+    gold = frame[int(_GOLD_BAR_Y[0] * h):int(_GOLD_BAR_Y[1] * h), x0:x1]
+    elixir = frame[int(_ELIXIR_BAR_Y[0] * h):int(_ELIXIR_BAR_Y[1] * h), x0:x1]
+    # The empty stretch of a bar is translucent: grass behind it passes the default yellow
+    # test (H 34-36). The real fill is H 22-27 and bright.
+    return (VisionService.yellow_fraction(gold, hue_hi = 30, val_floor = 200) >= 0.6, VisionService.pink_fraction(elixir) >= 0.6)
+
+
+def read_village_state(frame, config = None):
     '''Parse a home-screen frame → :class:`VillageState`. Chip reads are OCR — callers
     that gate behavior on them should tolerate ``None`` (busy frames misread; the
-    idle gate re-reads on its next wake anyway).'''
+    idle gate re-reads on its next wake anyway). On the October 2026 HUD the chips sit
+    above the Build button and count only regular builders / researchers: the goblin
+    (paid in gems) is never free for the bot.'''
     if frame is None or frame.size == 0:
         return None
-    (gx, _gy) = VisionService.find_active_hgoldfull(frame)
-    (ex, _ey) = VisionService.find_active_helixirfull(frame)
+    (gold_full, elixir_full) = storages_full(frame)
+    if is_october_hud(frame):
+        from app.config import Config
+        from app.core.build_panel import read_chips  # build_panel imports this module
+        chips = read_chips(VisionService, config or Config(), frame)
+        (builders, lab) = ((c.regular_free, c.total) if c is not None else None for c in chips)
+    else:
+        (builders, lab) = (parse_builder_chip(frame), parse_lab_chip(frame))
     state = VillageState(
-        builders = parse_builder_chip(frame),
-        lab = parse_lab_chip(frame),
-        gold_full = gx is not None,
-        elixir_full = ex is not None,
+        builders = builders,
+        lab = lab,
+        gold_full = gold_full,
+        elixir_full = elixir_full,
         captured_at = time.monotonic())
     logger.debug('village state: %s', state.summary())
     return state

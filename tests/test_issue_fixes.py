@@ -98,14 +98,28 @@ class WallTests(unittest.TestCase):
 
 class IdleGateTests(unittest.TestCase):
     @patch('app.core.bot.read_village_state')
-    def test_no_idling_on_the_october_hud(self, state):
+    def test_full_storages_idle_until_a_builder_frees_up(self, state):
         bot = make_bot()
         bot._auto_upgrade_mode = 'maxer'
         bot._emit_village_state = Mock()
-        state.return_value = SimpleNamespace(storages_full=True, free_builders=None, gold_full=True, elixir_full=True)
-        bot.vision.find_template.side_effect = lambda f, name, **kw: (1200, 650) if name == 'build.png' else (None, None)
-        self.assertIsNone(bot._maybe_idle(None))
-        bot.stop_event.wait.assert_not_called()  # returned at once instead of idling
+        bot._maybe_auto_upgrade = Mock(return_value=None)
+        bot._home_screen_recovery = Mock()
+        bot._maybe_clan_assist = Mock()
+        bot._maybe_upgrade_walls = Mock()
+        bot._walls_enabled = True
+        bot._reserve_builders = 0
+        bot._gold_pinned = bot._elixir_pinned = True
+        full = SimpleNamespace(storages_full=True, free_builders=0, builders=(0, 6), lab_idle=False,
+                               gold_full=True, elixir_full=True, summary=lambda: 'full')
+        freed = SimpleNamespace(storages_full=True, free_builders=1, builders=(1, 6), lab_idle=False,
+                                gold_full=True, elixir_full=True, summary=lambda: 'a builder free')
+        state.return_value = full
+        bot._read_state_stable = Mock(side_effect=[full, freed])
+        bot._maybe_idle(None)
+        self.assertEqual(bot._read_state_stable.call_count, 2)  # idled one wake, then left on the free builder
+        bot._maybe_auto_upgrade.assert_called_with(force=True)  # the wake spends on it right away
+        bot._maybe_upgrade_walls.assert_called_with(True)  # and tries the walls, the reserved builder's job
+        self.assertEqual(bot._auto_upgrade_last_scan, 0)
 
 
 class AutoUpgradeGateTests(unittest.TestCase):

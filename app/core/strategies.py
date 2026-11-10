@@ -38,7 +38,8 @@ class AttackStrategy:
 
     
     def _expand_loc(self, x, y):
-        return (x + random.randint(-10, 10), y + random.randint(-10, 10))
+        j = self.config.scale_scalar(10)  # reference px, like the deploy points themselves
+        return (x + random.randint(-j, j), y + random.randint(-j, j))
 
     
     def _sync_frame_size(self, frame):
@@ -346,7 +347,7 @@ If L,T,R are collinear, uses a quadratic Bezier with control point chosen so t=0
         points = self._sample_arc_through_three(ltr, 11)
         if random.choice((True, False)):
             points.reverse()
-        jitter_px = 100
+        jitter_px = self.config.scale_scalar(100)
         return [ (cx + random.randint(-jitter_px, jitter_px), cy + random.randint(-jitter_px, jitter_px)) for cx, cy in points ]
         cy = None
         cx = None
@@ -357,10 +358,11 @@ If L,T,R are collinear, uses a quadratic Bezier with control point chosen so t=0
         (x1, y1) = self._point(c1)
         (x2, y2) = self._point(c2)
         edge_len = math.hypot(x2 - x1, y2 - y1)
-        if edge_len <= 2 * _EDRAG_CORNER_MARGIN:
+        margin = self.config.scale_scalar(_EDRAG_CORNER_MARGIN)
+        if edge_len <= 2 * margin:
             t = 0.5
         else:
-            t_min = _EDRAG_CORNER_MARGIN / edge_len
+            t_min = margin / edge_len
             t_max = 1 - t_min
             t = random.uniform(t_min, t_max)
         xf = x1 + (x2 - x1) * t

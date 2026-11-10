@@ -17,6 +17,7 @@ pixels bleed through and OCR picks up stray words — the x/y fences below are w
 that noise out of rows.
 '''
 import difflib
+import re
 from dataclasses import dataclass, replace
 from typing import List, Optional, Tuple
 
@@ -73,19 +74,22 @@ def is_wall_row(row):
 
 
 def is_town_hall_row(row):
-    '''Fuzzy on purpose — this exclusion is what keeps the maxer off the Town Hall,
-    and OCR mangles the label ('TownMall', 'TownHail', 'TownHali' — all live) past
-    any exact substring check. Priciest-first made this a live bug: the TH row is
-    the most expensive row on the board, so a mangled TH label became the top pick
-    (the red-cost veto blocked the actual purchase 14× — but the pick wasted every
-    pass until cooldown).'''
+    '''The village's hall: the Town Hall, or the Builder Hall in the Builder Base (maxer
+    keeps it, rusher takes it first). Fuzzy on purpose — this exclusion is what keeps the
+    maxer off the hall, and OCR mangles the label ('TownMall', 'TownHail', 'TownHali' —
+    all live) past any exact substring check. Priciest-first made this a live bug: the TH
+    row is the most expensive row on the board, so a mangled TH label became the top pick.
+    A label cut down to its first word ('Town', 'Towm') still counts: no other building
+    name starts with Town (Tower and Tornado do not match the pattern).'''
     compact = _normalize_label(row.label).replace(' ', '')
-    if 'townhall' in compact:
+    if 'townhall' in compact or 'builderhall' in compact:
         return True
+    if re.match('to(w|v|vv)[nmh]', compact) or re.fullmatch('bui?lder', compact):
+        return True  # 'Town', 'Towm', 'Tovvn' (not 'Tower', 'Tornado'); 'Builder' alone (a cut Barracks waits one pass)
     # Probe the prefix too: trailing OCR junk ('townmallx2') dilutes the full-string
-    # ratio below threshold while the first 8 chars still read as the Town Hall.
-    return any(difflib.SequenceMatcher(None, probe, 'townhall').ratio() >= 0.8
-               for probe in (compact, compact[:8]))
+    # ratio below threshold while the first chars still read as the hall.
+    return any(difflib.SequenceMatcher(None, probe, 'townhall').ratio() >= 0.8 for probe in (compact, compact[:8])) \
+        or any(difflib.SequenceMatcher(None, probe, 'builderhall').ratio() >= 0.8 for probe in (compact, compact[:11]))
 
 
 def _line_text(words):

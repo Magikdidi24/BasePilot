@@ -2,8 +2,9 @@
 builder menu, OCR'd resources, and free builders.
 
 Maxer and rusher are one engine with different rules — not two bots:
-- maxer: never touches the Town Hall row; spends on everything else, cheapest first.
-- rusher: takes the Town Hall the moment it is affordable; otherwise cheapest first.
+- maxer: never touches the hall (Town Hall, Builder Hall); spends on everything else,
+  priciest first by default (``order``).
+- rusher: takes the hall the moment it is affordable; otherwise the same order.
 
 Shared invariants: keep ``reserve_builders`` free (walls are the overflow sink for
 the reserved builder — the existing wall flow handles those), and keep a gold buffer

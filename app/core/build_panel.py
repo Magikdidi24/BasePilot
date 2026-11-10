@@ -20,6 +20,7 @@ right edge and scale with the screen height, so x offsets are in units of the he
 '''
 import difflib
 import re
+import time
 from dataclasses import dataclass
 
 import cv2
@@ -60,6 +61,7 @@ _RED_COST = 0.08  # share of red pixels in the cost box that marks it unaffordab
 _GEM_ICON = 'gemicon.png'
 _CLOSE_TEMPLATES = ('closex.png', 'exit.png')
 _CLOSE_MIN = 0.72
+_FAILED_COOLDOWN = 1800  # s: a card whose start failed is left alone this long, so the next pass tries another
 
 
 @dataclass(frozen = True)
@@ -91,7 +93,9 @@ def list_region(frame):
 
 
 def _anchored(frame, config, bx, by, box):
-    s = config.scale_scalar
+    # 16:10 reference px, scaled by the height like the HUD itself: config.scale_scalar
+    # divides by 1440 on a 16:9 window and would put every box ~11% too far.
+    s = lambda v: int(round(v * frame.shape[0] / 1600))
     (dx, dy, w, h) = box
     return _region(frame, bx + s(dx), by + s(dy), bx + s(dx + w), by + s(dy + h))
 
@@ -319,9 +323,9 @@ def dialog_title_ok(vision, frame):
     return any(difflib.SequenceMatcher(None, t.text.lower()[:7], 'upgrade').ratio() >= 0.8 for t in words)
 
 
-def wall_upgrade_button(vision, frame):
-    '''``(point, resource)`` of the selected wall's own Upgrade button, elixir before gold,
-    or None. Each resource button is a tile with the price and its icon on top of a
+def wall_upgrade_button(vision, frame, resources = (RESOURCE_ELIXIR, RESOURCE_GOLD)):
+    '''``(point, resource)`` of the selected wall's own Upgrade button paid with one of
+    ``resources``, elixir before gold, or None. Each resource button is a tile with the price and its icon on top of a
     hammer; the Wall Ring and Upgrade More tiles have no hammer. The selection must be a
     wall: a building's bottom bar has the same hammer button.'''
     (h, w) = frame.shape[:2]
@@ -347,7 +351,7 @@ def wall_upgrade_button(vision, frame):
             continue  # red price (not affordable) or no resource icon
         tiles.setdefault(RESOURCE_GOLD if gold > elixir else RESOURCE_ELIXIR, (x, y))
     for resource in (RESOURCE_ELIXIR, RESOURCE_GOLD):
-        if resource in tiles:
+        if resource in tiles and resource in resources:
             return (tiles[resource], resource)
     return None
 
@@ -367,6 +371,7 @@ class BuildPanelUpgrader:
         self.vision = vision
         self.config = config
         self.stop_event = stop_event
+        self._failed = {}  # card label -> time.monotonic() of its failed start
 
     def _frame(self):
         frame = self.window.screenshot()
@@ -428,6 +433,8 @@ class BuildPanelUpgrader:
                 return f'{what}: panel not opened'
             frame = self._frame()
             rows = parse_cards(self.vision, frame) if frame is not None else []
+            now = time.monotonic()
+            rows = [r for r in rows if now - self._failed.get(r.label, -_FAILED_COOLDOWN) >= _FAILED_COOLDOWN]
             pick = choose_upgrade(rows, hud, free, policy)
             logger.info('Build panel %s: %d cards, pick %s', what, len(rows), pick and (pick.label, pick.cost, pick.resource))
             if pick is None:
@@ -435,6 +442,8 @@ class BuildPanelUpgrader:
             if mode == 'dry':
                 return f'{what}: would start {pick.label} ({pick.cost})'
             result = self._start(pick)
+            if result != 'started':
+                self._failed[pick.label] = time.monotonic()
         finally:
             self._close_panel()
         if result == 'started':
