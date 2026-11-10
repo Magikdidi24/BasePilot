@@ -24,4 +24,6 @@ jobs:
       - name: Install Python dependencies
         run: pip install numpy opencv-python-headless pillow pytesseract tesserocr
       - name: Run tests
+        env:
+          TESSDATA_PREFIX: /usr/share/tesseract-ocr/5/tessdata/  # tesserocr's wheel ships no tessdata
         run: python -m unittest discover -s tests -v

@@ -59,6 +59,8 @@ class LogsPage(QWidget):
             path.parent.mkdir(parents = True, exist_ok = True)
             if not path.is_file():
                 path.touch()
+            if path.stat().st_size < self._pos:
+                self._pos = 0  # the log rolled over: follow the new file from its start
             with path.open('rb') as fh:
                 fh.seek(self._pos)
                 chunk = fh.read()

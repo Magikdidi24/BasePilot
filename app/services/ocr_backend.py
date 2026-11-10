@@ -47,7 +47,7 @@ def _engine():
     return api
 
 
-def _recognize(api, image, config):
+def _recognize(api, image, config, boxes = False):
     '''Apply a pytesseract-style config ("--psm N -c var=value") and run recognition.'''
     psm = _PSM.search(config or '')
     api.SetPageSegMode(int(psm.group(1)) if psm else tesserocr.PSM.AUTO)  # psm 3, the CLI default
@@ -56,6 +56,11 @@ def _recognize(api, image, config):
     api.SetVariable('tessedit_char_whitelist', variables.pop('tessedit_char_whitelist', ''))
     for (name, value) in variables.items():
         api.SetVariable(name, value)
+    # pytesseract's image_to_boxes runs the CLI with 'batch.nochop makebox'; mirror it (and
+    # undo it for other reads: variables persist). Only matters with legacy tessdata models.
+    nochop = '0' if boxes else '1'
+    api.SetVariable('chop_enable', nochop)
+    api.SetVariable('wordrec_enable_assoc', nochop)
     api.SetImage(image)
     # pytesseract hands the CLI a file without DPI, which then assumes 70 dpi: do the same so
     # both paths segment and read identically (otherwise the engine estimates a resolution)
@@ -95,10 +100,10 @@ def image_to_boxes(image, config = ''):
     api = _engine()
     if api is None:
         return pytesseract.image_to_boxes(image, config = config)
-    _recognize(api, image, config)
+    _recognize(api, image, config, boxes = True)
     return api.GetBoxText(0)
 
 
 def image_to_tsv(image, config = ''):
-    '''Debug dumps only: always the reference pytesseract path.'''
-    return pytesseract.image_to_tsv(image, config = config)
+    '''Debug dumps only: TSV text from the reference pytesseract path (it has no image_to_tsv).'''
+    return pytesseract.image_to_data(image, config = config)
