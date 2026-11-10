@@ -49,7 +49,17 @@ AUTO_UPGRADE_MODES = (MODE_OFF, MODE_DRY, MODE_MAXER, MODE_RUSHER)
 LIVE_UPGRADE_MODES = (MODE_MAXER, MODE_RUSHER)
 
 _BUILDER_TEMPLATES = ('builder.png', 'gbuilder.png')
-# Wheel target inside the popup body — keep in sync with bot.py _WALL_MENU_SCROLL_BASELINE.
+
+
+def _october_build_panel_hud(vision, frame):
+    '''True on the Oct 2026 HUD (a Build button replaced the builder popup). The menu
+    parser and the confirm fallbacks here were measured on the old popup; on the new
+    panel a running row's green button finishes it for gems, so never drive it blind.'''
+    if vision.find_template(frame, 'build.png', region = VisionService.bottom_half_region(frame))[0]:
+        logger.info('Auto-upgrade: the October 2026 Build panel is not supported yet — skipping (walls still run)')
+        return True
+    return False
+# Wheel target inside the (pre-October 2026) builder popup body.
 _SCROLL_BASELINE = {
     ASPECT_16_9: (1305, 605),
     ASPECT_16_10: (1305, 672) }
@@ -200,6 +210,8 @@ class UpgradeAdvisor:
         if not ax:
             logger.info('Upgrade advisor: not on the home screen (Attack missing) — skipping')
             return False
+        if _october_build_panel_hud(self.vision, frame):
+            return False
         top_roi = VisionService.top_half_region(frame)
         for name in _BUILDER_TEMPLATES:
             (bx, by) = self.vision.find_template(frame, name, region = top_roi)
@@ -226,6 +238,8 @@ class UpgradeAdvisor:
             # Not home: chip/HUD reads would be junk (and dumped chipfail frames of
             # battle screens are noise) — bail before reading anything.
             logger.info('Upgrade scan: not on the home screen (Attack missing) — skipping')
+            return None
+        if _october_build_panel_hud(self.vision, frame):
             return None
         # Stable (consecutive-frame agreement) HUD read: a corrupted single read here
         # feeds can_pay garbage (live repro: gold "66M" → policy skipped real rows).

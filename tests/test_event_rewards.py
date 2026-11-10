@@ -71,7 +71,8 @@ class EventTests(unittest.TestCase):
         bot._battle_rewards.handle.side_effect = [True, False]
         bot._wait_for_battle_end(False)
         self.input.click.assert_called_once_with(40, 570, pause=.1)
-        bot.vision.find_control.assert_called_once()
+        # one match in the wait, one re-check that End Battle (not the results screen) is up
+        self.assertEqual(bot.vision.find_control.call_count, 2)
 
     def test_shifted_ability_uses_live_portrait(self):
         frame = np.zeros((731, 1299, 3), dtype=np.uint8)

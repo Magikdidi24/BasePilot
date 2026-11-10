@@ -1,4 +1,5 @@
 import ctypes
+import time
 from ctypes import wintypes
 from dataclasses import dataclass
 import numpy as np
@@ -87,6 +88,19 @@ class WindowService:
 
 
     
+    def _ensure_hwnd(self):
+        '''True when ``self.hwnd`` is a live window. A missing or dead handle (game or Play
+        Games restarted) is re-resolved, at most every 5 s so a closed game does not flood
+        the log. (The decompiled guard this replaces returned None exactly when the lookup
+        succeeded, and never re-resolved a stale non-zero handle.)'''
+        if self.hwnd and self.user32.IsWindow(self.hwnd):
+            return True
+        now = time.monotonic()
+        if now < getattr(self, '_next_find_at', 0):
+            return False
+        self._next_find_at = now + 5
+        return self.find_window()
+
     def find_window(self):
         '''
 Resolve the game-surface HWND.
@@ -287,7 +301,7 @@ share the title substring, so no outer-class gate is needed.
         '''
 Outer window size in pixels (``GetWindowRect``), same basis as :meth:`screenshot`.
 '''
-        if not self.hwnd and self.find_window():
+        if not self._ensure_hwnd():
             return None
         
         try:
@@ -332,7 +346,7 @@ Outer window size in pixels (``GetWindowRect``), same basis as :meth:`screenshot
         Returns None when the window is minimized or renders nothing: a black frame
         matches no template and reads no text, so acting on one means clicking blind.
         '''
-        if not self.hwnd and self.find_window():
+        if not self._ensure_hwnd():
             return None
         if self.is_minimized():
             if not WindowService._minimized_logged:

@@ -94,15 +94,16 @@ try:
         'removewall.png',
         'addwallfake.png',
         'upgrademore.png',
+        'builder.png',
+        'gbuilder.png',
+        'mbuilder.png',
         'rankedbattle.png',
         'battlemachine.png',
         'flyingmachine.png',
         'removewallfake.png',
         'rankedattackconfirm.png'})
+    # The builder chips moved to the bottom right in the Oct 2026 HUD (see BOTTOM_HALF_BOT_TEMPLATES).
     TOP_HALF_BOT_TEMPLATES = frozenset({
-        'builder.png',
-        'gbuilder.png',
-        'mbuilder.png',
         'fullecart.png',
         'fullecart2.png',
         'fullecart3.png'})
@@ -1440,28 +1441,6 @@ then Tesseract with :data:`_TESSERACT_LETTERS_SPARSE`
                     continue
                 out.append(b)
             return out
-
-        
-        @staticmethod
-        def find_wall_labels_top_center_ocr(screen_img, *, side = None, min_confidence = 0, white_text = True, brightness_floor = None, cc_filter_blobs = True, cc_min_area = None, cc_max_area = None, tesseract_config = None, save_debug_preprocess = False):
-            '''
-Same pipeline as :meth:`ocr_letters_top_center`, with Tesseract limited to **walWAL** unless
-``tesseract_config`` overrides. Returns the **center** ``(x, y)`` of the OCR word whose text
-contains **wall** (case-insensitive), **lowest on the screen** (largest ``top + height``).
-``None`` if no such word. Coordinates are the full word box from Tesseract.
-
-When ``save_debug_preprocess`` is ``True``, writes the binarized ROI to
-``glyph_debug/wall_find_preprocess.png`` under the app resource root.
-'''
-            cfg = VisionService._TESSERACT_WALL_LABEL_SPARSE.strip() if tesseract_config is None else str(tesseract_config).strip()
-            debug_png = get_resource_path('glyph_debug/wall_find_preprocess.png') if save_debug_preprocess else None
-            words = VisionService.ocr_letters_top_center(screen_img, side = side, min_confidence = min_confidence, white_text = white_text, brightness_floor = brightness_floor, cc_filter_blobs = cc_filter_blobs, cc_min_area = cc_min_area, cc_max_area = cc_max_area, tesseract_config = cfg, save_preprocess_png = debug_png)
-            matches = [ b for b in words if 'wall' in b.text.lower() ]
-            if not matches:
-                return None
-            best = max(matches, key = (lambda b: b.top + b.height))
-            return best.center
-            b = None
 
         
         @staticmethod
