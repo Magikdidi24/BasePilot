@@ -13,6 +13,7 @@ from app.utils.logger import setup_logger
 
 try:
     import pytesseract
+    from app.services import ocr_backend  # tesserocr in-process when installed, else pytesseract
     logger = setup_logger('VisionService')
     
     @dataclass(frozen = True)
@@ -934,7 +935,7 @@ Write Tesseract ``image_to_tsv`` and a word-level bounding-box overlay (mono / O
             if not tsv_path is None:
                 
                 ensure_dir(tsv_path.parent)
-                tsv_raw = pytesseract.image_to_tsv(pil_mono, config = tesseract_config)
+                tsv_raw = ocr_backend.image_to_tsv(pil_mono, config = tesseract_config)
                 tsv_path.write_text(tsv_raw, encoding = 'utf-8')
                 while not boxes_png_path is None:
                     
@@ -1101,7 +1102,7 @@ very narrow glyphs (common for ``image_to_boxes``), which would falsely read as 
             cfg = '--psm 10'
             
             try:
-                data = pytesseract.image_to_data(pil, output_type = pytesseract.Output.DICT, config = cfg)
+                data = ocr_backend.image_to_data(pil, output_type = pytesseract.Output.DICT, config = cfg)
                 n = len(data.get('text', []))
                 best_c = math.nan
                 best_pri = -1
@@ -1234,7 +1235,7 @@ with ``psm10_glyph_confidence``, labels include the estimated confidence.
             (pil, mono, coord_scale, offset_x, offset_y) = prep
             
             try:
-                raw = pytesseract.image_to_boxes(pil, config = tesseract_config)
+                raw = ocr_backend.image_to_boxes(pil, config = tesseract_config)
                 mono_h = int(mono.shape[0])
                 inv = 1 / coord_scale if coord_scale > 0 else 1
                 chars = []
@@ -1334,7 +1335,7 @@ Returns:
             (pil, mono, coord_scale, offset_x, offset_y) = prep
             
             try:
-                data = pytesseract.image_to_data(pil, output_type = pytesseract.Output.DICT, config = tesseract_config)
+                data = ocr_backend.image_to_data(pil, output_type = pytesseract.Output.DICT, config = tesseract_config)
                 VisionService.save_hud_ocr_debug_outputs(pil, mono, data, tesseract_config = tesseract_config, tsv_path = ocr_debug_tsv_path, boxes_png_path = ocr_debug_boxes_png_path)
                 _ = min_confidence
                 n = len(data.get('text', []))
