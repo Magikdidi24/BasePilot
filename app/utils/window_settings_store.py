@@ -10,7 +10,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 from app.utils.common import ensure_dir, get_user_app_data_dir
+from app.utils.logger import setup_logger
+logger = setup_logger('WindowSettings')
 WINDOW_SELECTION_FILENAME = 'window.json'
+_warned_unreadable = set()  # one warning per file: every WindowService re-reads the pin, every 30 s while the game is away
 
 @dataclass
 class WindowSelection:
@@ -40,8 +43,11 @@ def load_window_selection():
         if not isinstance(raw, dict):
             return WindowSelection()
         return WindowSelection(title = str(raw.get('title', '') or ''), top_class = str(raw.get('top_class', '') or ''), child_class = str(raw.get('child_class', '') or ''))
-    except (json.JSONDecodeError, OSError):
-        return None
+    except (ValueError, OSError) as e:  # ValueError: not JSON (e.g. cut off mid-write) or not UTF-8
+        if path not in _warned_unreadable:
+            _warned_unreadable.add(path)
+            logger.warning(f'''Ignoring unreadable game-window pin {path} ({e}); using auto-detect. Pick the window again in Settings → Game window.''')
+        return WindowSelection()  # [recovered: returned None, which find_window dereferenced, so a truncated window.json made Start fail with no message]
 
 
 

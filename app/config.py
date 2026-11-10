@@ -52,14 +52,9 @@ Settings → Game window) so they can pick the correct window manually.
                 return None
             return None
         return None
-    except Exception:
-        e = None
+    except Exception as e:
         logger.error(f'''Could not show window-not-found dialog: {e}''')
-        e = None
-        del e
         return None
-        e = None
-        del e
 
 
 
@@ -75,9 +70,13 @@ bot can still try (matches the old startup skip behavior).
 is an optional callback used by the window-not-found dialog's 'Open configuration' button.
 """
     
-    from app.services.window import WindowService
-    ws = WindowService()
-    size = ws.get_outer_pixel_size()
+    try:
+        from app.services.window import WindowService
+        ws = WindowService()
+        size = ws.get_outer_pixel_size()
+    except Exception as e:  # [recovered: decompiler left the probe outside the try, so its error escaped and Start failed with no message]
+        logger.warning(f'''Could not probe game window for aspect ({e}); allowing start.''')
+        return True
     if size is None:
         _show_window_not_found_dialog(parent, on_configure)
         return False
@@ -89,27 +88,10 @@ is an optional callback used by the window-not-found dialog's 'Open configuratio
         from PySide6.QtWidgets import QMessageBox
         msg = 'Aspect ratio not supported (resize the game window to ~16:9 or ~16:10).'
         QMessageBox.critical(parent, 'BasePilot', msg)
-        
-        try:
-            return False
-        except Exception:
-            e = None
-            logger.warning(f'''Could not probe game window for aspect ({e}); allowing start.''')
-            e = None
-            del e
-            return True
-            e = None
-            del e
-
-    except Exception:
-        e = None
+    except Exception as e:
         logger.error(f'''Game window aspect not supported (~{w}x{h}). Could not show dialog: {e}''')
         print('Aspect ratio not supported', file = sys.stderr)
-        e = None
-        del e
-        return False
-        e = None
-        del e
+    return False
 
 
 
