@@ -421,6 +421,16 @@ _BUILDER_CHIP_ROI_FRAC = (0.489, 0.018, 0.05, 0.048)  # x, y, w, h as fractions 
 # BELOW y_frac 0.026 — the bobbing "i" info-bubble above the chip dips into a taller
 # ROI and breaks PSM7 line segmentation (live repro: '0' dropped, read '1').
 _LAB_CHIP_ROI_FRAC = (0.394, 0.026, 0.048, 0.036)
+# The 1 is the chip font's only narrow glyph (width 0.3-0.45 of its height; the other
+# digits and the slash 0.6 and up). Small, it is the glyph Tesseract loses: it reads it as a
+# V, which the whitelist drops, or merges it into the slash (live 1227x767: "1/2" read "2").
+_ONE_MAX_ASPECT = 0.5
+_CHIP_LINE_MARGIN = 0.3  # blank around the glyphs in the OCR line, in glyph heights
+# Shapes are only trusted in full-white ink (glyph peaks 250-255 on a clear screen). While a
+# dialog's dark overlay fades in or out, the glyph whites sit near the 190 white floor, which
+# keeps only bits of the strokes: a 0 breaks into arcs as narrow as a 1 (such splits peak at
+# 190-201). Those frames get the line read, as before.
+_CHIP_INK_MIN_PEAK = 235
 
 
 def _parse_fraction_chip(frame, roi_frac, max_total):
@@ -429,26 +439,90 @@ def _parse_fraction_chip(frame, roi_frac, max_total):
     The chips are translucent — animated village pixels behind the glyphs push the
     binarization over/under threshold frame to frame (live repro: identical-looking
     frames 2s apart read '01', '1', nothing) — so escalate through upscales/polarity
-    until one pass parses.'''
+    until one pass parses. When the ink shows the three glyphs, a narrow one reads as 1
+    from its shape and OCR, on the glyphs' own box, only names the wide ones.'''
     if frame is None or frame.size == 0:
         return None
     (fh, fw) = frame.shape[:2]
     (rx, ry, rw, rh) = roi_frac
     roi = (int(fw * rx), int(fh * ry), int(fw * rw), int(fh * rh))
+    glyphs = _chip_glyphs(frame, roi)
+    if glyphs is not None:
+        (frame, roi) = _chip_line(frame, glyphs)
     for upscale, white in ((6, True), (8, True), (6, False)):
-        parsed = _parse_fraction_chip_once(frame, roi, max_total, upscale, white)
+        parsed = _parse_fraction_chip_once(frame, roi, max_total, upscale, white, glyphs)
         if parsed is not None:
             return parsed
     return None
 
 
-def _parse_fraction_chip_once(frame, roi, max_total, roi_upscale, white_text):
+def _chip_glyphs(frame, roi):
+    '''The free digit, slash and total digit of a chip as frame boxes ``(x, y, w, h)``, from
+    its white ink (a dark outline keeps the glyphs apart), or None unless ``roi`` holds
+    exactly three glyph-tall blobs of full-white ink, none cut by its border: a cut or dimmed
+    digit can look as narrow as a 1. The bits of the face above the text are much shorter
+    than the glyphs.'''
+    (x, y, w, h) = roi
+    bgr = frame[y:y + h, x:x + w]
+    mono = VisionService.preprocess_bw_ui_text(bgr, white_text = True)
+    if mono is None or mono.size == 0:
+        return None
+    (h, w) = mono.shape[:2]
+    stats = cv2.connectedComponentsWithStats((mono == 0).astype('uint8'), connectivity = 8)[2][1:, :4]
+    if not len(stats):
+        return None
+    tallest = stats[:, 3].max()
+    glyphs = sorted(tuple(int(v) for v in s) for s in stats if s[3] >= 0.75 * tallest)
+    if len(glyphs) != 3 or any(gx == 0 or gy == 0 or gx + gw == w or gy + gh == h for (gx, gy, gw, gh) in glyphs):
+        return None
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    if any(gray[gy:gy + gh, gx:gx + gw].max() < _CHIP_INK_MIN_PEAK for (gx, gy, gw, gh) in glyphs):
+        return None
+    return [(x + gx, y + gy, gw, gh) for (gx, gy, gw, gh) in glyphs]
+
+
+def _chip_line(frame, glyphs):
+    '''``(frame, roi)`` for the OCR once the glyphs are known: a copy of the frame with the
+    1s blanked out (their shape reads them; in the line they only confuse Tesseract), and
+    the glyphs' box with a margin, set on the text itself rather than on the anchor.'''
+    frame = frame.copy()
+    for (gx, gy, gw, gh) in (glyphs[0], glyphs[2]):
+        if gw < _ONE_MAX_ASPECT * gh:
+            frame[max(0, gy - 1):gy + gh + 1, max(0, gx - 1):gx + gw + 1] = 0
+    m = _CHIP_LINE_MARGIN * max(gh for (_x, _y, _w, gh) in glyphs)
+    (fh, fw) = frame.shape[:2]
+    x0 = max(0, int(min(gx for (gx, _y, _w, _h) in glyphs) - m))
+    y0 = max(0, int(min(gy for (_x, gy, _w, _h) in glyphs) - m))
+    x1 = min(fw, int(round(max(gx + gw for (gx, _y, gw, _h) in glyphs) + m)))
+    y1 = min(fh, int(round(max(gy + gh for (_x, gy, _w, gh) in glyphs) + m)))
+    return (frame, (x0, y0, x1 - x0, y1 - y0))
+
+
+def _glyph_fraction(chars, glyphs, max_total):
+    '''``(free, total)`` from the chip glyphs: a narrow one is a 1, a wide one takes the one
+    OCR digit centred on it (whatever OCR makes of the slash is left out), else None.'''
+    digits = []
+    for (gx, _gy, gw, gh) in (glyphs[0], glyphs[2]):
+        if gw < _ONE_MAX_ASPECT * gh:
+            digits.append(1)
+            continue
+        on = [int(c.text) for c in chars if c.text.isdigit() and gx <= c.left + c.width / 2 < gx + gw]
+        if len(on) != 1:
+            return None
+        digits.append(on[0])
+    (free, total) = digits
+    return (free, total) if 0 <= free <= total <= max_total else None
+
+
+def _parse_fraction_chip_once(frame, roi, max_total, roi_upscale, white_text, glyphs = None):
     clusters = []
     VisionService.extract_grouped_numbers_in_region(
         frame, roi, white_text = white_text, cc_filter_blobs = False, roi_upscale = roi_upscale,
         tesseract_config = '--psm 7 -c tessedit_char_whitelist=0123456789l/',
         allow_hud_ocr_debug = True, hud_debug_char_clusters_out = clusters)
     logger.debug('chip roi=%s upscale=%s white=%s clusters=%s', roi, roi_upscale, white_text, [[c.text for c in cl] for cl in clusters])
+    if glyphs is not None:
+        return _glyph_fraction([c for cl in clusters for c in cl], glyphs, max_total)
     for chars in clusters:
         segments = _split_digit_segments([c for c in chars if c.text.isdigit() or c.text == 'l'])
         digits = [''.join(c.text for c in seg).replace('l', '1') for seg in segments]
