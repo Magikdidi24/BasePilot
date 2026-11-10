@@ -149,8 +149,7 @@ class PlayersPage(QWidget):
         new_idx = idx + delta
         if new_idx < 0 or new_idx >= len(self._rows):
             return None
-        self._rows[idx] = self._rows[new_idx]
-        self._rows[new_idx] = self._rows[idx]
+        (self._rows[idx], self._rows[new_idx]) = (self._rows[new_idx], self._rows[idx])  # [recovered: pycdc split this swap into two assignments — the moved player was dropped and its neighbour saved twice]
         self._list_layout.removeWidget(row)
         self._list_layout.insertWidget(new_idx, row)
         self._save()
