@@ -28,7 +28,7 @@ reading, no packet manipulation, no modified client.
 > not run a full session yet, and no upgrade was started in a test (no builder was free).
 > Test builds are on the Releases page as pre-releases, or run it from source (below).
 
-**[Download the latest release](../../releases/latest)** — a single `BasePilot.exe`
+**[Download from Releases](../../releases)** — a single `BasePilot.exe`
 with the OCR engine bundled in, so there is nothing to install. This repository holds
 the full source; see [Running from source](#running-from-source) to build it yourself.
 
@@ -131,7 +131,7 @@ reopen Clash, then *Restore my display* — the running game keeps 16:9.
 
 ## Getting started
 
-1. Download `BasePilot.exe` from [Releases](../../releases/latest) and run it (no
+1. Download `BasePilot.exe` from [Releases](../../releases) and run it (no
    installer; settings live in `%LOCALAPPDATA%\BasePilot`). The exe is unsigned, so
    Windows SmartScreen warns on first launch — *More info → Run anyway*.
 2. Open the game, then press **Test** on the Settings page to confirm BasePilot can see
@@ -139,8 +139,9 @@ reopen Clash, then *Restore my display* — the running game keeps 16:9.
 3. On the Run page, choose your army ([what to bring](#army-setup)), set
    **Auto upgrade → Dry run** for the first session, and press **Start**. Watch the Logs page
    to see what it would do.
-4. Happy with its choices? Switch to **Maxer**, enable **Run until maxed**, and set
-   *Settings → Reserve builders* (use 0 if your walls are maxed).
+4. Happy with its choices? Switch to **Maxer** and enable **Run until maxed**.
+   *Settings → Reserve builders* keeps builders free for walls, so it only applies with
+   **Upgrade walls** on.
 
 Command line, for scheduled or overnight runs:
 
