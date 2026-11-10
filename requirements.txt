@@ -1,10 +1,13 @@
-# BasePilot runtime dependencies (versions verified working on Windows 11 / Python 3.13).
-PySide6>=6.11
-opencv-python>=4.12
-numpy>=2.2
-pytesseract>=0.3.13
-pywin32>=306
+# BasePilot runtime dependencies. The unit tests run on Python 3.13 and 3.14 (CI, Linux).
+PySide6>=6.11,<7
+opencv-python>=4.12,<6
+numpy>=2.2,<3
+pillow>=10,<14
+pytesseract>=0.3.13,<0.4
+# In-process Tesseract (Windows wheels bundle Tesseract 5.5.3): 4-12x faster reads than
+# launching tesseract.exe per call. If it is missing or cannot start, pytesseract is used.
+tesserocr>=2.12,<3
 
-# Tesseract itself is NOT a pip package: place a Tesseract 5 install (tesseract.exe,
-# its DLLs and tessdata/) in tesseract_bundle/ — see README.
+# pytesseract still needs a Tesseract 5 install (tesseract.exe, its DLLs and tessdata/)
+# in tesseract_bundle/ — see README. tesserocr reads the same tessdata/.
 # Build the exe with: pyinstaller BasePilot.spec   (pip install pyinstaller)

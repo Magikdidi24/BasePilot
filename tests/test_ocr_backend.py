@@ -19,7 +19,14 @@ def tessdata_prefix():
     return m.group(1) if m else None
 
 
-@unittest.skipUnless(ocr_backend.tesserocr and shutil.which('tesseract'), 'needs tesserocr and the tesseract binary')
+def same_tesseract():
+    if not (ocr_backend.tesserocr and shutil.which('tesseract')):
+        return False
+    import pytesseract
+    return ocr_backend.tesserocr.tesseract_version().split()[1] == str(pytesseract.get_tesseract_version())
+
+
+@unittest.skipUnless(same_tesseract(), 'needs tesserocr and a tesseract binary of the same version')
 class TesserocrMatchesPytesseract(unittest.TestCase):
     """The in-process engine must read exactly what the pytesseract CLI path reads."""
 
