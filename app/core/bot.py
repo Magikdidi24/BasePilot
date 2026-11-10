@@ -84,7 +84,7 @@ _LOOT_DELTA_MAX_DARK = 50000
 
 # The game's own Android dialogs when it drops the server: "Connection lost / Try again"
 # and, after a few idle minutes, "Anyone there? / Reload game". Their only action is a
-# cyan text button about 0.1 H under the title, left-aligned with it; reloading spends nothing.
+# cyan text button 0.1-0.15 H under the title, left-aligned with it; reloading spends nothing.
 _RECONNECT_TITLES = ('Connection lost', 'Anyone there')
 
 
@@ -96,9 +96,28 @@ def reconnect_button(vision, frame):
         if tx is None:
             continue
         (x0, x1) = (max(0, int(tx - 0.12 * w)), min(w, int(tx + 0.15 * w)))
-        (y0, y1) = (min(h, int(ty + 0.04 * h)), min(h, int(ty + 0.16 * h)))
+        (y0, y1) = (min(h, int(ty + 0.04 * h)), min(h, int(ty + 0.2 * h)))
         hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
         cyan = (hsv[..., 0] >= 80) & (hsv[..., 0] <= 105) & (hsv[..., 1] >= 50) & (hsv[..., 2] >= 140)
+        # Only ink in the holes of the dialog's dark box (the largest dark region here) counts:
+        # the window reaches past the box over the game, whose art can be cyan too (live, GPG
+        # 1227x767: the light-blue Clone spell left of the box). Ink cut by the window's edge
+        # is in no hole either, hence the room left under the button. Opening the dark mask
+        # first (~0.006 H) cuts the thin dark outline that would join art touching the box to it.
+        k = max(3, int(0.006 * h)) | 1
+        dark = cv2.morphologyEx((hsv[..., 2] <= 60).astype(np.uint8), cv2.MORPH_OPEN, np.ones((k, k), np.uint8))
+        (n, regions, stats, _) = cv2.connectedComponentsWithStats(dark)
+        if n < 2:
+            continue
+        box = regions == 1 + np.argmax(stats[1:, cv2.CC_STAT_AREA])
+        (_, rest) = cv2.connectedComponents((~box).astype(np.uint8))
+        cyan &= ~np.isin(rest, np.concatenate((rest[0], rest[-1], rest[:, 0], rest[:, -1])))
+        # The label is the largest line of that ink (its letters joined side by side), so specks
+        # left in a hole of thick dark art joined to the box cannot pull the tap off it.
+        (n, lines, stats, _) = cv2.connectedComponentsWithStats(cv2.dilate(cyan.astype(np.uint8), np.ones((1, 2 * k + 1), np.uint8)))
+        if n < 2:
+            continue
+        cyan &= lines == 1 + np.argmax(stats[1:, cv2.CC_STAT_AREA])
         if cyan.sum() < 20:
             continue
         (ys, xs) = np.nonzero(cyan)
