@@ -55,6 +55,16 @@ class AttackCycleTests(unittest.TestCase):
         self.assertEqual(bot._wait_for_any_image.call_args.args[0], ('endbattle.png', 'returnhome.png', 'chestclaim.png'))
 
 
+class LiveBattleTests(unittest.TestCase):
+    def test_attack_wait_never_nudges_on_a_battle_showing_end_battle(self):
+        bot = make_bot()
+        bot.vision.find_template.side_effect = lambda f, name, **kw: (90, 600) if name == 'endbattle.png' else (None, None)
+        bot._dismiss_okay_or_exit_on_frame = Mock(return_value=False)
+        bot._nudge_view_to_reveal_attack = Mock()
+        self.assertEqual(bot._wait_for_attack_with_nudge(), (None, None))
+        bot._nudge_view_to_reveal_attack.assert_not_called()
+
+
 class WallTests(unittest.TestCase):
     def test_cleanup_never_clicks_okay(self):
         bot = make_bot()

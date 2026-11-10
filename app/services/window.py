@@ -90,7 +90,7 @@ class WindowService:
     
     def _ensure_hwnd(self):
         '''True when ``self.hwnd`` is a live window. A missing or dead handle (game or Play
-        Games restarted) is re-resolved, at most every 5 s so a closed game does not flood
+        Games restarted) is re-resolved, at most every 30 s so a closed game does not flood
         the log. (The decompiled guard this replaces returned None exactly when the lookup
         succeeded, and never re-resolved a stale non-zero handle.)'''
         if self.hwnd and self.user32.IsWindow(self.hwnd):
@@ -98,7 +98,7 @@ class WindowService:
         now = time.monotonic()
         if now < getattr(self, '_next_find_at', 0):
             return False
-        self._next_find_at = now + 5
+        self._next_find_at = now + 30
         return self.find_window()
 
     def find_window(self):

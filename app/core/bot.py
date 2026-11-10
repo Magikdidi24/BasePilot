@@ -314,6 +314,16 @@ wall upgrades for the first pre-Attack snapshot that would otherwise count as an
             return (x, y)
         return (None, None)
 
+    def _live_battle_button(self, frame):
+        '''Surrender, or End Battle (battle prep, or after the first star): the way out of a
+        live battle. A battle that loaded after the start wait gave up shows End Battle.'''
+        bottom = VisionService.bottom_half_region(frame)
+        for name in ('surrender.png', 'endbattle.png'):
+            (x, y) = self.vision.find_template(frame, name, region = bottom)
+            if x:
+                return (x, y)
+        return (None, None)
+
     def _home_hud_visible(self, frame):
         '''Home Village screen: its builder chip, else the Battle and Build buttons together with
         no Builder Base chip (the Oct 2026 HUD redrew the chip; a stale chip template must not
@@ -1230,11 +1240,10 @@ deselect, which would eat the upcoming Attack click.'''
                 if self.stop_event.wait(0.25):
                     return (None, None)
                 continue
-            (sx, sy) = self.vision.find_template(frame, 'surrender.png')
-            if sx:
+            if self._live_battle_button(frame)[0]:
                 # We are inside a live battle — nudge clicks would deploy troops. Bail out and
                 # let _home_screen_recovery surrender/return-home.
-                logger.warning('Attack wait: live battle detected (surrender visible) — leaving it to recovery')
+                logger.warning('Attack wait: live battle detected (Surrender / End Battle visible) — leaving it to recovery')
                 return (None, None)
             search_region = self._search_region_for_template(frame, 'attack.png', None, None, 200)
             (ax, ay) = self.vision.find_control(frame, 'attack.png', region = search_region, ocr = time.time() - start >= _LABEL_FALLBACK_AFTER)
@@ -1686,7 +1695,7 @@ deselect, which would eat the upcoming Attack click.'''
                     logger.warning('rankedattackconfirm.png not found after attack2.png')
                 else:
                     self.input.click(rx, ry, pause = 0.1)
-        (bsx, _bsy) = self._wait_for_any_image(('surrender.png', 'endbattle.png'), timeout = 30)
+        (bsx, _bsy) = self._wait_for_any_image(('surrender.png', 'endbattle.png'), timeout = 60, label_after = _BATTLE_LABEL_AFTER)
         if not bsx:
             # No battle screen (search fee unaffordable, a stolen tap): running the strategy
             # here would drag across whatever screen is up, then wait out every battle timer.
@@ -2019,7 +2028,7 @@ Returns (``"return"`` | ``"chest"``, x, y) or (None, None, None) on timeout.
                 if self.stop_event.wait(0.3):
                     return None
                 continue
-            (sx, sy) = self.vision.find_template(frame, 'surrender.png')
+            (sx, sy) = self._live_battle_button(frame)
             if sx:
                 logger.info('Recovery: live battle — surrendering to get home')
                 self.input.click(sx, sy, pause = 0.3)

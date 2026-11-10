@@ -468,7 +468,7 @@ class UpgradeAdvisor:
             if scrolls >= _MAX_SCROLL_STEPS:
                 return None
             self.input.scroll(*self._scroll_point(), _WHEEL_CLICKS)
-            if self.stop_event.wait(0.45):
+            if self.stop_event.wait(1.0):
                 return None
         return None
 
@@ -489,7 +489,7 @@ class UpgradeAdvisor:
             # writing the row off for half an hour.
             logger.info('Upgrade exec: row %r not found on the first descent — resetting to the top and retrying', pick.label)
             self.input.scroll(*self._scroll_point(), _RESET_TO_TOP_WHEEL_CLICKS, upward = True)
-            if self.stop_event.wait(0.6):
+            if self.stop_event.wait(1.0):
                 return False
             row_pt = self._descend_for_pick(pick)
         if not row_pt:
