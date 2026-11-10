@@ -12,8 +12,13 @@ reading, no packet manipulation, no modified client.
 > Clash of Clans UI. This fork merges upstream PR 1 and adapts the source to that UI: new
 > button art, a label-reading fallback for redrawn buttons (Battle, Attack, Return Home,
 > Upgrade More...), walls through the new Build panel, and fixes in the farm loop.
+> It is also faster: in-process OCR through tesserocr (falls back to pytesseract),
+> one-copy screen capture, coarse-to-fine template matching, and no dead waits after a
+> battle that ends by itself.
 > Not working on the new UI yet: auto-upgrade (skipped on purpose until the Build panel is
 > parsed), account switching (Settings moved into Profile), ranked fill and star-bonus mode.
+> Walls reach the new wall menu, but buying a batch needs the new price-card art: capture
+> `multiupgrade.png` (the hammers on a wall price card) in *Settings -> Capture templates*.
 > These changes are covered by unit tests and checked on the game's real button art, not in
 > a live game yet. The fork publishes no exe: run it from source (below).
 

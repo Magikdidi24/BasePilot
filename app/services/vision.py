@@ -108,6 +108,11 @@ try:
         'fullecart.png',
         'fullecart2.png',
         'fullecart3.png'})
+    # Coarse-to-fine matching (VisionService._match_best)
+    _C2F_MIN_SIDE = 24  # px: shorter template side below which halving loses the pattern (boat/nboat at 20 px did)
+    _C2F_MIN_POSITIONS = 4096  # below this many candidate positions a direct match is as cheap
+    _C2F_PEAKS = 8  # coarse peaks re-scored at full resolution (a few microseconds each)
+    _C2F_PAD = 4  # px of slack around each coarse peak (halving rounds positions)
     # Button art is redrawn by game updates (Oct 2026: "Attack!" became "Battle"); the
     # label text rarely changes, so these controls fall back to reading it.
     # Never add confirm/Okay buttons here: a text match must not be able to spend anything.
@@ -205,6 +210,35 @@ try:
 
         
         @staticmethod
+        def _match_best(img, tpl):
+            '''``(score, (x, y))`` of the best TM_CCOEFF_NORMED match, as matchTemplate + minMaxLoc
+gives it, 4-7x faster on captures. Coarse-to-fine: a half-resolution search ranks the
+best few spots and only those are scored at full resolution, exactly. Kept in colour:
+several templates (full-storage icons) differ from other art only by colour, and a
+grayscale coarse pass picked wrong spots above the threshold at 1080p/1440p. Templates
+under 24 px or small search areas are matched directly.'''
+            (th, tw) = tpl.shape[:2]
+            (ih, iw) = img.shape[:2]
+            if min(th, tw) < _C2F_MIN_SIDE or (ih - th + 1) * (iw - tw + 1) < _C2F_MIN_POSITIONS:
+                (_, max_val, _, max_loc) = cv2.minMaxLoc(cv2.matchTemplate(img, tpl, cv2.TM_CCOEFF_NORMED))
+                return (max_val, max_loc)
+            small_img = cv2.resize(img, (iw // 2, ih // 2), interpolation = cv2.INTER_AREA)
+            small_tpl = cv2.resize(tpl, (tw // 2, th // 2), interpolation = cv2.INTER_AREA)
+            coarse = cv2.matchTemplate(small_img, small_tpl, cv2.TM_CCOEFF_NORMED)
+            (best_val, best_loc) = (-1.0, (0, 0))
+            (sw, sh) = (max(1, tw // 4), max(1, th // 4))
+            for _ in range(_C2F_PEAKS):
+                (_, _, _, (cx, cy)) = cv2.minMaxLoc(coarse)
+                x0 = max(0, 2 * cx - _C2F_PAD)
+                y0 = max(0, 2 * cy - _C2F_PAD)
+                window = img[y0:min(ih, 2 * cy + th + _C2F_PAD), x0:min(iw, 2 * cx + tw + _C2F_PAD)]
+                (_, val, _, loc) = cv2.minMaxLoc(cv2.matchTemplate(window, tpl, cv2.TM_CCOEFF_NORMED))
+                if val > best_val:
+                    (best_val, best_loc) = (val, (x0 + loc[0], y0 + loc[1]))
+                coarse[max(0, cy - sh):cy + sh + 1, max(0, cx - sw):cx + sw + 1] = -2  # next peak elsewhere
+            return (best_val, best_loc)
+
+        @staticmethod
         def find_template(screen_img, template_name, threshold = 0.8, region = None, *, scale_template = True):
             '''
 Finds a single occurrence of a template in the screen image.
@@ -234,8 +268,7 @@ Returns (center_x, center_y) or (None, None).
                 (s_h, s_w) = search_img.shape[:2]
                 if t_w > s_w or t_h > s_h:
                     return (None, None)
-                result = cv2.matchTemplate(search_img, template, cv2.TM_CCOEFF_NORMED)
-                (_, max_val, _, max_loc) = cv2.minMaxLoc(result)
+                (max_val, max_loc) = VisionService._match_best(search_img, template)
                 if max_val < threshold:
                     return (None, None)
                 center_x = offset_x + max_loc[0] + t_w // 2
@@ -281,8 +314,7 @@ Returns (None, None, confidence) if not found above threshold.
                 (s_h, s_w) = search_img.shape[:2]
                 if t_w > s_w or t_h > s_h:
                     return (None, None, 0)
-                result = cv2.matchTemplate(search_img, template, cv2.TM_CCOEFF_NORMED)
-                (_, max_val, _, max_loc) = cv2.minMaxLoc(result)
+                (max_val, max_loc) = VisionService._match_best(search_img, template)
                 if max_val < threshold:
                     return (None, None, float(max_val))
                 center_x = offset_x + max_loc[0] + t_w // 2
@@ -336,8 +368,7 @@ Returns (None, None, confidence) if not found above threshold.
                 (s_h, s_w) = search_img.shape[:2]
                 if t_w > s_w or t_h > s_h:
                     return (0, None, None)
-                result = cv2.matchTemplate(search_img, template, cv2.TM_CCOEFF_NORMED)
-                (_, max_val, _, max_loc) = cv2.minMaxLoc(result)
+                (max_val, max_loc) = VisionService._match_best(search_img, template)
                 center_x = offset_x + max_loc[0] + t_w // 2
                 center_y = offset_y + max_loc[1] + t_h // 2
                 return (float(max_val), center_x, center_y)
@@ -627,8 +658,7 @@ Best ``cv2.matchTemplate`` match: ``(left, top, t_w, t_h, score)``.
                 (s_h, s_w) = search_img.shape[:2]
                 if t_w > s_w or t_h > s_h:
                     return (None, None, None, None, 0)
-                result = cv2.matchTemplate(search_img, template, cv2.TM_CCOEFF_NORMED)
-                (_, max_val, _, max_loc) = cv2.minMaxLoc(result)
+                (max_val, max_loc) = VisionService._match_best(search_img, template)
                 score = float(max_val)
                 if score < threshold:
                     return (None, None, None, None, score)

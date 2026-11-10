@@ -139,6 +139,23 @@ class AutoUpgradeGateTests(unittest.TestCase):
         advisor.input.click.assert_not_called()
 
 
+class CoarseToFineTests(unittest.TestCase):
+    def test_same_spot_and_score_as_a_full_match(self):
+        import cv2
+        from app.services.vision import VisionService
+        frame = cv2.resize(cv2.imread('docs/basepilot-screenshot.png'), (1920, 1080), interpolation=cv2.INTER_CUBIC)
+        for name in ('returnhome.png', 'attack2.png', 'builder.png', 'savedrecipes.png'):
+            tpl = cv2.imread(f'templates/16_9/{name}')
+            tpl = cv2.resize(tpl, (round(tpl.shape[1] * .75), round(tpl.shape[0] * .75)), interpolation=cv2.INTER_AREA)
+            frame[700:700 + tpl.shape[0], 900:900 + tpl.shape[1]] = tpl
+            (_, exact, _, loc) = cv2.minMaxLoc(cv2.matchTemplate(frame, tpl, cv2.TM_CCOEFF_NORMED))
+            (score, at) = VisionService._match_best(frame, tpl)
+            with self.subTest(name=name):
+                self.assertEqual(at, loc)
+                self.assertAlmostEqual(score, exact, places=3)
+                self.assertEqual(at, (900, 700))
+
+
 class CaptureConversionTests(unittest.TestCase):
     def test_one_copy_conversion_matches_the_old_pil_path(self):
         import cv2
