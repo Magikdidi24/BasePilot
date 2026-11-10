@@ -22,6 +22,7 @@ import difflib
 import re
 import time
 from dataclasses import dataclass
+from statistics import median
 
 import cv2
 import numpy as np
@@ -55,6 +56,7 @@ _TITLE_Y = (0.0, 0.075)
 _TABS_Y = (0.90, 0.995)
 _NAME_MAX_X = 0.21  # names end before this distance from the right edge; times and costs sit right of it
 _LEVEL_BADGE_X = 0.45  # the card icons (level badges, OCR junk) sit left of this distance from the right edge
+_COST_MAX_X = 0.05  # cost digits start left of this distance from the right edge; the resource icon and the stopwatch right of it
 _MIN_COST = 100
 _MAX_COST = 40000000
 _RED_COST = 0.08  # share of red pixels in the cost box that marks it unaffordable
@@ -144,15 +146,21 @@ def find_tab(vision, frame, index):
 
 
 def _lines(words):
-    '''Words grouped into text lines, top to bottom, each sorted left to right.'''
+    '''Words grouped into text lines, top to bottom, each sorted left to right. A word joins
+    the line whose median center is nearest when each of the two centers lies inside the
+    other's band (the line's: its median height). The whole line is the yardstick, not its
+    first word: a 4 px "=" read off a stopwatch once narrowed it and left the "3" under it
+    on a line of its own, read as a cost. A sliver's band is floored at the typical word
+    height: a 4 px leftover of a "New" tag must stay on its cost line, or that line loses
+    the word that keeps a new building out of the candidates; tall junk still stays out.'''
     lines = []
-    for w in sorted(words, key = lambda b: b.top + b.height / 2):
-        yc = w.top + w.height / 2
-        for line in lines:
-            ref = line[0]
-            if abs(ref.top + ref.height / 2 - yc) <= 0.5 * max(ref.height, w.height):
-                line.append(w)
-                break
+    center = lambda b: b.top + b.height / 2
+    typical = median(t.height for t in words) if words else 0
+    for w in sorted(words, key = center):
+        off = lambda line: abs(median(map(center, line)) - center(w))
+        line = min(lines, key = off, default = None)
+        if line is not None and off(line) <= 0.5 * min(median(t.height for t in line), max(w.height, typical)):
+            line.append(w)
         else:
             lines.append([w])
     return [sorted(line, key = lambda b: b.left) for line in lines]
@@ -173,17 +181,34 @@ def _number(tokens):
 
 
 def _ocr_cost(vision, frame, box):
-    '''Digits-only re-read of a cost the general pass garbled ("10 000" read "to ooo").'''
+    '''Digits-only re-read of a cost the general pass garbled ("10 000" read "to ooo"). Two
+    page modes; when both read a cost they must agree: on small text one of them drops the
+    narrow "1" or reads "5" as "3", and a cost read too low must not come out of here.'''
     (x0, y0, x1, y1) = box
     h = y1 - y0
     region = _region(frame, x0 - 3 * h, y0 - 0.4 * h, x1 + 0.2 * h, y1 + 0.4 * h)
+    costs = set()
     for psm in (7, 8):
         words = vision.find_words_ocr(frame, region, white_text = True, roi_upscale = 2,
                                       tesseract_config = f'--psm {psm} -c tessedit_char_whitelist=0123456789') or []
-        cost = _number(sorted(words, key = lambda b: b.left))
-        if cost:
-            return cost
-    return None
+        costs.add(_number(sorted(words, key = lambda b: b.left)))
+    costs.discard(None)
+    return costs.pop() if len(costs) == 1 else None
+
+
+def _checked_reread(vision, frame, box, column):
+    '''The digit re-read of a cost column the general pass could not parse, kept only when
+    it fits what that pass saw: as many digits as the column has characters when a group is
+    garbled ("1s20" "000" for 1 520 000), else the clean groups as its tail. With the
+    padding around the box, a re-read drops or adds a glyph (1 000 or 190 000 for "10 000"),
+    and a cost read too low gets first claim in the policy.'''
+    cost = _ocr_cost(vision, frame, box)
+    if cost is None:
+        return None
+    groups = [_digits(t.text) for t in column]
+    if None in groups:
+        return cost if len(str(cost)) == sum(len(t.text) for t in column) else None
+    return cost if str(cost).endswith(''.join(groups)) else None
 
 
 def _box(tokens):
@@ -237,6 +262,7 @@ def parse_cards(vision, frame):
     words = vision.find_words_ocr(frame, list_region(frame), white_text = True, roi_upscale = 2 if h < 1000 else 1) or []
     name_max = _x_from_right(frame, _NAME_MAX_X)
     badge_max = _x_from_right(frame, _LEVEL_BADGE_X)
+    cost_max = _x_from_right(frame, _COST_MAX_X)
     rows = []
     pending = None  # (name tokens, line) of the last card name, waiting for its cost line
     for line in _lines(words):
@@ -244,16 +270,22 @@ def parse_cards(vision, frame):
         # and start their name there, so only real words count on that side.
         names = [t for t in line if t.left < name_max and any(ch.isalpha() for ch in t.text)
                  and len(t.text) >= (2 if t.left >= badge_max else 4)]
-        costs = [t for t in line if t.left >= name_max - 0.05 * h and _digits(t.text)]
+        costs = [t for t in line if name_max - 0.05 * h <= t.left < cost_max]
         is_new = any(t.text.lower() == 'new' for t in line if t.left < name_max)
-        if pending is not None and costs and not (names and not is_new):
+        # A cost line shows a clean group of 3 digits at least, as every cost does ("4 000",
+        # "10 ooo"); a glyph or two alone are an icon read as digits (a builder's face on a
+        # running bar read "4 3"), not a cost to re-read.
+        if pending is not None and any(len(_digits(t.text) or '') >= 3 for t in costs) and not (names and not is_new):
             (name_tokens, name_line) = pending
             pending = None
             if is_new:
                 logger.debug('Build panel: skipping new building %r', ' '.join(t.text for t in name_tokens))
                 continue
+            # The cost is every token of the cost column, garbled groups too ("1s20" for
+            # "1 520"): _number then fails and the digit re-read covers the whole cost; on
+            # the clean groups alone it re-read a cost cut short (320 000 for 1 520 000).
             box = _box(costs)
-            cost = _number(costs) or _ocr_cost(vision, frame, box)
+            cost = _number(costs) or _checked_reread(vision, frame, box, costs)
             red = _redness(frame, box) >= _RED_COST
             rows.append(_row(name_tokens, cost if not red else None, _resource(frame, box), (not red) if cost else None))
             continue
