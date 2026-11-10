@@ -35,9 +35,6 @@ try:
     _NUMBERS_HUD_ROI_AT_BASELINE: Dict[str, Tuple[int, int]] = {
         ASPECT_16_9: (550, 350),
         ASPECT_16_10: (600, 400) }
-    _MULTIUPGRADE_COST_REDNESS_ABOVE_AT_BASELINE: Dict[str, Tuple[int, int, int]] = {
-        ASPECT_16_10: (49, 80, 24),
-        ASPECT_16_9: (43, 80, 18) }
     _NUMBERS_REF_LINE_HEIGHT_PX = 30
     # Blank between two characters, in median digit widths, that means they belong to
     # different numbers rather than to the same one.
@@ -61,24 +58,8 @@ try:
 
 
     
-    @dataclass(frozen = True)
-    class UpgradeCostIconRedness:
-        '''Gold or elixir slot from ``multiupgrade.png`` + redness in the cost box above it.'''
-        # [recovered + verified against original bytecode: field names from disassembly]
-        template: str
-        found: bool
-        match_confidence: float
-        redness: float
-        cost_roi_xywh: Optional[Tuple[int, int, int, int]]
-        center: Optional[Tuple[int, int]] = None
 
     
-    @dataclass(frozen = True)
-    class UpgradeCostRednessPair:
-        '''See :meth:`VisionService.upgrade_cost_redness_by_resource_icons`.'''
-        # [recovered from bytecode: decompiler collapsed these fields into the docstring]
-        gold: UpgradeCostIconRedness
-        elixir: UpgradeCostIconRedness
 
     BOTTOM_HALF_BOT_TEMPLATES = frozenset({
         'bstar.png',
@@ -98,11 +79,9 @@ try:
         'builder.png',
         'gbuilder.png',
         'mbuilder.png',
-        'rankedbattle.png',
         'battlemachine.png',
         'flyingmachine.png',
-        'removewallfake.png',
-        'rankedattackconfirm.png'})
+        'removewallfake.png'})
     # The builder chips moved to the bottom right in the Oct 2026 HUD (see BOTTOM_HALF_BOT_TEMPLATES).
     TOP_HALF_BOT_TEMPLATES = frozenset({
         'fullecart.png',
@@ -424,50 +403,8 @@ Falls back to ``find_template`` when the disabled PNG is missing (e.g. 16:10 pac
             return (best_x, best_y)
 
         
-        @staticmethod
-        def lime_fraction(bgr, *, hue_lo = 35, hue_hi = 90, sat_floor = 80, val_floor = 80):
-            '''
-Fraction of pixels in lime/chartreuse hue (OpenCV H 0–179) with saturation
-and value at least ``sat_floor`` / ``val_floor``.
-'''
-            if bgr is None or bgr.size == 0 or bgr.ndim != 3:
-                return 0
-            hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-            sf = max(0, min(255, int(sat_floor)))
-            vf = max(0, min(255, int(val_floor)))
-            mask = cv2.inRange(hsv, (int(hue_lo), sf, vf), (int(hue_hi), 255, 255))
-            total = int(bgr.shape[0]) * int(bgr.shape[1])
-            if total > 0:
-                return float(cv2.countNonZero(mask)) / float(total)
-            return 0
 
         
-        @staticmethod
-        def find_active_addwall(screen_img, region = None, *, template_threshold = 0.75, lime_threshold = 0.3, max_matches = 32):
-            '''
-Locate an active (lime green) add-wall control via ``addwall.png`` template
-matching plus per-hit lime color verification.
-
-Returns the **rightmost** center among hits that pass both ``template_threshold``
-and ``lime_threshold``, or ``(None, None)`` when none qualify.
-'''
-            matches = VisionService._find_template_matches(screen_img, 'addwall.png', template_threshold, region, max_matches = max_matches)
-            if not matches:
-                return (None, None)
-            (frame_h, frame_w) = screen_img.shape[:2]
-            passing = []
-            for left, top, tw, th, _score in matches:
-                x0 = max(0, min(int(left), frame_w))
-                y0 = max(0, min(int(top), frame_h))
-                x1 = max(0, min(int(left) + int(tw), frame_w))
-                y1 = max(0, min(int(top) + int(th), frame_h))
-                crop = screen_img[y0:y1, x0:x1]
-                if VisionService.lime_fraction(crop) < lime_threshold:
-                    continue
-                passing.append((int(left) + int(tw) // 2, int(top) + int(th) // 2))
-            if not passing:
-                return (None, None)
-            return max(passing, key = (lambda pt: pt[0]))
 
         
         @staticmethod
@@ -552,52 +489,8 @@ plus per-hit pink color verification.
             return (None, None)
 
         
-        @staticmethod
-        def find_active_removewall(screen_img, region = None, *, template_threshold = 0.75, yellow_threshold = 0.3, max_matches = 32):
-            '''
-Locate an active (yellow) remove-wall control via ``removewall.png`` template
-matching plus per-hit yellow color verification.
-
-Returns the **leftmost** center among hits that pass both ``template_threshold``
-and ``yellow_threshold``, or ``(None, None)`` when none qualify.
-'''
-            matches = VisionService._find_template_matches(screen_img, 'removewall.png', template_threshold, region, max_matches = max_matches)
-            if not matches:
-                return (None, None)
-            (frame_h, frame_w) = screen_img.shape[:2]
-            passing = []
-            for left, top, tw, th, _score in matches:
-                x0 = max(0, min(int(left), frame_w))
-                y0 = max(0, min(int(top), frame_h))
-                x1 = max(0, min(int(left) + int(tw), frame_w))
-                y1 = max(0, min(int(top) + int(th), frame_h))
-                crop = screen_img[y0:y1, x0:x1]
-                if VisionService.yellow_fraction(crop) < yellow_threshold:
-                    continue
-                passing.append((int(left) + int(tw) // 2, int(top) + int(th) // 2))
-            if not passing:
-                return (None, None)
-            return min(passing, key = (lambda pt: pt[0]))
 
         
-        @staticmethod
-        def scaled_multiupgrade_cost_redness_above(screen_w, screen_h):
-            '''
-Vertical center-to-center offset (template center → redness ROI center), ROI width,
-ROI height — scaled from :data:`_MULTIUPGRADE_COST_REDNESS_ABOVE_AT_BASELINE`
-(43 / 80 / 25 @ 2560×1440).
-'''
-            sw = max(1, int(screen_w))
-            sh = max(1, int(screen_h))
-            key = resolve_aspect_key(sw, sh)
-            if key is None or key not in ASPECT_BASELINE:
-                key = ASPECT_16_10
-            (ref_w, ref_h) = ASPECT_BASELINE[key]
-            (base_offset, base_rw, base_rh) = _MULTIUPGRADE_COST_REDNESS_ABOVE_AT_BASELINE.get(key, _MULTIUPGRADE_COST_REDNESS_ABOVE_AT_BASELINE[ASPECT_16_10])
-            center_offset = max(1, int(round(base_offset * sh / float(ref_h))))
-            rw = max(1, int(round(base_rw * sw / float(ref_w))))
-            rh = max(1, int(round(base_rh * sh / float(ref_h))))
-            return (center_offset, rw, rh)
 
         
         @staticmethod
@@ -736,62 +629,8 @@ Best ``cv2.matchTemplate`` match: ``(left, top, t_w, t_h, score)``.
 
 
         
-        @staticmethod
-        def _upgrade_cost_redness_for_template_rect(screen_img, left, top, tw, th, conf, *, center_offset, roi_w, roi_h, frame_w, frame_h):
-            '''Measure :meth:`red_hue_fraction` in an ``roi_w×roi_h`` box whose center sits ``center_offset`` px above the template center.'''
-            tpl_cx = int(left) + int(tw) // 2
-            tpl_cy = int(top) + int(th) // 2
-            roi_cx = tpl_cx
-            roi_cy = tpl_cy - int(center_offset)
-            rx = roi_cx - int(roi_w) // 2
-            ry = roi_cy - int(roi_h) // 2
-            clipped = VisionService._clip_rect_xywh(rx, ry, roi_w, roi_h, frame_w, frame_h)
-            click_cx = tpl_cx
-            click_cy = tpl_cy
-            if clipped is None:
-                return UpgradeCostIconRedness('multiupgrade.png', True, conf, 0, None, (click_cx, click_cy))
-            (x0, y0, cw, ch) = clipped
-            crop = screen_img[y0:y0 + ch, x0:x0 + cw]
-            red = VisionService.red_hue_fraction(crop)
-            return UpgradeCostIconRedness('multiupgrade.png', True, conf, red, clipped, (click_cx, click_cy))
 
         
-        @staticmethod
-        def upgrade_cost_redness_by_resource_icons(screen_img, *, match_threshold = 0.8, region = None):
-            '''
-Locate ``multiupgrade.png`` (up to two matches), then measure :meth:`red_hue_fraction`
-in an **80×25-at-baseline** box whose center is **43 px above** each template center
-(scaled to capture size).
-
-One match covers both gold and elixir slots (left / right halves). Two matches are
-treated as separate gold (leftmost) and elixir (rightmost) buttons.
-
-Updates :class:`~app.config.Config` from ``screen_img`` so template paths match aspect.
-'''
-            miss = UpgradeCostIconRedness('multiupgrade.png', False, 0, 0, None, None)
-            if screen_img is None or screen_img.size == 0:
-                return UpgradeCostRednessPair(miss, miss)
-            cfg = Config()
-            cfg.set_target_size_from_frame(screen_img)
-            (frame_h, frame_w) = screen_img.shape[:2]
-            (center_offset, roi_w, roi_h) = VisionService.scaled_multiupgrade_cost_redness_above(frame_w, frame_h)
-            matches = VisionService._find_template_matches(screen_img, 'multiupgrade.png', match_threshold, region, max_matches = 2)
-            if not matches:
-                return UpgradeCostRednessPair(miss, miss)
-            
-            def for_rect(left, top, tw, th, conf):
-                return VisionService._upgrade_cost_redness_for_template_rect(screen_img, left, top, tw, th, conf, center_offset = center_offset, roi_w = roi_w, roi_h = roi_h, frame_w = frame_w, frame_h = frame_h)
-
-            if len(matches) == 1:
-                (left, top, tw, th, conf) = matches[0]
-                half = max(1, tw // 2)
-                gold = for_rect(left, top, half, th, conf)
-                elixir = for_rect(left + half, top, tw - half, th, conf)
-            else:
-                matches = sorted(matches, key = (lambda m: m[0]))
-                gold = for_rect(*matches[0])
-                elixir = for_rect(*matches[1])
-            return UpgradeCostRednessPair(gold, elixir)
 
         
         @staticmethod

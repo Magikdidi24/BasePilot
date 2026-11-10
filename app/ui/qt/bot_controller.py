@@ -55,7 +55,7 @@ class BotController(QObject):
         return self._bot_thread is not None and self._bot_thread.is_alive()
 
 
-    def start(self, *, method, minutes, star_bonus, ranked_fill, upgrade_walls, multi_run_players, builder_base = False, loot_prioritise = 'both', auto_upgrade = 'off', auto_donate = False, auto_request = False):
+    def start(self, *, method, minutes, star_bonus, upgrade_walls, multi_run_players, builder_base = False, loot_prioritise = 'both', auto_upgrade = 'off', auto_donate = False, auto_request = False):
         '''``minutes <= 0`` = unlimited ("run until maxed") — single Home Village runs only.'''
         if self.is_running():
             return None
@@ -75,7 +75,7 @@ class BotController(QObject):
 
             try:
                 profile = load_profile_settings()
-                self._bot.start(method, minutes, star_bonus = star_bonus, status_callback = on_status, loot_callback = on_loot, state_callback = on_state, multi_run_players = multi_run_players, ranked_fill = ranked_fill, upgrade_walls = upgrade_walls, earthquake_method = profile.earthquake_method, builder_base = builder_base, loot_prioritise = loot_prioritise, wall_upgrade_threshold = profile.wall_upgrade_threshold_m * 1000000, auto_upgrade = auto_upgrade, reserve_builders = profile.reserve_builders, upgrade_order = profile.upgrade_order, clan_options = _clan_options(profile, donate = auto_donate, request = auto_request), loot_filter = _loot_filter(profile))
+                self._bot.start(method, minutes, star_bonus = star_bonus, status_callback = on_status, loot_callback = on_loot, state_callback = on_state, multi_run_players = multi_run_players, upgrade_walls = upgrade_walls, earthquake_method = profile.earthquake_method, builder_base = builder_base, loot_prioritise = loot_prioritise, wall_upgrade_threshold = profile.wall_upgrade_threshold_m * 1000000, auto_upgrade = auto_upgrade, reserve_builders = profile.reserve_builders, upgrade_order = profile.upgrade_order, clan_options = _clan_options(profile, donate = auto_donate, request = auto_request), loot_filter = _loot_filter(profile))
             except InterruptedError:
                 logger.info('Bot thread stopped by user')
             except Exception as exc:

@@ -9,6 +9,7 @@ from app.config import ASPECT_16_10, ASPECT_16_9, Config
 from app.core.clan import ClanAssistant, ClanOptions, missing_templates
 from app.core.loot_filter import TEMPLATE_NEXT_BASE, LootFilter, combine_reads, meets, read_enemy_loot
 from app.core.strategies import AttackStrategy, EdragStrategy, TroopSpamStrategy, _EDRAG_DELAY
+from app.core.build_panel import BuildPanelUpgrader, wall_upgrade_button
 from app.core.upgrader import AUTO_UPGRADE_MODES, LIVE_UPGRADE_MODES, MODE_OFF, UpgradeAdvisor, is_october_build_panel_hud
 from app.core.village_state import read_hud_triplet_stable, read_village_state, read_village_state_stable
 from app.services.input import InputService
@@ -23,7 +24,9 @@ _HOME_VILLAGE_BUILDER_TEMPLATES = ('builder.png', 'gbuilder.png')
 _WALL_OCR_RETRY_DRAG_BASELINE: dict[str, tuple[tuple[int, int], tuple[int, int]]] = {
     ASPECT_16_9: ((1300, 280), (1300, 830)),
     ASPECT_16_10: ((1300, 280), (1300, 980)) }
-_BB_BABY_DRAGON_RECLICK_WAIT = 10
+_BB_CARD_RECLICK_WAIT = 10  # s after the deploy before the cards are tapped again (troop abilities)
+_BB_CARD_SWAP_TEMPLATE = 'bbswap.png'  # green swap button under every troop card before the first deploy
+_BB_CARD_ABOVE_SWAP = 91  # ref px from that button up to the card art (tapping the button opens the swap menu)
 _BB_RETURN_HOME_TEMPLATE = 'breturnhome.png'
 _BB_RETURN_HOME_TEMPLATE_1080P = 'breturnhome1920.png'
 _BB_1080P_CAPTURE_SIZE = (1920, 1080)
@@ -41,7 +44,7 @@ _STAR_BONUS_THRESHOLD = 0.75
 _TROOP_FAILURE_LIMIT = 4
 _TROOP_RETRY_WAIT_SECONDS = 15  # training is instant since the Mar 2025 "Clash Anytime" update — this only lets the UI settle
 _RELOAD_GRACE_SECONDS = 180  # let a quick phone check finish before reconnecting over it
-_WALL_BATCH_MAX_ADDS = 15
+_WALL_SINGLE_MAX = 5  # walls bought one by one per wall pass (loot is re-checked before each)
 # How deep the Wall row sits depends on the village: it is the last entry of "Other
 # upgrades", and that list grows with every building the village owns. A fixed cap of 8
 # stops was two nudges short on a TH15 account (live: the row first appeared at stop 9,
@@ -61,6 +64,7 @@ _WALL_RETRY_SECONDS = 600  # a wall pass that bought nothing fails the same way 
 _BUILD_PANEL_ROI_FRAC = (0.70, 0.08, 0.30, 0.80)  # x, y, w, h as fractions of the capture
 _LABEL_FALLBACK_AFTER = 1.0  # s of template misses before also reading the control's label (OCR is slower)
 _BATTLE_LABEL_AFTER = 20  # s; during a live battle none of the end buttons shows for a while, and OCR on every poll loads the CPU next to the game
+_BATTLE_CARD_MAX_X = 0.28  # Battle menu: the Battle card ends here, the Ranked Battle card starts at ~0.29 W (16:10 live)
 _IDLE_RECHECK_SECONDS = 300  # while idling (storages full, nothing startable): wake, recover the screen, re-read state
 _CLAN_UNCALIBRATED_BACKOFF_SECONDS = 3600  # no chat button picked: say so once, not once per raid
 # "never done" for the clan clocks. They are compared against time.monotonic(), which
@@ -76,18 +80,6 @@ _LOOT_READ_SAMPLES = 3  # reads folded into one verdict (a single read drops dig
 # past the ≥0 filter (live repro: "+15.5M elixir" in one battle).
 _LOOT_DELTA_MAX_MAIN = 3000000
 _LOOT_DELTA_MAX_DARK = 50000
-_WALL_POPUP_SETTLE_POLLS = 6  # ~3s for the batch popup to stop animating before a frame is trusted
-_WALL_REMOVE_ATTEMPTS = 2  # a remove click sent mid-animation is swallowed; verify and retry once
-_WALL_ADD_ATTEMPTS = 3  # same for Add Wall: the count is re-read, and a click that changed nothing is repeated
-_WALL_POPUP_ANIMATION_SECONDS = 0.6  # the batch popup keeps animating after it appears, and swallows clicks while it does
-# Pace for the add clicks. The popup animates its new total after every add and drops
-# anything sent into that window: live, four adds a second apart all landed (x1 -> x4)
-# while the same clicks half a second apart were all swallowed.
-_WALL_ADD_CLICK_PAUSE = 0.9
-# Mean abs pixel difference over the price that counts as "the batch changed". Live:
-# 5.0-17.7 for one wall added, exactly 0.00 between two settled frames of an
-# untouched popup.
-_WALL_COST_CHANGE_DIFF = 0.5
 
 def _dump_debug_frame(frame, prefix):
     '''Save a frame to the debug dir; returns the path or None. Never raises.'''
@@ -126,7 +118,7 @@ class Bot:
         self._suppress_loot_negative_error_once = False
 
     
-    def start(self, method, run_time_minutes, star_bonus = False, status_callback = None, loot_callback = None, multi_run_players = None, ranked_fill = False, upgrade_walls = False, earthquake_method = EARTHQUAKE_METHOD_CURVE, builder_base = False, loot_prioritise = 'both', wall_upgrade_threshold = 0, auto_upgrade = MODE_OFF, reserve_builders = 1, state_callback = None, upgrade_order = None, clan_options = None, loot_filter = None):
+    def start(self, method, run_time_minutes, star_bonus = False, status_callback = None, loot_callback = None, multi_run_players = None, upgrade_walls = False, earthquake_method = EARTHQUAKE_METHOD_CURVE, builder_base = False, loot_prioritise = 'both', wall_upgrade_threshold = 0, auto_upgrade = MODE_OFF, reserve_builders = 1, state_callback = None, upgrade_order = None, clan_options = None, loot_filter = None):
         '''Starts the bot loop. With ``multi_run_players``, runs a full session per enabled player.
         ``run_time_minutes <= 0`` (single Home Village runs only) means UNLIMITED — farm,
         upgrade and idle until the user stops the bot ("run until maxed").'''
@@ -150,6 +142,8 @@ class Bot:
         self._auto_upgrade_last_scan = 0
         self._wall_retry_at = 0
         self._reserve_builders = max(0, int(reserve_builders or 0))
+        self._upgrade_walls = bool(upgrade_walls)
+        self._panel_upgrader = None
         self._upgrade_order = upgrade_order
         self._advisor = None  # one UpgradeAdvisor per session (it holds execution cooldowns)
         self._clan_options = clan_options if clan_options is not None else ClanOptions()
@@ -160,7 +154,7 @@ class Bot:
         # Donate/request on the FIRST home visit of the session, then on their intervals.
         self._clan_last_donate = _CLAN_CLOCK_NEVER
         self._clan_last_request = _CLAN_CLOCK_NEVER
-        logger.info(f'''Bot started. Method: {method}, Time: {'unlimited' if unlimited else f'{run_time_minutes}m'}, StarBonus: {star_bonus}, MultiRun: {mr}, RankedFill: {ranked_fill}, UpgradeWalls: {upgrade_walls}, WallThreshold: {self._wall_upgrade_threshold}, AutoUpgrade: {self._auto_upgrade_mode}, ReserveBuilders: {self._reserve_builders}, Earthquake: {earthquake_method}, BuilderBase: {builder_base}, LootPrioritise: {loot_prioritise}, ClanDonate: {self._clan_options.donate}, ClanRequest: {self._clan_options.request}, ClanDryRun: {self._clan_options.dry_run}, LootFilter: {self._loot_filter.summary() if self._loot_filter.enabled else 'off'}''')
+        logger.info(f'''Bot started. Method: {method}, Time: {'unlimited' if unlimited else f'{run_time_minutes}m'}, StarBonus: {star_bonus}, MultiRun: {mr}, UpgradeWalls: {upgrade_walls}, WallThreshold: {self._wall_upgrade_threshold}, AutoUpgrade: {self._auto_upgrade_mode}, ReserveBuilders: {self._reserve_builders}, Earthquake: {earthquake_method}, BuilderBase: {builder_base}, LootPrioritise: {loot_prioritise}, ClanDonate: {self._clan_options.donate}, ClanRequest: {self._clan_options.request}, ClanDryRun: {self._clan_options.dry_run}, LootFilter: {self._loot_filter.summary() if self._loot_filter.enabled else 'off'}''')
 
         try:
 
@@ -178,7 +172,7 @@ class Bot:
                     self._clan_last_request = _CLAN_CLOCK_NEVER
                     self._wall_retry_at = 0
                     self._check_stop()
-                    self._run_loop(method, duration, star_bonus, ranked_fill, upgrade_walls)
+                    self._run_loop(method, duration, star_bonus, upgrade_walls)
                     self._check_stop()
                     self._multi_run_builder_base_after_session()
                     self._check_stop()
@@ -187,7 +181,7 @@ class Bot:
                 self._run_builder_base_loop(duration, star_bonus = star_bonus)
             else:
                 self._ensure_correct_village(builder_base = False)
-                self._run_loop(method, duration, star_bonus, ranked_fill, upgrade_walls)
+                self._run_loop(method, duration, star_bonus, upgrade_walls)
         except InterruptedError:
             logger.info('Bot stopped by user.')
         except Exception as e:
@@ -523,8 +517,10 @@ deselect, which would eat the upcoming Attack click.'''
         if cb:
             cb('Upgrading walls...')
         self._loot_snapshot_before_attack()
-        for _ in range(2):
+        for i in range(_WALL_SINGLE_MAX):
             self._check_stop()
+            if i and not self._should_upgrade_walls():
+                break
             bought = self._upgrade_walls()
             self._deselect_wall_ui()
             if not bought:
@@ -548,6 +544,9 @@ deselect, which would eat the upcoming Attack click.'''
             return None
         self._auto_upgrade_last_scan = now
         try:
+            frame = self.window.screenshot()
+            if frame is not None and self.vision.find_template(frame, 'build.png', region = VisionService.bottom_half_region(frame))[0]:
+                return self._build_panel_pass(mode)
             if getattr(self, '_advisor', None) is None:
                 self._advisor = UpgradeAdvisor(self.window, self.input, self.vision, self.config, self.stop_event)
             result = self._advisor.run_pass(mode, reserve_builders = getattr(self, '_reserve_builders', 1),
@@ -563,6 +562,24 @@ deselect, which would eat the upcoming Attack click.'''
         except Exception:
             logger.warning('Auto-upgrade pass failed; continuing farm loop', exc_info = True)
             return None
+
+    def _build_panel_upgrader(self):
+        if getattr(self, '_panel_upgrader', None) is None:
+            self._panel_upgrader = BuildPanelUpgrader(self.window, self.input, self.vision, self.config, self.stop_event)
+        return self._panel_upgrader
+
+    def _build_panel_pass(self, mode):
+        '''October 2026 HUD: one upgrade and one research from the Build panel, never with
+        the goblin and never through a gem prompt (see :mod:`app.core.build_panel`).'''
+        # The reserve keeps a builder for walls; with walls off it would only sit idle.
+        reserve = getattr(self, '_reserve_builders', 1) if getattr(self, '_upgrade_walls', False) else 0
+        note = self._build_panel_upgrader().run_pass(mode, reserve_builders = reserve, order = getattr(self, '_upgrade_order', None),
+                                             builder_base = getattr(self, '_builder_base', False))
+        logger.info('Upgrades: %s', note)
+        cb = getattr(self, '_status_callback', None)
+        if cb:
+            cb(f'''Upgrades: {note}''')
+        return None
 
     def _clan_assistant(self):
         '''The session's single ClanAssistant (holds the failure counter that
@@ -821,229 +838,6 @@ deselect, which would eat the upcoming Attack click.'''
         self._emit_village_state(state, 'farming')
 
 
-    def _upgrade_walls_pick_resource_and_okay(self):
-        '''Settled frame → click an affordable resource slot → Okay. If neither resource can
-        pay, close the popup instead (never confirm a red cost).'''
-        (frame, settled) = self._wall_batch_state()
-        if frame is None:
-            return None
-        if settled is None:
-            logger.info('Wall upgrade: batch popup gone before the confirm — nothing bought this pass')
-            _dump_debug_frame(frame, 'wallfail')
-            self._deselect_wall_ui()
-            return None
-        self._update_config_size(frame)
-        pair = VisionService.upgrade_cost_redness_by_resource_icons(frame)
-        for _ in range(2):
-            if pair.gold.cost_roi_xywh or pair.elixir.cost_roi_xywh:
-                break
-            # The popup re-renders for a beat after the last add click and the cost buttons
-            # can miss the template match — settle and re-read before giving up.
-            if self.stop_event.wait(0.4):
-                return None
-            frame = self.window.screenshot()
-            if frame is None:
-                return None
-            self._update_config_size(frame)
-            pair = VisionService.upgrade_cost_redness_by_resource_icons(frame)
-        picked = False
-        # cost_roi_xywh None means the cost text could not be measured — never click a slot
-        # on a blind reading (an unaffordable click opens the buy-with-gems dialog).
-        # Elixir first: attacking costs GOLD (Find a Match entry fee), so spend elixir on
-        # walls whenever it can pay and keep gold for matchmaking.
-        if pair.elixir.redness < 0.2 and pair.elixir.cost_roi_xywh and pair.elixir.center:
-            logger.info('Wall upgrade: paying with elixir (redness %.2f)', pair.elixir.redness)
-            self.input.click(pause = 0.3, rand = False, *pair.elixir.center)
-            picked = True
-        elif pair.gold.redness < 0.2 and pair.gold.cost_roi_xywh and pair.gold.center:
-            logger.info('Wall upgrade: paying with gold (redness %.2f)', pair.gold.redness)
-            self.input.click(pause = 0.3, rand = False, *pair.gold.center)
-            picked = True
-        frame = self.window.screenshot()
-        if frame is None:
-            return None
-        self._update_config_size(frame)
-        if not picked:
-            logger.info('Wall upgrade: no affordable resource slot (gold %.2f, elixir %.2f) — dismissing without confirming', pair.gold.redness, pair.elixir.redness)
-            if not pair.gold.cost_roi_xywh and not pair.elixir.cost_roi_xywh:
-                try:
-                    import time as _time
-                    import cv2 as _cv2
-                    from app.utils.common import get_user_app_data_dir
-                    dbg = get_user_app_data_dir() / 'debug'
-                    dbg.mkdir(parents = True, exist_ok = True)
-                    path = dbg / f'''wallfail_{int(_time.time())}.jpg'''
-                    _cv2.imwrite(str(path), frame, [_cv2.IMWRITE_JPEG_QUALITY, 88])
-                    logger.info('Wall upgrade: confirm-time frame saved to %s', path)
-                except Exception:
-                    logger.debug('Wall upgrade: debug frame dump failed', exc_info = True)
-            self._deselect_wall_ui()
-            return None
-        # The confirm renders a beat after the slot click: wait for it here, where the
-        # costs were checked, rather than leave it for a cleanup tap to confirm blind.
-        for _ in range(3):
-            (ox, oy) = self.vision.find_template(frame, 'okay.png')
-            if ox:
-                self.input.click(ox, oy, pause = 0.3, rand = False)
-                logger.info('Wall upgrade batch confirmed')
-                return True
-            if self.stop_event.wait(0.4):
-                return None
-            frame = self.window.screenshot()
-            if frame is None:
-                return None
-        logger.info('Wall upgrade: no Okay after picking the resource — nothing confirmed')
-        _dump_debug_frame(frame, 'wallokay')
-        return None
-
-    
-    def _wall_batch_state(self, polls = _WALL_POPUP_SETTLE_POLLS):
-        '''Fresh frame plus its cost-button reading, once the batch popup is readable.
-
-        Returns ``(frame, pair)``, or ``(frame, None)`` when the popup stayed unreadable.
-
-        One frame is not evidence. The popup animates for around a second after every add
-        or remove, and its cost icons do not match while it does — so treating the first
-        unreadable frame as "the popup is closed" ended batches one frame after a
-        successful add and threw the whole batch away unconfirmed (live repro: "cost
-        buttons not visible — popup not open" immediately after "1 wall(s) added").
-        '''
-        frame = None
-        for _ in range(max(1, int(polls))):
-            self._check_stop()
-            frame = self.window.screenshot()
-            if frame is not None:
-                self._update_config_size(frame)
-                pair = VisionService.upgrade_cost_redness_by_resource_icons(frame)
-                if pair.gold.cost_roi_xywh or pair.elixir.cost_roi_xywh:
-                    return (frame, pair)
-            if self.stop_event.wait(0.5):
-                return (frame, None)
-        return (frame, None)
-
-    def _wall_button_strip_roi(self, frame, pair):
-        '''ROI over the batch popup's button row — Remove Wall, Add Wall, the two costs.
-
-        Anchored on the cost text, because that is the one part of the popup that is read
-        reliably. The add/remove art is a nine-pixel-wide sliver at the authoring
-        resolution, so on a small window it matches dozens of places at 0.75+ — including
-        the "Wall (Level 14) x 1" title one row above the buttons. The rightmost /
-        leftmost tie-break inside those finders then picks exactly that false hit: live at
-        1299x731 both Add Wall and Remove Wall resolved to (620, 519), 63 px above the
-        real buttons, so the add clicks sailed over the top of the popup while the batch
-        counted them as added. Nothing above the cost text is a button.
-        '''
-        (fh, fw) = frame.shape[:2]
-        rois = []
-        if pair is not None:
-            rois = [ r for r in (pair.gold.cost_roi_xywh, pair.elixir.cost_roi_xywh) if r ]
-        if not rois:
-            return (fw // 4, fh // 2, fw // 2, fh - fh // 2)
-        # Oct 2026 batch popup (live frame): Remove Wall / Add Wall form a row right ABOVE
-        # the two price cards, under the 'Wall (Lv N) xK' title. Search that band only:
-        # never the price row (a sliver hit there is a purchase click), never the title.
-        top = min(int(r[1]) for r in rois)
-        x0 = max(0, min(int(r[0]) for r in rois) - int(0.03 * fw))
-        x1 = min(fw, max(int(r[0] + r[2]) for r in rois) + int(0.03 * fw))
-        y0 = max(0, top - int(0.18 * fh))
-        return (x0, y0, max(1, x1 - x0), max(1, top - y0))
-
-    def _wall_cost_signature(self, frame, pair):
-        '''The batch price as pixels. It changes with every wall added or removed, so it
-        is how a click that landed is told from one the popup swallowed.
-
-        Widened around the cost ROI on purpose: that ROI is a 41x9 slice of the middle of
-        the number, and a batch going from 2,000,000 to 4,000,000 changes only the leading
-        digit, which falls outside it — three adds in a row read as "nothing happened"
-        while the popup counted happily up to x4. Three ROI widths across covers the whole
-        price, and two settled frames of an untouched popup differ by exactly 0.00, so
-        there is no noise to leave headroom for.
-        '''
-        if frame is None or pair is None:
-            return None
-        (fh, fw) = frame.shape[:2]
-        parts = []
-        for slot in (pair.gold, pair.elixir):
-            roi = getattr(slot, 'cost_roi_xywh', None)
-            if not roi:
-                continue
-            (x, y, w, h) = (int(roi[0]), int(roi[1]), max(1, int(roi[2])), max(1, int(roi[3])))
-            crop = frame[max(0, y - h):min(fh, y + 2 * h), max(0, x - w):min(fw, x + 2 * w)]
-            if crop.size:
-                parts.append(cv2.resize(crop, (72, 24)).astype(np.int16))
-        return parts or None
-
-    @staticmethod
-    def _wall_cost_changed(before, after):
-        '''True when the two price readings differ (or either could not be taken — an
-        unreadable price is not evidence that the click was lost).'''
-        if not before or not after or len(before) != len(after):
-            return True
-        return any((float(np.mean(np.abs(a - b))) >= _WALL_COST_CHANGE_DIFF for (b, a) in zip(before, after)))
-
-    def _wait_for_wall_batch_popup(self, polls = _WALL_POPUP_SETTLE_POLLS):
-        '''True once the batch popup is up, judged by its Add Wall button.'''
-        frame = None
-        for _ in range(max(1, int(polls))):
-            self._check_stop()
-            (frame, pair) = self._wall_batch_state(polls = 1)
-            if frame is not None and pair is not None:
-                strip = self._wall_button_strip_roi(frame, pair)
-                if VisionService.find_active_addwall(frame, region = strip)[0]:
-                    return True
-            if self.stop_event.wait(0.4):
-                return False
-        _dump_debug_frame(frame if frame is not None else None, 'wallbatch')
-        return False
-
-    def _add_one_wall(self, frame, pair, strip_roi):
-        '''Put one wall into the batch, verified. Returns ``(frame, pair, added)``.
-
-        Verified for the same reason removing is: the popup animates for about a second
-        after each add and a click sent into that window is dropped silently. Counting the
-        clicks instead of the walls is what let a pass report "3 wall(s) added to batch"
-        and buy one.
-        '''
-        for attempt in range(_WALL_ADD_ATTEMPTS):
-            (awx, awy) = VisionService.find_active_addwall(frame, region = strip_roi)
-            if not awx:
-                return (frame, pair, False)
-            before = self._wall_cost_signature(frame, pair)
-            self.input.click(awx, awy, pause = _WALL_ADD_CLICK_PAUSE, rand = False)
-            (new_frame, new_pair) = self._wall_batch_state()
-            if new_pair is None:
-                return (new_frame if new_frame is not None else frame, pair, False)
-            after = self._wall_cost_signature(new_frame, new_pair)
-            (frame, pair) = (new_frame, new_pair)
-            if self._wall_cost_changed(before, after):
-                return (frame, pair, True)
-            logger.info('Wall upgrade: add click %d/%d left the batch unchanged — retrying', attempt + 1, _WALL_ADD_ATTEMPTS)
-            _dump_debug_frame(frame, 'walladd')
-        return (frame, pair, False)
-
-    def _remove_one_wall(self, frame, pair, mid_roi, why):
-        '''Take one wall back out of the batch, verified. Returns the new (frame, pair).
-
-        Verified because a single click is not reliable here: one sent while the popup is
-        still animating is swallowed silently (live repro: the count stayed at x2 and the
-        batch was discarded, then the same click at the same spot worked a second later).
-        '''
-        logger.info('Wall upgrade: removing one wall — %s', why)
-        for attempt in range(_WALL_REMOVE_ATTEMPTS):
-            (rwx, rwy) = VisionService.find_active_removewall(frame, region = mid_roi)
-            if not rwx:
-                logger.info('Wall upgrade: no Remove Wall button to click')
-                return (frame, pair)
-            self.input.click(rwx, rwy, pause = 0.4, rand = False)
-            (new_frame, new_pair) = self._wall_batch_state()
-            if new_pair is None:
-                return (new_frame if new_frame is not None else frame, pair)
-            (frame, pair) = (new_frame, new_pair)
-            if pair.gold.redness < 0.2 or pair.elixir.redness < 0.2:
-                return (frame, pair)
-            logger.info('Wall upgrade: batch still unaffordable after remove %d/%d', attempt + 1, _WALL_REMOVE_ATTEMPTS)
-        return (frame, pair)
-
     def _upgrade_walls(self):
         '''Open builder menu, scroll to Wall, add walls → remove if both red → Okay.'''
         frame = self.window.screenshot()
@@ -1110,111 +904,36 @@ deselect, which would eat the upcoming Attack click.'''
             self._deselect_wall_ui()
             return None
         self.input.click(pause = 0.6, rand = False, *wall_pt)
-        # Clicking the Wall row pans the camera to a wall before the selection bar
-        # renders (often >1s) — poll for Upgrade More instead of trusting one early
-        # frame (live rate before polling: ~1 success in 8 passes).
-        (umx, umy) = (None, None)
+        return self._buy_selected_wall()
+
+    def _buy_selected_wall(self):
+        '''The Wall card selected a wall: tap that wall's own Upgrade button (elixir first,
+        then gold), then confirm its upgrade dialog the gem-safe way. True when bought.'''
+        tile = None
         frame = None
-        for poll in range(8):
+        for _ in range(8):  # the camera pans to the wall before its buttons render (often >1s)
             self._check_stop()
             frame = self.window.screenshot()
             if frame is None:
                 return None
             self._update_config_size(frame)
-            bot_roi = VisionService.bottom_half_region(frame)
-            (umx, umy) = self.vision.find_template(frame, 'upgrademore.png', region = bot_roi)
-            if not umx and poll >= 2:
-                # The Oct 2026 UI redrew the selection bar (efebolukbasi/BasePilot#6, #8);
-                # the button still reads "Upgrade More". It only opens the batch popup —
-                # nothing is bought before the red-cost checks and okay.png below.
-                (umx, umy) = self.vision.find_label(frame, 'Upgrade More', region = bot_roi)
-                if umx:
-                    logger.info('Wall upgrade: Upgrade More art not matched; using its label read by OCR')
-            if umx:
+            tile = wall_upgrade_button(self.vision, frame)
+            if tile:
                 break
             if self.stop_event.wait(0.5):
                 return None
-        if not umx:
-            # The Wall click missed (wrong row / a building dialog opened instead) —
-            # close whatever came up so it cannot block the next pass or the Attack tap.
-            logger.info('Wall upgrade: upgrademore.png not visible after Wall row click — dismissing and skipping this pass')
-            if frame is not None:
-                # What the bar does show is the clue for recapturing the button.
-                seen = [w.text for w in (self.vision.find_words_ocr(frame, VisionService.bottom_half_region(frame), white_text = True) or [])]
-                logger.info('Wall upgrade: labels read in the bottom half: %s', seen)
-                try:
-                    import time as _time
-                    import cv2 as _cv2
-                    from app.utils.common import get_user_app_data_dir
-                    dbg = get_user_app_data_dir() / 'debug'
-                    dbg.mkdir(parents = True, exist_ok = True)
-                    path = dbg / f'''wallrow_{int(_time.time())}.jpg'''
-                    _cv2.imwrite(str(path), frame, [_cv2.IMWRITE_JPEG_QUALITY, 88])
-                    logger.info('Wall upgrade: post-click frame saved to %s', path)
-                except Exception:
-                    logger.debug('Wall upgrade: wallrow debug dump failed', exc_info = True)
-                self._dismiss_okay_or_exit_on_frame(frame, allow_okay = False)
+        if not tile:
+            logger.info('Wall upgrade: no affordable Upgrade button under the selected wall — skipping this pass')
+            _dump_debug_frame(frame, 'wallrow')
             return None
-        self.input.click(umx, umy, pause = 0.4, rand = False)
-        # Wait for the batch popup by the one control only it has. The wall selection bar
-        # underneath carries the same pair of cost buttons, so "the costs are readable" is
-        # true a beat before Upgrade More has actually opened anything — and the first add
-        # of the pass then went to whatever sat where Add Wall was about to be (live: two
-        # clicks in a row, batch unchanged, pass abandoned with nothing bought).
-        if not self._wait_for_wall_batch_popup():
-            logger.info('Wall upgrade: the batch popup never opened after Upgrade More — dismissing')
-            self._deselect_wall_ui()
+        (point, resource) = tile
+        self.input.click(*point, pause = 0.5, rand = False)
+        result = self._build_panel_upgrader().confirm(resource, 'Wall')
+        if result != 'started':
+            logger.info('Wall upgrade: %s', result)
             return None
-        # It is open, but it is still sliding in, and a click sent into that animation is
-        # dropped without a trace (live: the first two adds of a pass, both lost).
-        if self.stop_event.wait(_WALL_POPUP_ANIMATION_SECONDS):
-            return None
-        # Add walls to the batch while at least one resource can still pay the total.
-        added = 0
-        for _ in range(_WALL_BATCH_MAX_ADDS):
-            self._check_stop()
-            (frame, pair) = self._wall_batch_state()
-            if pair is None:
-                # The cost buttons are the only reliable proof the multi-upgrade popup is
-                # actually open — addwall/removewall false-positive on home-screen greens
-                # (incl. the Attack button checkmark), so never click blind.
-                logger.info('Wall upgrade: batch popup unreadable after %d polls — stopping batch', _WALL_POPUP_SETTLE_POLLS)
-                _dump_debug_frame(frame, 'wallbatch')
-                break
-            if pair.gold.redness >= 0.2 and pair.elixir.redness >= 0.2:
-                break
-            # Mid-bottom, and no higher than the cost text: the real Add Wall button sits
-            # in the popup's center cluster. A plain bottom-half search grabs the home
-            # Attack! button's green checkmark (bottom-left, still visible beside the
-            # popup) once +1 greys out, and a full-height one grabs the popup's own title.
-            strip_roi = self._wall_button_strip_roi(frame, pair)
-            (frame, pair, ok) = self._add_one_wall(frame, pair, strip_roi)
-            if not ok:
-                break
-            added += 1
-        # No dismissal when nothing could be added: the popup opens with one wall already
-        # in the batch, and buying that one is the whole point of the pass. Only a popup
-        # that was never open (checked above) is worth walking away from.
-        self._check_stop()
-        (frame, pair) = self._wall_batch_state()
-        if pair is None:
-            logger.info('Wall upgrade: batch popup unreadable before confirming — dismissing')
-            _dump_debug_frame(frame, 'wallbatch')
-            self._deselect_wall_ui()
-            return None
-        mid_roi = self._wall_button_strip_roi(frame, pair)
-        if added and pair.gold.redness >= 0.2 and pair.elixir.redness >= 0.2:
-            # Last add pushed the total over both resources — take one back before confirming.
-            # The batch always overshoots by one when it stops for affordability (the check
-            # runs before the add), so this removal is what makes the difference between a
-            # confirmed batch and a discarded one.
-            (frame, pair) = self._remove_one_wall(frame, pair, mid_roi, 'unaffordable on both resources')
-        if added > 1 and pair.elixir.redness >= 0.2 and pair.gold.redness < 0.2 and pair.gold.cost_roi_xywh:
-            # Gold will pay (elixir can't) — drop one wall so a maxed batch never drains gold
-            # to 0. Find a Match costs ~1300 gold; a zeroed gold storage blocks all attacking.
-            (frame, pair) = self._remove_one_wall(frame, pair, mid_roi, 'gold is the payer — keeping the attack entry fee')
-        logger.info('Wall upgrade: %d wall(s) added to batch', added)
-        return self._upgrade_walls_pick_resource_and_okay()
+        logger.info('Wall upgrade: one wall upgraded with %s', resource)
+        return True
 
     
     def _dismiss_okay_or_exit_on_frame(self, frame, allow_okay = True):
@@ -1269,7 +988,7 @@ deselect, which would eat the upcoming Attack click.'''
         return (None, None)
 
     
-    def _run_loop(self, method_id, duration_seconds, star_bonus = False, ranked_fill = False, upgrade_walls = False):
+    def _run_loop(self, method_id, duration_seconds, star_bonus = False, upgrade_walls = False):
         start_time = time.time()
         if self.stop_event.wait(1):
             return None
@@ -1295,12 +1014,10 @@ deselect, which would eat the upcoming Attack click.'''
         troop_failures = 0
         while deadline is None or time.time() < deadline:
             self._check_stop()
-            outcome = self._find_match_and_attack(method_id, ranked_fill)
+            outcome = self._find_match_and_attack(method_id)
             if outcome != 'no_attack':
                 self._return_home()
             self._home_screen_recovery()
-            if outcome == 'ranked_limit':
-                return None
             if outcome in ('troop', 'no_attack'):
                 # A cycle that never reached a battle used to count as a success and loop
                 # silently (efebolukbasi/BasePilot#7, #9); it now backs off like missing troops.
@@ -1369,6 +1086,7 @@ deselect, which would eat the upcoming Attack click.'''
             if cb:
                 cb(msg)
             return None
+        self._maybe_auto_upgrade()
         while time.time() - start_time < duration_seconds:
             self._check_stop()
             self.input.scroll(*self._scroll_point(), 20)
@@ -1384,9 +1102,9 @@ deselect, which would eat the upcoming Attack click.'''
                 logger.warning('Builder Base: findnow.png not found')
                 continue
             self.input.click(fx, fy, pause = 0.15)
-            (bx, by) = self._wait_for_image('babydragon.png', timeout = 30, error = False)
+            (bx, by) = self._wait_for_image(_BB_CARD_SWAP_TEMPLATE, timeout = 30, error = False)
             if not bx:
-                msg = 'Builder Base: babydragon.png not found after Find Now'
+                msg = 'Builder Base: troop cards not found after Find Now'
                 logger.warning(msg)
                 if cb:
                     cb(msg)
@@ -1408,8 +1126,8 @@ deselect, which would eat the upcoming Attack click.'''
             if frame is None:
                 continue
             self._update_config_size(frame)
-            if not self._deploy_bb_baby_dragons(frame):
-                logger.warning('Builder Base: babydragon.png lost after zoom nudge / deploy failed')
+            if not self._deploy_bb_army(frame):
+                logger.warning('Builder Base: troop cards lost after zoom nudge / deploy failed')
                 continue
             if self._loot_prioritise == 'elixir':
                 self._bb_surrender_and_return_home()
@@ -1418,6 +1136,7 @@ deselect, which would eat the upcoming Attack click.'''
             else:
                 self._bb_end_battle_and_return_home()
             self._bb_collect_elixir_cart_after_attack()
+            self._maybe_auto_upgrade()
             if star_bonus and self._is_bb_star_bonus_finished():
                 logger.info('Builder Base star bonus finished (bstar.png no longer visible). Stopping.')
                 return None
@@ -1491,25 +1210,30 @@ deselect, which would eat the upcoming Attack click.'''
         self.input.click(pause = 0.15, *self.config.get_point('empty'))
 
     
-    def _deploy_bb_baby_dragons(self, frame):
-        '''Find all Baby Dragon icons, deploy on diamond edges, wait, then re-click saved icons.'''
+    def _deploy_bb_army(self, frame):
+        '''Deploy every troop card on the bar (found by its green swap button; the hero card
+        is left to the machine deploy) along the diamond's top edges, then the machine.'''
         strategy = AttackStrategy(self.input, self.vision, self.config, self.stop_event)
         roi = VisionService.bottom_half_region(frame)
-        centers = VisionService.find_all_template_centers(frame, 'babydragon.png', region = roi, max_matches = 12, suppress_pad_frac = _BB_TEMPLATE_SUPPRESS_PAD)
-        if not centers:
+        swaps = VisionService.find_all_template_centers(frame, _BB_CARD_SWAP_TEMPLATE, region = roi, max_matches = 12, suppress_pad_frac = _BB_TEMPLATE_SUPPRESS_PAD)
+        heroes = [self.vision.find_template(frame, t, region = roi)[0] for t in (_BB_BATTLE_MACHINE_TEMPLATE, _BB_FLYING_MACHINE_TEMPLATE)]
+        hero_x = next((x for x in heroes if x), None)
+        lift = self.config.scale_scalar(_BB_CARD_ABOVE_SWAP)
+        near = self.config.scale_scalar(_BB_CARD_ABOVE_SWAP)  # a card is ~1.4x that wide
+        cards = [(x, y - lift) for (x, y) in sorted(swaps) if hero_x is None or abs(x - hero_x) > near]
+        if not cards:
             return False
-        deploy_count = len(centers)
-        self.input.click(centers[0][0], centers[0][1], pause = 0.3, rand = False)
-        if self.stop_event.wait(0.2):
-            return True
-        for px, py in strategy._even_diamond_top_perimeter_points(frame, deploy_count, reserve_top_corner_slot = True):
+        logger.info('Builder Base: deploying %d troop card(s)', len(cards))
+        points = strategy._even_diamond_top_perimeter_points(frame, len(cards), reserve_top_corner_slot = True)
+        for (cx, cy), (px, py) in zip(cards, points):
             self._check_stop()
+            self.input.click(cx, cy, pause = 0.25, rand = False)
             self.input.click(px, py, pause = _EDRAG_DELAY, rand = False)
         self._deploy_bb_battle_or_flying_machine(strategy)
         if self._loot_prioritise != 'elixir':
-            if self.stop_event.wait(_BB_BABY_DRAGON_RECLICK_WAIT):
+            if self.stop_event.wait(_BB_CARD_RECLICK_WAIT):
                 return True
-            for x, y in centers:
+            for x, y in cards:
                 self._check_stop()
                 self.input.click(x, y, pause = 0.15, rand = False)
         return True
@@ -1645,11 +1369,13 @@ deselect, which would eat the upcoming Attack click.'''
         self._bb_dismiss_okay_and_return_home(retry_battle_template = 'surrender.png')
 
     
-    def _find_match_and_attack(self, method_id, ranked_fill = False):
-        """One attack cycle. Returns ``'ranked_limit'`` (stop now), ``'troop'`` (troops missing — retry later),
+    def _find_match_and_attack(self, method_id):
+        """One attack cycle. Returns ``'troop'`` (troops missing — retry later),
         ``'no_attack'`` (Battle / Find a Match / the battle screen never came up), or None."""
-        battle_template = 'rankedbattle.png' if ranked_fill else 'farmbattle.png'
-        (fx, fy) = self._find_template_once(battle_template)
+        battle_template = 'farmbattle.png'
+        # Only inside the Battle card: the Ranked Battle card to its right must never be tapped.
+        battle_card = (0, 0, int(self.config.width * _BATTLE_CARD_MAX_X), int(self.config.height))
+        (fx, fy) = self._find_template_once(battle_template, region = battle_card)
         if fx:
             # A previous cycle left the battle-selection screen open (stolen tap / derail) —
             # use it directly instead of hunting for the home Attack button it covers.
@@ -1664,15 +1390,8 @@ deselect, which would eat the upcoming Attack click.'''
             # loot tracker never ran (live repro: 3 battles, session totals stuck at 0)]
             self._loot_snapshot_before_attack()
             self.input.click(ax, ay, pause = 0.1)
-            (fx, fy) = self._wait_for_image(battle_template)
+            (fx, fy) = self._wait_for_image(battle_template, region = battle_card)
         if not fx:
-            if ranked_fill:
-                msg = 'Ranked battle button not found — daily limit may be reached. Stopping.'
-                logger.info(msg)
-                cb = getattr(self, '_status_callback', None)
-                if cb:
-                    cb(msg)
-                return 'ranked_limit'
             return 'no_attack'
         self.input.click(fx, fy, pause = 0.1)
         # A single tap here is unreliable: event popups (Card Hunt etc.) or a still-animating
@@ -1683,7 +1402,7 @@ deselect, which would eat the upcoming Attack click.'''
         for _ in range(3):
             if a2x:
                 break
-            (rfx, rfy) = self._find_template_once(battle_template)
+            (rfx, rfy) = self._find_template_once(battle_template, region = battle_card)
             if not rfx:
                 break
             logger.info('%s still on screen — click was eaten (popup?); re-clicking', battle_template)
@@ -1701,12 +1420,6 @@ deselect, which would eat the upcoming Attack click.'''
                 cb(msg)
         if a2x:
             self.input.click(a2x, a2y, pause = 0.1)
-            if ranked_fill:
-                (rx, ry) = self._wait_for_image('rankedattackconfirm.png', timeout = 10)
-                if not rx:
-                    logger.warning('rankedattackconfirm.png not found after attack2.png')
-                else:
-                    self.input.click(rx, ry, pause = 0.1)
         (bsx, _bsy) = self._wait_for_any_image(('surrender.png', 'endbattle.png'), timeout = 60, label_after = _BATTLE_LABEL_AFTER)
         if not bsx:
             # No battle screen (search fee unaffordable, a stolen tap): running the strategy
@@ -1714,8 +1427,7 @@ deselect, which would eat the upcoming Attack click.'''
             return 'no_attack'
         # Battle prep: the base is on screen with its loot listed, and nothing has been
         # deployed yet — the only moment Next is still an option.
-        if not ranked_fill:
-            self._skip_low_loot_bases()
+        self._skip_low_loot_bases()
         frame = self.window.screenshot()
         if frame is None:
             return None
@@ -2195,6 +1907,7 @@ Each iteration dismisses ``okay.png`` / ``exit.png`` if present, then village / 
     def _go_to_builder_base_with_boat(self):
         '''Home Village → Builder Base via ``boat.png``.'''
         self._check_stop()
+        self._zoom_out_max()
         (bx, by) = self._wait_for_image('boat.png', timeout = 15, error = False)
         if not bx:
             logger.warning('boat.png not found — cannot switch to Builder Base')
@@ -2209,12 +1922,21 @@ Each iteration dismisses ``okay.png`` / ``exit.png`` if present, then village / 
         return True
 
     
+    def _zoom_out_max(self):
+        '''Wheel the camera all the way out. The boat and the collect bubbles are world
+        objects: their templates match at the widest zoom, and at the game's default zoom
+        they are ~1.35x bigger (live 16:10) and the boat is off screen.'''
+        self.input.scroll(*self._scroll_point(), 20)
+        if self.stop_event.wait(0.3):
+            self._check_stop()
+
     def _ensure_correct_village(self, builder_base):
         '''Before farming: switch villages if the wrong builder portrait is showing.'''
         self._check_stop()
         self.input.click(pause = 0.15, *self.config.get_point('empty'))
         if self.stop_event.wait(0.2):
             return None
+        self._zoom_out_max()
         village = self._detect_village_type()
         if builder_base:
             if village == 'builder':
@@ -2249,6 +1971,7 @@ dimensions and dragging.
         cb = getattr(self, '_status_callback', None)
         if cb:
             cb('Multi-run: leaving Builder Base (nboat)')
+        self._zoom_out_max()
         self._bb_pan_down_left_from_center()
         (nx, ny) = self._wait_for_image('nboat.png', timeout = 12, error = False)
         if nx:
@@ -2263,6 +1986,7 @@ dimensions and dragging.
         logger.info('Multi-run: Home Village collect (hgold, helixir, hdelixir)')
         if cb:
             cb('Multi-run: Home Village collect')
+        self._zoom_out_max()
         for tpl in ('hgold.png', 'helixir.png', 'hdelixir.png'):
             self._check_stop()
             (rx, ry) = self._find_template_once(tpl, threshold = 0.7)
@@ -2283,6 +2007,7 @@ optionally run the clock boost chain, then leave Builder Base.
         logger.info(msg)
         if cb:
             cb(msg)
+        self._zoom_out_max()
         (bx, by) = self._wait_for_image('boat.png', timeout = 15, error = False)
         if not bx:
             logger.warning('Multi-run: boat.png not found — skipping Builder Base step')

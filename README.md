@@ -11,19 +11,22 @@ reading, no packet manipulation, no modified client.
 > **About this fork.** Upstream's public source stopped at 1.0.1, before the October 2026
 > Clash of Clans UI. This fork merges upstream PR 1 and adapts the source to that UI: new
 > button art, a label-reading fallback for redrawn buttons (Battle, Attack, Return Home,
-> Upgrade More...), walls through the new Build panel, and fixes in the farm loop.
+> Upgrade More...), and fixes in the farm loop.
+> Upgrades go through the new Build panel, in the Home Village and the Builder Base: when
+> one of your regular builders is free, the bot starts an affordable upgrade, and when the
+> laboratory is free, a research. The goblin builder and researcher (paid in gems) are
+> never used, the magic-item Confirm is never tapped, and any gem prompt is closed at once.
+> Walls are bought one at a time, elixir first. The Builder Base fight deploys whatever
+> troops your army has, and the camera is zoomed out before looking for the boat.
+> The bot never taps the Ranked Battle card (the ranked fill mode is gone).
 > It is also faster: in-process OCR through tesserocr (falls back to pytesseract),
 > one-copy screen capture, coarse-to-fine template matching, and no dead waits after a
 > battle that ends by itself.
-> Not working on the new UI yet: auto-upgrade (skipped on purpose until the Build panel is
-> parsed), account switching (Settings moved into Profile), ranked fill and star-bonus mode.
-> Walls reach the new wall menu, but buying a batch needs the new price-card art: capture
-> `multiupgrade.png` (the hammers on a wall price card) in *Settings -> Capture templates*.
-> Builder Base trips may fail too: at the default zoom the boat bubble no longer matches
-> `boat.png`.
-> These changes are covered by unit tests and checked on 16:10 screenshots of the current
-> game, but the bot has not run a full session yet. The fork publishes no exe: run it from
-> source (below).
+> Not working on the new UI yet: account switching (Settings moved into Profile) and
+> star-bonus mode.
+> The screen readers are tested on 16:10 screenshots of the current game, but the bot has
+> not run a full session yet, and no upgrade was started in a test (no builder was free).
+> The fork publishes no exe: run it from source (below).
 
 **[Download the latest release](../../releases/latest)** — a single `BasePilot.exe`
 with the OCR engine bundled in, so there is nothing to install. This repository holds
@@ -45,7 +48,10 @@ Minions, or Edrags), collects loot, returns home, and recovers on its own from p
 disconnects, and stray screens. Builder Base farming included. See
 [Army setup](#army-setup) for what to bring.
 
-**Auto upgrade (beta).** Reads the builder menu with OCR and spends your loot:
+**Auto upgrade (beta).** Reads the Build panel with OCR and spends your loot, on a free
+regular builder only (never the gem-paid goblin), plus one laboratory research when the lab
+is free. Any gem prompt is closed at once. The Builder Base has its own switch on the Run
+page and uses the same mode:
 
 - **Maxer** — starts an affordable upgrade and never touches your Town Hall. Priciest
   first by default, since a farmed account is builder-limited rather than loot-limited;
@@ -59,8 +65,9 @@ every builder busy, BasePilot **idles** instead of raiding for loot that would
 overflow, rechecking every few minutes and resuming the moment something frees up.
 It only stops when you tell it to.
 
-**Wall upgrades.** Batch-buys walls when loot passes a threshold you set, elixir first,
-keeping enough gold for match entry fees.
+**Wall upgrades.** Buys walls one at a time (up to five per pass) when loot passes a
+threshold you set, elixir first. The builder reserve in Settings only applies while this is
+on.
 
 **Loot filter.** Reads the loot a matched base is holding and presses **Next** until one
 clears your minimums, so an army is never spent on a 40k base. Off until you set the
@@ -93,8 +100,7 @@ glance, alongside the loot readout.
 Works at **any Town Hall level** — detection reads the game's own UI signals (builder
 chip, lab chip, storage indicators) rather than hardcoded per-TH values.
 
-Not automated yet: starting laboratory research and Pet House upgrades. BasePilot
-tracks the lab and tells you when it's idle, but you start those two yourself.
+Not automated yet: Pet House upgrades and the Blacksmith's equipment.
 
 ## Safety rails
 

@@ -62,7 +62,7 @@ def is_october_build_panel_hud(vision, frame):
     if not vision.find_template(frame, 'build.png', region = VisionService.bottom_half_region(frame))[0]:
         return False
     if not _october_hud_logged:
-        logger.info('Auto-upgrade: the October 2026 Build panel is not supported yet — skipping (walls still run)')
+        logger.info('October 2026 HUD: the old builder-popup reader is skipped (upgrades go through the Build panel)')
         _october_hud_logged = True
     return True
 # Wheel target inside the (pre-October 2026) builder popup body.

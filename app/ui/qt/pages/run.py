@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QButtonGroup, QGridLayout, QHBoxLayout, QLabel, QM
 from app.config import check_game_window_aspect_for_start
 from app.ui.qt._constants import ATTACK_STRATEGIES, BUILDER_BASE_ATTACK_STRATEGIES, BUILDER_BASE_ATTACK_STRATEGIES_UNDER_DEV, BUILDER_BASE_PRIORITISE_LABELS
 from app.ui.qt.bot_controller import BotController
-from app.ui.qt.dialogs import RankedAttackConfirmDialog, show_bb_prioritise_help, show_error, show_under_development
+from app.ui.qt.dialogs import show_bb_prioritise_help, show_error, show_under_development
 from app.ui.qt.theme import SPACING, TOKENS
 from app.ui.qt.widgets import Card, HelpButton, SectionTitle, StepperButton, ToggleSwitch, chip_button, danger_button, neutral_button, primary_button, segment_button
 from app.utils.player_list_store import PlayerEntry, load_players
@@ -217,12 +217,10 @@ class RunPage(QWidget):
             upg_row.addWidget(btn)
         upg_row.addStretch()
         card.card_layout.addLayout(upg_row)
-        upg_hint = QLabel('Maxer starts the cheapest affordable upgrade with your loot (never the Town Hall); Rusher grabs the Town Hall the moment it is affordable. Dry run only logs what it would start. Works at any Town Hall level. Reserve builders for walls in Settings.')
+        upg_hint = QLabel('When one of your regular builders is free, Maxer starts an affordable upgrade (never the Town Hall), and the laboratory starts a research; Rusher also grabs the Town Hall the moment it is affordable. The goblin builder and researcher are never used, and any gem prompt is closed at once. Dry run only logs what it would start. Reserve builders for walls in Settings (only applies with Upgrade walls on).')
         upg_hint.setWordWrap(True)
         upg_hint.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
         card.card_layout.addWidget(upg_hint)
-        self._ranked = ToggleSwitch('Ranked attack fill', parent = card, danger = True)
-        card.card_layout.addWidget(self._ranked)
         self._upgrade_walls = ToggleSwitch('Upgrade walls', parent = card)
         card.card_layout.addWidget(self._upgrade_walls)
         self._auto_donate = ToggleSwitch('Auto donate', parent = card)
@@ -262,6 +260,8 @@ class RunPage(QWidget):
             prior_row.addWidget(btn)
         prior_row.addStretch()
         card.card_layout.addLayout(prior_row)
+        self._bb_auto_upgrade = ToggleSwitch('Auto upgrade (builders and star lab, mode from Home Village)', parent = card)
+        card.card_layout.addWidget(self._bb_auto_upgrade)
         self._bb_upgrade_walls = ToggleSwitch('Upgrade walls', parent = card, under_development = True)
         card.card_layout.addWidget(self._bb_upgrade_walls)
         mr_row = QHBoxLayout()
@@ -476,6 +476,7 @@ class RunPage(QWidget):
         '''Bring back the last run's choices (mode, walls, duration) across app starts.'''
         self._set_auto_upgrade_mode(str(self._settings.value('run/autoUpgrade', 'off')))
         self._upgrade_walls.setChecked(self._settings.value('run/upgradeWalls', False, type = bool))
+        self._bb_auto_upgrade.setChecked(self._settings.value('run/bbAutoUpgrade', False, type = bool))
         self._auto_donate.setChecked(self._settings.value('run/autoDonate', False, type = bool))
         self._auto_request.setChecked(self._settings.value('run/autoRequest', False, type = bool))
         self._until_maxed.setChecked(self._settings.value('run/untilMaxed', False, type = bool))
@@ -486,6 +487,7 @@ class RunPage(QWidget):
     def _save_choices(self):
         self._settings.setValue('run/autoUpgrade', self._get_auto_upgrade_mode())
         self._settings.setValue('run/upgradeWalls', self._upgrade_walls.isChecked())
+        self._settings.setValue('run/bbAutoUpgrade', self._bb_auto_upgrade.isChecked())
         self._settings.setValue('run/autoDonate', self._auto_donate.isChecked())
         self._settings.setValue('run/autoRequest', self._auto_request.isChecked())
         self._settings.setValue('run/untilMaxed', self._until_maxed.isChecked())
@@ -529,17 +531,12 @@ class RunPage(QWidget):
             if mins <= 0 or mins > 999:
                 show_error(self.window(), 'Error', 'Invalid time duration. Enter 1-999 minutes.')
                 return None
-        ranked_fill = False if builder_base else self._ranked.isChecked()
-        if ranked_fill:
-            confirm_mins = self._get_minutes()
-            if not RankedAttackConfirmDialog.ask(self.window(), confirm_mins):
-                return None
         if builder_base and self._get_bb_prioritise() == 'elixir' and not self._confirm_bb_elixir_prioritise():  # [recovered: decompiler inverted both conditions]
             return None
         self._save_choices()
         # Clan assist rides the Home Village flow (the chat button is calibrated on it,
         # and the Builder Base has no clan chat).
-        self._controller.start(method = method, minutes = mins, star_bonus = star_bonus, ranked_fill = ranked_fill, upgrade_walls = False if builder_base else self._upgrade_walls.isChecked(), multi_run_players = multi_arg, builder_base = builder_base, loot_prioritise = self._get_bb_prioritise() if builder_base else 'both', auto_upgrade = 'off' if builder_base else self._get_auto_upgrade_mode(), auto_donate = False if builder_base else self._auto_donate.isChecked(), auto_request = False if builder_base else self._auto_request.isChecked())
+        self._controller.start(method = method, minutes = mins, star_bonus = star_bonus, upgrade_walls = False if builder_base else self._upgrade_walls.isChecked(), multi_run_players = multi_arg, builder_base = builder_base, loot_prioritise = self._get_bb_prioritise() if builder_base else 'both', auto_upgrade = (self._get_auto_upgrade_mode() if self._bb_auto_upgrade.isChecked() else 'off') if builder_base else self._get_auto_upgrade_mode(), auto_donate = False if builder_base else self._auto_donate.isChecked(), auto_request = False if builder_base else self._auto_request.isChecked())
 
     
     def is_star_bonus_enabled(self):

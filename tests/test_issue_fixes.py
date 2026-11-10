@@ -76,17 +76,6 @@ class WallTests(unittest.TestCase):
         self.assertNotIn('okay.png', [c.args[1] for c in bot.vision.find_template.call_args_list])
         self.assertEqual(bot.input.click.call_count, 1)  # only the empty-ground tap
 
-    @patch('app.core.bot.VisionService.upgrade_cost_redness_by_resource_icons')
-    def test_confirm_waits_for_the_late_okay_and_reports_success(self, costs):
-        bot = make_bot()
-        slot = SimpleNamespace(redness=0.0, cost_roi_xywh=(1, 2, 3, 4), center=(500, 600))
-        costs.return_value = SimpleNamespace(elixir=slot, gold=SimpleNamespace(redness=1.0, cost_roi_xywh=None, center=None))
-        bot._wall_batch_state = Mock(return_value=(FRAME, object()))
-        okay = iter([(None, None), (700, 500)])
-        bot.vision.find_template.side_effect = lambda f, name, **kw: next(okay) if name == 'okay.png' else (None, None)
-        self.assertTrue(bot._upgrade_walls_pick_resource_and_okay())
-        self.assertEqual([c.args[:2] for c in bot.input.click.call_args_list], [(500, 600), (700, 500)])
-
     def test_failed_pass_backs_off(self):
         bot = make_bot()
         bot._should_upgrade_walls = Mock(return_value=True)
@@ -97,15 +86,6 @@ class WallTests(unittest.TestCase):
         self.assertEqual(bot._upgrade_walls.call_count, 1)  # no second pass after a failure
         bot._maybe_upgrade_walls(True)
         self.assertEqual(bot._should_upgrade_walls.call_count, 1)  # backed off: not even re-checked
-
-    def test_add_remove_band_sits_above_the_price_cards(self):
-        bot = make_bot()
-        frame = np.zeros((900, 1600, 3), dtype=np.uint8)
-        cost = lambda x: SimpleNamespace(cost_roi_xywh=(x, 728, 100, 22))
-        (x, y, w, h) = bot._wall_button_strip_roi(frame, SimpleNamespace(gold=cost(440), elixir=cost(615)))
-        self.assertEqual(y + h, 728)            # never the price row (a hit there is a purchase click)
-        self.assertGreater(y, 540)              # nor the 'Wall (Lv N) xK' title above the buttons
-        self.assertTrue(x <= 430 and x + w >= 735)  # both buttons of the live October frame
 
     def test_wall_card_is_read_in_the_build_panel(self):
         bot = make_bot()
