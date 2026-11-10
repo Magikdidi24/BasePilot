@@ -70,7 +70,7 @@ class WallTests(unittest.TestCase):
     def test_cleanup_never_clicks_okay(self):
         bot = make_bot()
         bot.vision.find_template.side_effect = lambda f, name, **kw: (50, 50) if name == 'okay.png' else (None, None)
-        with patch('app.core.bot.get_template_path') as path:
+        with patch('app.core.bot.get_template_path') as path, patch('app.core.bot.find_close', return_value=None):
             path.return_value.exists.return_value = False
             bot._deselect_wall_ui()
         self.assertNotIn('okay.png', [c.args[1] for c in bot.vision.find_template.call_args_list])

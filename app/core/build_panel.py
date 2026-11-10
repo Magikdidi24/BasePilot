@@ -311,15 +311,20 @@ def gem_prompt_visible(vision, frame):
 
 
 def find_close(vision, frame):
-    '''The red X of the dialog or prompt on top, or None.'''
+    '''The red X of the dialog or prompt on top, or None. Every template is tried at the
+    bot's scale before any other: the X of a dialog open over the Build panel must win
+    over the panel's own X behind it, drawn smaller (exit.png at 0.8).'''
     (h, w) = frame.shape[:2]
     region = _region(frame, 0, 0, w, 0.6 * h)
-    best = (None, None, 0.0)
-    for name in _CLOSE_TEMPLATES:
-        hit = vision.find_template_with_confidence(frame, name, threshold = _CLOSE_MIN, region = region)
-        if hit[0] is not None and hit[2] > best[2]:
-            best = hit
-    return best[:2] if best[0] is not None else None
+
+    def best_at(scale):
+        best = (None, None, 0.0)
+        for name in _CLOSE_TEMPLATES:
+            hit = vision.find_template_with_confidence(frame, name, threshold = _CLOSE_MIN, region = region, scale = scale)
+            if hit[0] is not None and hit[2] > best[2]:
+                best = hit
+        return best[:2] if best[0] is not None else None
+    return vision.with_scale_fallback(best_at)
 
 
 def find_confirm_button(vision, frame, resource = None):
@@ -361,7 +366,10 @@ def wall_upgrade_button(vision, frame, resources = (RESOURCE_ELIXIR, RESOURCE_GO
     hammer; the Wall Ring and Upgrade More tiles have no hammer. The selection must be a
     wall: a building's bottom bar has the same hammer button.'''
     (h, w) = frame.shape[:2]
-    hammers = vision.find_all_template_centers(frame, 'wallhammer.png', threshold = 0.75, region = _region(frame, 0, 0.45 * h, w, h), max_matches = 6)
+    region = _region(frame, 0, 0.45 * h, w, h)
+    # the tiles do not always scale like the HUD (1.1 of the bot's template scale at 1227x767)
+    hammers = vision.with_scale_fallback(lambda scale: vision.find_all_template_centers(
+        frame, 'wallhammer.png', threshold = 0.75, region = region, max_matches = 6, scale = scale))
     if not hammers:
         return None
     top = min(y for (_x, y) in hammers)
@@ -556,8 +564,10 @@ class BuildPanelUpgrader:
             self.input.click(*point, pause = 0.5, rand = False)
 
     def _close_panel(self):
-        '''Empty-ground taps until the Build button is back (an open panel or a selected
-        building swallows the next tap, including the next Attack).'''
+        '''Taps on the X on top (the panel's own last) until the Build button is back, on
+        empty ground only when no X shows (an open panel or a selected building swallows
+        the next tap, including the next Attack). With the panel open the HUD shifts left
+        and 'empty' can land on a button (the box at 1227x767).'''
         self._close_dialogs()
         for _ in range(3):
             frame = self._frame()
@@ -566,4 +576,4 @@ class BuildPanelUpgrader:
             (h, w) = frame.shape[:2]
             if self.vision.find_template(frame, 'build.png', region = _region(frame, w // 2, h // 2, w, h))[0]:
                 return
-            self.input.click(*self.config.get_point('empty'), pause = 0.4, rand = False)
+            self.input.click(*(find_close(self.vision, frame) or self.config.get_point('empty')), pause = 0.4, rand = False)

@@ -92,6 +92,11 @@ try:
     _C2F_MIN_POSITIONS = 4096  # below this many candidate positions a direct match is as cheap
     _C2F_PEAKS = 8  # coarse peaks re-scored at full resolution (a few microseconds each)
     _C2F_PAD = 4  # px of slack around each coarse peak (halving rounds positions)
+    # Template scales tried after a miss at the bot's own (height-proportional) one, nearest
+    # first (VisionService.with_scale_fallback): some art is not drawn to the HUD's scale.
+    # GPG's 1227x767 window: the Build panel's X matches exit.png at 0.8 (0.99, 0.58 at the
+    # bot's scale), a selected wall's Upgrade tiles match wallhammer.png at 1.1 (0.97, 0.72).
+    FALLBACK_TEMPLATE_SCALES = (0.9, 1.1, 0.8)
     # Button art is redrawn by game updates (Oct 2026: "Attack!" became "Battle"); the
     # label text rarely changes, so these controls fall back to reading it.
     # Never add confirm/Okay buttons here: a text match must not be able to spend anything.
@@ -146,9 +151,10 @@ try:
 
         
         @staticmethod
-        def _resize_template_for_screen(template, screen_img):
-            '''Resize reference PNG templates to match the current capture.'''
+        def _resize_template_for_screen(template, screen_img, scale = 1):
+            '''Resize reference PNG templates to match the current capture, times ``scale``.'''
             (sx, sy) = VisionService._template_scale_xy(screen_img)
+            (sx, sy) = (sx * scale, sy * scale)
             if abs(sx - 1) < 0.001 and abs(sy - 1) < 0.001:
                 return template
             (t_h, t_w) = template.shape[:2]
@@ -156,6 +162,18 @@ try:
             new_h = max(1, int(round(t_h * sy)))
             interp = cv2.INTER_AREA if min(sx, sy) < 1 else cv2.INTER_CUBIC
             return cv2.resize(template, (new_w, new_h), interpolation = interp)
+
+        
+        @staticmethod
+        def with_scale_fallback(find):
+            '''``find(scale)`` at the bot's own template scale (1), then at each of
+:data:`FALLBACK_TEMPLATE_SCALES` while it misses (None or empty): the first hit, else the
+last miss. A hit at the bot's scale costs no extra match; thresholds stay the caller's.'''
+            for scale in (1,) + FALLBACK_TEMPLATE_SCALES:
+                found = find(scale)
+                if found:
+                    break
+            return found
 
         
         @staticmethod
@@ -268,11 +286,12 @@ Returns (center_x, center_y) or (None, None).
 
         
         @staticmethod
-        def find_template_with_confidence(screen_img, template_name, threshold = 0, region = None):
+        def find_template_with_confidence(screen_img, template_name, threshold = 0, region = None, *, scale = 1):
             '''
 Finds a template and returns (center_x, center_y, confidence).
 Confidence is 0.0-1.0 from cv2.matchTemplate TM_CCOEFF_NORMED.
 Returns (None, None, confidence) if not found above threshold.
+``scale`` multiplies the bot's template scale (see :meth:`with_scale_fallback`).
 '''
             
             try:
@@ -281,7 +300,7 @@ Returns (None, None, confidence) if not found above threshold.
                 if template is None:
                     logger.error(f'''Template not found: {template_path}''')
                     return (None, None, 0)
-                template = VisionService._resize_template_for_screen(template, screen_img)
+                template = VisionService._resize_template_for_screen(template, screen_img, scale)
                 if region:
                     (x, y, w, h) = region
                     (h_screen, w_screen) = screen_img.shape[:2]
@@ -314,9 +333,9 @@ Returns (None, None, confidence) if not found above threshold.
 
         
         @staticmethod
-        def find_all_template_centers(screen_img, template_name, threshold = 0.8, region = None, *, max_matches = 12, suppress_pad_frac = 0.5):
+        def find_all_template_centers(screen_img, template_name, threshold = 0.8, region = None, *, max_matches = 12, suppress_pad_frac = 0.5, scale = 1):
             '''All non-overlapping template hits as ``(center_x, center_y)`` centers.'''
-            matches = VisionService._find_template_matches(screen_img, template_name, threshold, region, max_matches = max_matches, suppress_pad_frac = suppress_pad_frac)
+            matches = VisionService._find_template_matches(screen_img, template_name, threshold, region, max_matches = max_matches, suppress_pad_frac = suppress_pad_frac, scale = scale)
             return [ (int(left) + int(tw) // 2, int(top) + int(th) // 2) for left, top, tw, th, _score in matches ]
             _score = None
             th = None
@@ -573,7 +592,7 @@ Best ``cv2.matchTemplate`` match: ``(left, top, t_w, t_h, score)``.
 
         
         @staticmethod
-        def _find_template_matches(screen_img, template_name, threshold, region = None, *, max_matches = 2, suppress_pad_frac = 0.5):
+        def _find_template_matches(screen_img, template_name, threshold, region = None, *, max_matches = 2, suppress_pad_frac = 0.5, scale = 1):
             '''Up to ``max_matches`` non-overlapping ``matchTemplate`` hits: ``(left, top, t_w, t_h, score)``.'''
             
             try:
@@ -582,7 +601,7 @@ Best ``cv2.matchTemplate`` match: ``(left, top, t_w, t_h, score)``.
                 if template is None:
                     logger.error(f'''Template not found: {template_path}''')
                     return []
-                template = VisionService._resize_template_for_screen(template, screen_img)
+                template = VisionService._resize_template_for_screen(template, screen_img, scale)
                 if region:
                     (x, y, w, h) = region
                     (h_screen, w_screen) = screen_img.shape[:2]

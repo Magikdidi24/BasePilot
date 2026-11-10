@@ -9,7 +9,7 @@ from app.config import ASPECT_16_10, ASPECT_16_9, Config
 from app.core.clan import ClanAssistant, ClanOptions, missing_templates
 from app.core.loot_filter import TEMPLATE_NEXT_BASE, LootFilter, combine_reads, meets, read_enemy_loot
 from app.core.strategies import AttackStrategy, EdragStrategy, TroopSpamStrategy, _EDRAG_DELAY
-from app.core.build_panel import BuildPanelUpgrader, gem_prompt_visible, wall_upgrade_button
+from app.core.build_panel import BuildPanelUpgrader, find_close, gem_prompt_visible, wall_upgrade_button
 from app.core.upgrade_menu import RESOURCE_ELIXIR, RESOURCE_GOLD
 from app.core.upgrader import AUTO_UPGRADE_MODES, LIVE_UPGRADE_MODES, MODE_OFF, UpgradeAdvisor, is_october_build_panel_hud
 from app.core.village_state import read_hud_triplet_stable, read_village_state, read_village_state_stable, storages_full
@@ -542,9 +542,13 @@ past the bottom is a harmless no-op, so this can be called repeatedly.
     def _deselect_wall_ui(self):
         '''Tap empty ground to close the wall selection bar / gem dialog remnants. The wall
 bar has no X button — while it is open, the next tap anywhere is swallowed by the
-deselect, which would eat the upcoming Attack click.'''
+deselect, which would eat the upcoming Attack click. An X still on top is tapped instead:
+the Build panel stays open when no Wall card was read, and it shifts the HUD left, so
+'empty' would land on a button (the box at 1227x767).'''
         self._dismiss_open_popup(allow_okay = False)
-        self.input.click(pause = 0.3, *self.config.get_point('empty'))
+        frame = self.window.screenshot()
+        point = find_close(self.vision, frame) if frame is not None else None
+        self.input.click(pause = 0.3, *(point or self.config.get_point('empty')))
 
 
     def _maybe_upgrade_walls(self, upgrade_walls):
