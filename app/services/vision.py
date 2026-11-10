@@ -8,6 +8,7 @@ import numpy as np
 from PIL import Image
 from typing import Any, Dict, Optional, Tuple, List, Sequence
 from app.config import ASPECT_BASELINE, ASPECT_16_10, ASPECT_16_9, Config, resolve_aspect_key
+from app.services import ppocr
 from app.utils.common import ensure_dir, get_resource_path, get_template_path
 from app.utils.logger import setup_logger
 
@@ -40,6 +41,8 @@ try:
     # different numbers rather than to the same one.
     _NUMBER_RUN_GAP_WIDTHS = 2.0
     HUD_TOP_RIGHT_NUMBERS_ROI_UPSCALE = 3
+    # In a HUD number, the letters the line model can read for a digit (live: "i16" for "116").
+    _HUD_DIGIT_LOOKALIKES = str.maketrans({'i': '1', 'I': '1', 'l': '1', '|': '1', '!': '1', 'O': '0', 'o': '0'})
     
     @dataclass(frozen = True)
     class GroupedNumber:
@@ -1506,9 +1509,69 @@ Default ``roi_upscale`` is :data:`HUD_TOP_RIGHT_NUMBERS_ROI_UPSCALE` (BGR enlarg
             cfg.set_target_size_from_frame(screen_img)
             (h_s, w_s) = screen_img.shape[:2]
             roi = VisionService.numbers_hud_roi_top_right(w_s, h_s)
+            if not allow_hud_ocr_debug:  # the debug outputs (boxes, clusters) come from the Tesseract path
+                groups = VisionService._hud_numbers_ppocr(screen_img, roi, white_text = white_text, roi_upscale = roi_upscale)
+                if groups is not None:
+                    return groups
             return VisionService.extract_grouped_numbers_in_region(screen_img, roi, min_confidence = min_confidence, white_text = white_text, tesseract_config = tesseract_config, y_tolerance_px = y_tolerance_px, cc_filter_blobs = cc_filter_blobs, cc_min_area = cc_min_area, cc_max_area = cc_max_area, preprocess = preprocess, save_preprocess_png = save_preprocess_png, roi_upscale = roi_upscale, ocr_debug_box_path = ocr_debug_box_path, ocr_debug_boxes_png_path = ocr_debug_boxes_png_path, psm10_glyph_confidence = psm10_glyph_confidence, hud_debug_char_clusters_out = hud_debug_char_clusters_out, allow_hud_ocr_debug = allow_hud_ocr_debug)
 
         
+        @staticmethod
+        def _hud_numbers_ppocr(screen_img, region, *, white_text = True, roi_upscale = HUD_TOP_RIGHT_NUMBERS_ROI_UPSCALE):
+            '''The HUD's number lines read by PP-OCR (:mod:`app.services.ppocr`) as
+:class:`GroupedNumber` (digits only), or None without the model. The lines are found in the
+white-ink binarisation of the Tesseract path, with no blob-area filter (it drops the narrow 1
+at small sizes): digit-tall ink grouped by row. Each row is cut from the colour frame, a
+little wider than its ink on the left where a 1 can still be missing, and read whole.'''
+            if not ppocr.available():
+                return None
+            prep = VisionService._preprocess_ocr_region(screen_img, region, preprocess = True, white_text = white_text, brightness_floor = None,
+                                                        cc_filter_blobs = False, cc_min_area = None, cc_max_area = None,
+                                                        roi_upscale = roi_upscale, save_preprocess_png = None)
+            if prep is None:
+                return []
+            (_pil, mono, scale, offset_x, offset_y) = prep
+            (n, _labels, stats, _centroids) = cv2.connectedComponentsWithStats((mono == 0).astype(np.uint8), connectivity = 8)
+            blobs = [tuple(int(v) for v in stats[i][:4]) for i in range(1, n) if stats[i][3] >= 4]
+            if not blobs:
+                return []
+            tall = float(np.median([b[3] for b in blobs if b[2] <= b[3]] or [b[3] for b in blobs]))
+            glyphs = sorted((b for b in blobs if 0.6 * tall <= b[3] <= 1.6 * tall and b[2] <= 1.5 * b[3]), key = lambda b: b[1] + b[3] / 2)
+            rows = []
+            for b in glyphs:
+                middle = b[1] + b[3] / 2
+                if rows and abs(middle - rows[-1][0]) <= 0.5 * tall:
+                    rows[-1][1].append(b)
+                else:
+                    rows.append([middle, [b]])
+            (fh, fw) = screen_img.shape[:2]
+            groups = []
+            for (_middle, row) in rows:
+                # A bar's number is right-aligned against its icon: from the rightmost glyph,
+                # left while the gaps stay a number's (digits and thousands spaces); the bar's
+                # stripes and scenery further left are not part of it (live: "2-11 320 116").
+                row = sorted(row, key = lambda b: b[0])
+                runs = [[row[0]]]
+                for b in row[1:]:
+                    if b[0] - (runs[-1][-1][0] + runs[-1][-1][2]) > 0.9 * tall:
+                        runs.append([])
+                    runs[-1].append(b)
+                run = next((r for r in reversed(runs) if len(r) >= 2), None)  # a lone glyph is a bit of an icon
+                if run is None:
+                    continue
+                (x0, y0) = (run[0][0] / scale + offset_x, min(b[1] for b in run) / scale + offset_y)
+                (x1, y1) = (max(b[0] + b[2] for b in run) / scale + offset_x, max(b[1] + b[3] for b in run) / scale + offset_y)
+                line = y1 - y0
+                crop = screen_img[max(0, int(y0 - 0.35 * line)):min(fh, int(y1 + 0.35 * line)),
+                                  max(0, int(x0 - 0.4 * line)):min(fw, int(x1 + 0.35 * line))]
+                text = (ppocr.read_line(crop) or '').translate(_HUD_DIGIT_LOOKALIKES)
+                digits = re.sub('\\D', '', text)
+                if digits:
+                    groups.append(GroupedNumber(text = digits, left = int(x0), top = int(y0), width = max(1, int(x1 - x0)),
+                                                height = max(1, int(line)), confidence = float('nan')))
+            return groups
+
+
         @staticmethod
         def parse_loot_amount_from_grouped_text(text):
             '''
