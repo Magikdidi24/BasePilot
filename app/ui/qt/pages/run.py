@@ -4,6 +4,7 @@ from typing import Callable, List, Optional
 from PySide6.QtCore import QSettings, Qt, QTimer
 from PySide6.QtWidgets import QButtonGroup, QGridLayout, QHBoxLayout, QLabel, QScrollArea, QSpinBox, QVBoxLayout, QWidget
 from app.config import check_game_window_aspect_for_start
+from app.core import bb_strategy
 from app.ui.qt._constants import ATTACK_STRATEGIES, BUILDER_BASE_ATTACK_STRATEGIES, BUILDER_BASE_ATTACK_STRATEGIES_UNDER_DEV
 from app.ui.qt.bot_controller import BotController
 from app.ui.qt.dialogs import show_error, show_under_development
@@ -128,7 +129,7 @@ class RunPage(QWidget):
         self._bb_strategy_group.setExclusive(True)
         for i, label in enumerate(BUILDER_BASE_ATTACK_STRATEGIES):
             btn = segment_button(label, parent = card)
-            if label == 'Baby Dragon':
+            if i == 0:
                 btn.setChecked(True)
             self._bb_strategy_group.addButton(btn, i)
             row.addWidget(btn)
@@ -138,6 +139,13 @@ class RunPage(QWidget):
             row.addWidget(btn)
         row.addStretch()
         card.card_layout.addLayout(row)
+        names = ', '.join(bb_strategy.TROOP_NAMES[t] for t in bb_strategy.PROFILES)
+        hint = QLabel('The bot reads the troops on your bar and plays each its own way: the tanks first (the machine, Boxer Giants, '
+                      'P.E.K.K.As), Bombers and Raged Barbarians behind them, the support last, Baby Dragons apart; each ability '
+                      'once its troop is engaged, one at a time. Battles are always played to the end. Recognised: ' + names + '.')
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
+        card.card_layout.addWidget(hint)
         return card
 
     
@@ -424,7 +432,7 @@ class RunPage(QWidget):
         if self._is_builder_base():
             btn = self._bb_strategy_group.checkedButton()
             if btn is None:
-                return BUILDER_BASE_ATTACK_STRATEGIES['Baby Dragon']
+                return next(iter(BUILDER_BASE_ATTACK_STRATEGIES.values()))
             return BUILDER_BASE_ATTACK_STRATEGIES.get(btn.text(), 5)
         btn = self._strategy_group.checkedButton()
         if btn is None:

@@ -44,31 +44,37 @@ A different routine: **12 Electro Dragons** placed individually around the diamo
 
 ## Builder Base
 
-Any army works, so Baby Dragon and Night Witches run the same routine
-(`app/core/bb_strategy.py`). Before the first deploy, each card on the bar is matched to its
+One strategy, whatever the army (*Your army (auto)* on the Run page;
+`app/core/bb_strategy.py`). Before the first deploy, each card on the bar is matched to its
 troop (the green swap buttons under the cards are only there until then). Each troop has a
 profile:
 
 | Troop | Order | Lands | Ability (its card tapped again) |
 |---|---|---|---|
-| Battle Machine / Copter | first, the tank | the entry point | at 16 s, charged |
-| Boxer Giant | right behind | the entry point | Boxer Block shield at 7 s |
-| Power P.E.K.K.A | right behind | the entry point | Overcharge at 9 s |
+| Battle Machine / Copter | first, the tank | the entry point | from 8 s, at 18 s at the latest (it charges) |
+| Boxer Giant | right behind | the entry point | Boxer Block once under 75 % health (2-15 s) |
+| Power P.E.K.K.A | right behind | the entry point | Overcharge once under 60 % health (4-16 s) |
 | Raged Barbarian | behind the tanks | the entry point | Rage (passive, first 22 s) |
 | Bomber | 1.5 s later, behind the tanks | the entry point | Bouncing Bomb at 3 s, then every 12 s |
 | Cannon Cart | behind the tanks | the entry point | none (stays a cart) |
 | Sneaky Archer | support | the entry point | Cloak (passive, first 11 s) |
-| Drop Ship | support | the entry point | Skeleton Bomb at 6 s |
+| Drop Ship | support | the entry point | Skeleton Bomb once under 85 % health (4-9 s) |
 | Beta Minion | support | the entry point | Power Shot (passive) |
-| Night Witch | 2 s later, behind the tanks | the entry point | Bat Swarm at 6 s |
-| Baby Dragon | support | apart, a slot each along the front (Tantrum) | Fiery Sneeze at 5 s |
+| Night Witch | 2 s later, behind the tanks | the entry point | Bat Swarm once hit, under 90 % (4-10 s) |
+| Baby Dragon | support | apart, a slot each along the front (Tantrum) | Fiery Sneeze once under 85 % health (3-9 s) |
 | any other troop | last | a slot of its own along the front | at 10 s |
 
 The entry point is one of three spots along the top edges of the diamond (the bottom edges
-run into the troop bar), with a little jitter per card, so the groups push together. The
-timings are first guesses from Builder Base 2.0 guides.
+run into the troop bar), with a little jitter per card, so the groups push together.
+
+Abilities go at the right moment, not all at once. During the fight each card shows its
+troop's health bar; an ability fires once its troop is engaged (health under the share
+above), never before the first time of its range and at the second at the latest. One tap
+per poll, the most hurt troop first, never two of one troop kind within 1.2 s, and none
+for a dead troop (its card turns grey). The timings are first guesses from Builder Base 2.0
+guides, to tune on live battles.
 
 A battle is never ended early: no End Battle, no Surrender. When troops come back to the bar
-for the next stage (a reinforcement's swap button shows), the troops still in colour on the bar
-(survivors carry no swap button; dead troops' cards turn grey) are deployed the same way, and the
-bot leaves only from the results screen (Return Home).
+for the next stage (a reinforcement's swap button shows), the troops still in colour on the
+bar (survivors carry no swap button; dead troops' cards turn grey) are deployed the same way,
+and the bot leaves only from the results screen (Return Home).

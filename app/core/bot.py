@@ -1235,11 +1235,11 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         if frame is None:
             return False
         self._update_config_size(frame)
-        schedule = self._deploy_bb_army(frame)
-        if schedule is None:
+        abilities = self._deploy_bb_army(frame)
+        if abilities is None:
             logger.warning('Builder Base: troop cards lost after zoom nudge / deploy failed')
             return False
-        self._bb_fight_to_the_end(schedule)
+        self._bb_fight_to_the_end(abilities)
         return True
 
     def _recover_safely(self):
@@ -1330,8 +1330,8 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
     def _deploy_bb_army(self, frame):
         '''Read the bar and play the plan of :mod:`app.core.bb_strategy`: the machine, then
         each troop group in its order, grouped troops on one entry point along the top edges
-        (the bottom ones run into the troop bar). Returns the ability schedule
-        ``[[due, card, every], ...]`` (monotonic seconds), or None when no card is on the bar.'''
+        (the bottom ones run into the troop bar). Returns the stage's
+        :class:`~app.core.bb_strategy.Abilities`, or None when no card is on the bar.'''
         strategy = AttackStrategy(self.input, self.vision, self.config, self.stop_event)
         (h, _w) = frame.shape[:2]
         roi = VisionService.bottom_half_region(frame)
@@ -1348,16 +1348,15 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         entry = random.choice(strategy._even_diamond_top_perimeter_points(frame, 3))
         steps = bb_strategy.plan(cards, machine, entry, front, h)
         logger.info('Builder Base: deploying %s', ', '.join((c.troop or 'unknown') for c in cards) + (' + machine' if machine else ''))
-        schedule = []
+        abilities = bb_strategy.Abilities()
         for step in steps:
             self._check_stop()
             if step.wait and self.stop_event.wait(step.wait):
                 self._check_stop()
             self.input.click(*step.card, pause = 0.25, rand = False)
             self.input.click(*step.point, pause = _EDRAG_DELAY, rand = False)
-            if step.profile.ability_at is not None:
-                schedule.append([time.monotonic() + step.profile.ability_at, step.card, step.profile.ability_every])
-        return schedule
+            abilities.add(step, time.monotonic())
+        return abilities
 
     def _bb_return_home_point(self, frame, ocr):
         '''Return Home of the results screen: the art at the bot's scale or another (drawn at
@@ -1376,8 +1375,9 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                 return (x, y)
         return None
 
-    def _bb_fight_to_the_end(self, schedule):
-        '''Play the battle out, never ending it early: fire the troop abilities on time,
+    def _bb_fight_to_the_end(self, abilities):
+        '''Play the battle out, never ending it early: fire the troop abilities at their moment
+        (one per poll, see :class:`~app.core.bb_strategy.Abilities`),
         deploy whatever comes back to the bar (stage 2: survivors and reinforcements), and
         leave only from the results screen. End Battle and Surrender are never tapped.
         True once Return Home was tapped.'''
@@ -1400,16 +1400,15 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                 logger.info('Builder Base: battle over after %ds — returning home', int(now - start))
                 self.input.click(*point, pause = 0.3)
                 return True
-            for item in schedule:
-                if item[0] is not None and now >= item[0]:
-                    self.input.click(*item[1], pause = 0.1, rand = False)  # the card again: the troop's ability
-                    item[0] = now + item[2] if item[2] else None
+            card = abilities.next_tap(now, frame)
+            if card is not None:
+                self.input.click(*card, pause = 0.1, rand = False)  # the card again: the troop's ability
             if now - last_deploy >= _BB_REDEPLOY_AFTER and VisionService.find_all_template_centers(
                     frame, _BB_CARD_SWAP_TEMPLATE, region = VisionService.bottom_half_region(frame), max_matches = 1):
                 logger.info('Builder Base: troops back on the bar (next stage) — deploying them')
                 fresh = self._deploy_bb_army(frame)
                 if fresh is not None:
-                    schedule = fresh  # the last stage's cards are gone: their timers would tap the new ones
+                    abilities = fresh  # the last stage's cards are gone: their abilities would tap the new ones
                     last_deploy = time.monotonic()
             if self.stop_event.wait(0.5):
                 self._check_stop()

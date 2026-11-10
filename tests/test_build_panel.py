@@ -169,7 +169,7 @@ class BotFlowTests(unittest.TestCase):
         points = [c.args[:2] for c in bot.input.click.call_args_list][1::2]
         (ex, ey) = points[0]
         self.assertTrue(all(abs(x - ex) <= 30 and abs(y - ey) <= 30 for (x, y) in points))  # one entry point
-        self.assertEqual([c for (_due, c, _every) in schedule], cards)  # every card gets its ability tap
+        self.assertEqual([a.card for a in schedule.items], cards)  # every card has an ability to come
 
 
     @patch('app.core.bot.wall_upgrade_button', return_value=((638, 1041), RESOURCE_ELIXIR))
