@@ -1337,10 +1337,10 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         roi = VisionService.bottom_half_region(frame)
         swaps = VisionService.find_all_template_centers(frame, _BB_CARD_SWAP_TEMPLATE, region = roi, max_matches = 12, suppress_pad_frac = _BB_TEMPLATE_SUPPRESS_PAD)
         machine = next((p for p in (self.vision.find_template(frame, t, region = roi) for t in (_BB_BATTLE_MACHINE_TEMPLATE, _BB_FLYING_MACHINE_TEMPLATE)) if p[0]), None)
+        if machine is not None and not bb_strategy.alive(frame, machine):
+            machine = None  # a grey machine card: already out, or down for this stage
         lift = int(round(_BB_CARD_ABOVE_SWAP * h / 1600))  # 16:10 reference px; the bar scales with the height
-        near = lift  # a card is ~1.4x that wide
-        cards = [bb_strategy.Card(bb_strategy.identify(self.vision, frame, (x, y)), (x, y - lift))
-                 for (x, y) in sorted(swaps) if machine is None or abs(x - machine[0]) > near]
+        cards = bb_strategy.read_bar(self.vision, frame, swaps, lift, machine[0] if machine else None)
         if not cards and machine is None:
             return None
         spread = sum(1 for c in cards if bb_strategy.PROFILES.get(c.troop, bb_strategy.UNKNOWN).spread)

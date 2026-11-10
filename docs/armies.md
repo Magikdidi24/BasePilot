@@ -54,6 +54,7 @@ profile:
 | Battle Machine / Copter | first, the tank | the entry point | at 16 s, charged |
 | Power P.E.K.K.A | right behind | the entry point | Overcharge at 9 s |
 | Bomber | 1.5 s later, behind the tanks | the entry point | Bouncing Bomb at 3 s, then every 12 s |
+| Night Witch | 2 s later, behind the tanks | the entry point | Bat Swarm at 6 s |
 | any other troop | last | a slot of its own along the front | at 10 s |
 
 The entry point is one of three spots along the top edges of the diamond (the bottom edges
@@ -61,5 +62,6 @@ run into the troop bar), with a little jitter per card, so the groups push toget
 timings are first guesses from Builder Base 2.0 guides.
 
 A battle is never ended early: no End Battle, no Surrender. When troops come back to the bar
-for the next stage (their swap buttons show again), they are deployed the same way, and the
+for the next stage (a reinforcement's swap button shows), the troops still in colour on the bar
+(survivors carry no swap button; dead troops' cards turn grey) are deployed the same way, and the
 bot leaves only from the results screen (Return Home).

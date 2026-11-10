@@ -151,11 +151,13 @@ class BotFlowTests(unittest.TestCase):
         (x, _y, w, _h) = bot._find_template_once.call_args.kwargs['region']
         self.assertLessEqual(x + w, 0.29 * 1920)  # the Ranked Battle card starts there
 
+    @patch('app.core.bot.bb_strategy.alive', return_value=True)
     @patch('app.core.bot.bb_strategy.identify', side_effect=['bomber', 'pekka', 'pekka'])
     @patch('app.core.bot.AttackStrategy')
     @patch('app.core.bot.VisionService.find_all_template_centers', return_value=[(272, 1150), (430, 1150), (570, 1150), (710, 1150)])
-    def test_bb_plays_the_machine_then_each_troop_in_its_order(self, _swaps, strategy, _identify):
+    def test_bb_plays_the_machine_then_each_troop_in_its_order(self, _swaps, strategy, _identify, _alive):
         bot = make_bot()
+        bot.vision.find_all_template_centers.return_value = []  # no other card than the swap buttons'
         bot.stop_event.wait.return_value = False
         bot.vision.find_template.side_effect = lambda f, name, **kw: (250, 1100) if name == 'battlemachine.png' else (None, None)
         strategy.return_value._even_diamond_top_perimeter_points.return_value = [(600, 300), (960, 120), (1320, 300)]

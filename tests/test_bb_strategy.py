@@ -46,6 +46,26 @@ class BarTests(unittest.TestCase):
                                                                max_matches=12, suppress_pad_frac=0.1))
         self.assertEqual([bb_strategy.identify(VisionService, frame, s) for s in swaps], ['pekka'] * 5 + ['bomber'])
 
+    def test_six_witches_even_the_selected_card_without_its_swap_button(self):
+        frame = canvas('gpg767_bb_witch_bar', 100, 640)
+        swaps = VisionService.find_all_template_centers(frame, 'bbswap.png', region=VisionService.bottom_half_region(frame),
+                                                        max_matches=12, suppress_pad_frac=0.1)
+        (mx, _my) = VisionService.find_template(frame, 'battlemachine.png', region=VisionService.bottom_half_region(frame))
+        cards = bb_strategy.read_bar(VisionService, frame, swaps, 44, mx)
+        self.assertEqual([c.troop for c in cards], ['witch'] * 6)
+
+    def test_next_stage_the_survivor_and_the_reinforcement_not_the_dead(self):
+        # stage 2: five witches died (grey cards), one came back without a swap button,
+        # a Bomber came as reinforcement; the machine card is the Battle Copter now
+        frame = canvas('gpg767_bb_stage2_bar', 100, 640)
+        roi = VisionService.bottom_half_region(frame)
+        swaps = VisionService.find_all_template_centers(frame, 'bbswap.png', region=roi, max_matches=12, suppress_pad_frac=0.1)
+        (mx, my) = VisionService.find_template(frame, 'flyingmachine.png', region=roi)
+        self.assertTrue(mx and bb_strategy.alive(frame, (mx, my)))
+        cards = bb_strategy.read_bar(VisionService, frame, swaps, 44, mx)
+        self.assertEqual([c.troop for c in cards], ['witch', 'bomber'])
+        self.assertTrue(abs(cards[0].tap[0] - 351) <= 20)  # the second card, the one in colour
+
     def test_an_unknown_card_is_no_troop(self):
         frame = canvas('gpg767_bb_bar', 100, 640)
         self.assertEqual(bb_strategy.identify(VisionService, frame, (900, 732)), '')  # an empty reinforcement slot

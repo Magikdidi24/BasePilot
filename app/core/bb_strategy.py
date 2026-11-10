@@ -15,6 +15,8 @@ import random
 from dataclasses import dataclass
 from typing import Optional
 
+import cv2
+
 MACHINE = 'machine'
 
 
@@ -31,12 +33,17 @@ PROFILES = {
     MACHINE: TroopProfile(order = 0, spread = False, gap = 0.0, ability_at = 16.0),  # the tank, ability left to charge
     'pekka': TroopProfile(order = 1, spread = False, gap = 0.4, ability_at = 9.0),  # Overcharge once in the base
     'bomber': TroopProfile(order = 2, spread = False, gap = 1.5, ability_at = 3.0, ability_every = 12.0),  # walls, behind the tanks
+    'witch': TroopProfile(order = 3, spread = False, gap = 2.0, ability_at = 6.0),  # behind the tanks; Bat Swarm
 }
 UNKNOWN = TroopProfile(order = 9, spread = True, gap = 0.3, ability_at = 10.0)
 
 # (troop, template of its card portrait), cut from live GPG bars
-TROOP_TEMPLATES = (('pekka', 'bbpekka.png'), ('bomber', 'bbbomber.png'))
+TROOP_TEMPLATES = (('pekka', 'bbpekka.png'), ('bomber', 'bbbomber.png'), ('witch', 'bbwitch.png'))
 _MATCH_MIN = 0.8
+# A card whose troop died in the last stage is drawn in grey but its portrait still matches
+# (0.86 measured): colour tells. Mean HSV saturation of a portrait, live GPG: 75-160 alive,
+# 0-1 dead.
+_ALIVE_MIN_SATURATION = 30
 # Portrait centre from the swap button under it, and the search half-size, in screen heights
 # (the bar scales with the height; measured on a 1227x767 GPG bar).
 _PORTRAIT_OFFSET = (-0.018, -0.047)
@@ -70,6 +77,38 @@ def identify(vision, frame, swap):
         if score >= best[1]:
             best = (troop, score)
     return best[0]
+
+
+def alive(frame, center):
+    '''The card portrait around ``center`` is in colour (its troop can still be deployed).'''
+    (h, w) = frame.shape[:2]
+    (dx, dy) = (int(0.043 * h), int(0.024 * h))  # about the portrait templates' half-size
+    (x, y) = (int(center[0]), int(center[1]))
+    patch = frame[max(0, y - dy):min(h, y + dy), max(0, x - dx):min(w, x + dx)]
+    return patch.size > 0 and cv2.cvtColor(patch, cv2.COLOR_BGR2HSV)[..., 1].mean() >= _ALIVE_MIN_SATURATION
+
+
+def read_bar(vision, frame, swaps, lift, machine_x = None):
+    '''The deployable troop cards on the bar, left to right: the cards over a swap button
+    (new troops, before their first deploy) and the portraits a template recognises in
+    colour (troops back from the last stage carry no swap button; a selected card's button
+    may not match). Dead troops' grey cards and the machine card are left out.'''
+    h = frame.shape[0]
+    same = 0.05 * h  # cards are ~0.12 h apart
+    cards = [Card(identify(vision, frame, s), (s[0], s[1] - lift)) for s in sorted(swaps)
+             if machine_x is None or abs(s[0] - machine_x) > lift]
+    roi = vision.bottom_half_region(frame)
+    for (troop, template) in TROOP_TEMPLATES:
+        for (x, y) in vision.find_all_template_centers(frame, template, threshold = _MATCH_MIN, region = roi, max_matches = 10, suppress_pad_frac = 0.1):
+            if machine_x is not None and abs(x - machine_x) <= lift:
+                continue
+            twin = next((i for (i, c) in enumerate(cards) if abs(c.tap[0] - x) < same), None)
+            if twin is None:
+                if alive(frame, (x, y)):
+                    cards.append(Card(troop, (x, y)))
+            elif not cards[twin].troop:
+                cards[twin] = Card(troop, cards[twin].tap)
+    return sorted(cards, key = lambda c: c.tap[0])
 
 
 def plan(cards, machine, entry, front, frame_height, rng = random):
