@@ -19,8 +19,11 @@ reading, no packet manipulation, no modified client.
 > parsed), account switching (Settings moved into Profile), ranked fill and star-bonus mode.
 > Walls reach the new wall menu, but buying a batch needs the new price-card art: capture
 > `multiupgrade.png` (the hammers on a wall price card) in *Settings -> Capture templates*.
-> These changes are covered by unit tests and checked on the game's real button art, not in
-> a live game yet. The fork publishes no exe: run it from source (below).
+> Builder Base trips may fail too: at the default zoom the boat bubble no longer matches
+> `boat.png`.
+> These changes are covered by unit tests and checked on 16:10 screenshots of the current
+> game, but the bot has not run a full session yet. The fork publishes no exe: run it from
+> source (below).
 
 **[Download the latest release](../../releases/latest)** — a single `BasePilot.exe`
 with the OCR engine bundled in, so there is nothing to install. This repository holds

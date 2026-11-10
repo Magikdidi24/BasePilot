@@ -127,7 +127,10 @@ try:
         'surrender.png': 'Surrender',
         'endbattle.png': 'End Battle',
         'findnow.png': 'Find Now',
-        'savedrecipes.png': 'Saved Recipes'}
+        'savedrecipes.png': 'Saved Recipes',
+        # the tab shows the next free builder's face (goblin, not this one, when five are busy);
+        # the label is the panel title, tapping it is a no-op once the tab is already open
+        'buildings_tab.png': 'Buildings & Heroes'}
     # OCR words of the last frame read by find_label, per pass: the labels looked up on one
     # poll share one set of Tesseract runs. Holding the frame keeps its id from being reused.
     _LABEL_OCR_CACHE = {'frame': None, 'region': None, 'passes': {}}
@@ -1812,7 +1815,7 @@ a new run, so neighbouring buttons ("Ranked Battle" beside "Battle") stay separa
         def find_label(screen_img, label, region = None, *, min_ratio = 0.85):
             '''Center of a control whose whole label reads ``label`` (case and punctuation
 ignored, OCR confusions folded, fuzzy ratio >= ``min_ratio`` or the label plus at most two
-stray glyphs), or ``(None, None)``. Labels may wrap onto two lines.
+stray border glyphs), or ``(None, None)``. Labels may wrap onto two lines.
 Passes: white low-saturation ink (the game's button text on coloured buttons), then the
 generic light-on-dark and dark-on-light binarizations.'''
             want = VisionService._label_key(label)
@@ -1841,7 +1844,10 @@ generic light-on-dark and dark-on-light binarizations.'''
                     # with border noise, but "d" + "Battle" is End Battle misread, not Battle.
                     if not got or want[:3] not in VisionService._label_key(seg[0].text):
                         continue
-                    if (want in got and len(got) - len(want) <= 2) or difflib.SequenceMatcher(None, got, want).ratio() >= min_ratio:
+                    # Extra letters only as button-border noise ("Vattack'l"), or one misread glyph
+                    # per ten: "Attacker" and "Attacks" are other text, not the Attack! button.
+                    extra = got.replace(want, '', 1) if want in got else None
+                    if (extra is not None and len(extra) <= 2 and set(extra) <= set('vlij')) or (len(got) - len(want) <= len(want) // 10 and difflib.SequenceMatcher(None, got, want).ratio() >= min_ratio):
                         x0 = min(b.left for b in seg)
                         y0 = min(b.top for b in seg)
                         x1 = max(b.left + b.width for b in seg)

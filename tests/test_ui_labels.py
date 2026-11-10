@@ -48,6 +48,15 @@ class LabelTests(unittest.TestCase):
         self.assertIsNotNone(VisionService.find_label(fresh(), 'Attack')[0])
         ocr.return_value = [word('Attack', 20), word('Log', 100)]
         self.assertIsNone(VisionService.find_label(fresh(), 'Attack')[0])
+        for text in ('Attacker', 'Attacks'):  # BB battle and results screens
+            ocr.return_value = [word(text, 20)]
+            self.assertIsNone(VisionService.find_label(fresh(), 'Attack')[0], text)
+
+    @patch.object(VisionService, 'find_words_ocr')
+    def test_build_panel_title_with_misread_ampersand(self, ocr):
+        for amp in ('=', '8'):  # live 16:10 capture reads '=', one glyph off is still the title
+            ocr.return_value = [word('Buildings', 20), word(amp, 132), word('Heroes', 150)]
+            self.assertIsNotNone(VisionService.find_label(fresh(), 'Buildings & Heroes')[0], amp)
 
     @patch.object(VisionService, 'find_words_ocr')
     def test_misread_end_battle_is_not_battle(self, ocr):
