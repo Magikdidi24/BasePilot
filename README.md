@@ -26,7 +26,7 @@ reading, no packet manipulation, no modified client.
 > star-bonus mode.
 > The screen readers are tested on 16:10 screenshots of the current game, but the bot has
 > not run a full session yet, and no upgrade was started in a test (no builder was free).
-> The fork publishes no exe: run it from source (below).
+> Test builds are on the Releases page as pre-releases, or run it from source (below).
 
 **[Download the latest release](../../releases/latest)** — a single `BasePilot.exe`
 with the OCR engine bundled in, so there is nothing to install. This repository holds

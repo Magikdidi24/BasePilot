@@ -52,8 +52,13 @@ jobs:
       - name: Build BasePilot.exe
         run: pyinstaller --noconfirm --clean BasePilot.spec
 
+      # The readers' tests run real OCR; outside the exe nothing points it at Tesseract.
       - name: Run regression tests
-        run: python -m unittest discover -s tests -v
+        env:
+          TESSDATA_PREFIX: C:\Program Files\Tesseract-OCR\tessdata\
+        run: |
+          $env:PATH = "C:\Program Files\Tesseract-OCR;$env:PATH"
+          python -m unittest discover -s tests -v
 
       - name: Verify executable startup
         shell: pwsh
@@ -97,13 +102,15 @@ jobs:
           set -euo pipefail
           tag="$GITHUB_REF_NAME"
           assets=(dist/BasePilot.exe dist/BasePilot.exe.sha256)
+          flags=()
+          if [[ "$tag" == *-* ]]; then flags+=(--prerelease); fi  # v1.3.0-beta.1: a test build, not "latest"
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" "${assets[@]}" --clobber
           else
             notes=".github/release-notes/$tag.md"
             if [ -f "$notes" ]; then
-              gh release create "$tag" "${assets[@]}" --title "BasePilot $tag" --notes-file "$notes"
+              gh release create "$tag" "${assets[@]}" "${flags[@]}" --title "BasePilot $tag" --notes-file "$notes"
             else
-              gh release create "$tag" "${assets[@]}" --title "BasePilot $tag" --generate-notes
+              gh release create "$tag" "${assets[@]}" "${flags[@]}" --title "BasePilot $tag" --generate-notes
             fi
           fi
