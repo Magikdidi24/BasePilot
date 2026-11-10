@@ -1064,7 +1064,7 @@ deselect, which would eat the upcoming Attack click.'''
         # frame (live rate before polling: ~1 success in 8 passes).
         (umx, umy) = (None, None)
         frame = None
-        for _ in range(8):
+        for poll in range(8):
             self._check_stop()
             frame = self.window.screenshot()
             if frame is None:
@@ -1072,6 +1072,13 @@ deselect, which would eat the upcoming Attack click.'''
             self._update_config_size(frame)
             bot_roi = VisionService.bottom_half_region(frame)
             (umx, umy) = self.vision.find_template(frame, 'upgrademore.png', region = bot_roi)
+            if not umx and poll >= 2:
+                # The Oct 2026 UI redrew the selection bar (efebolukbasi/BasePilot#6, #8);
+                # the button still reads "Upgrade More". It only opens the batch popup —
+                # nothing is bought before the red-cost checks and okay.png below.
+                (umx, umy) = self.vision.find_label(frame, 'Upgrade More', region = bot_roi)
+                if umx:
+                    logger.info('Wall upgrade: Upgrade More art not matched; using its label read by OCR')
             if umx:
                 break
             if self.stop_event.wait(0.5):
@@ -1081,6 +1088,9 @@ deselect, which would eat the upcoming Attack click.'''
             # close whatever came up so it cannot block the next pass or the Attack tap.
             logger.info('Wall upgrade: upgrademore.png not visible after Wall row click — dismissing and skipping this pass')
             if frame is not None:
+                # What the bar does show is the clue for recapturing the button.
+                seen = [w.text for w in (self.vision.find_words_ocr(frame, VisionService.bottom_half_region(frame), white_text = True) or [])]
+                logger.info('Wall upgrade: labels read in the bottom half: %s', seen)
                 try:
                     import time as _time
                     import cv2 as _cv2

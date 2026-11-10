@@ -128,7 +128,8 @@ class RealArtLabelTests(unittest.TestCase):
     def test_labels_on_their_own_buttons_only(self):
         cases = [('16_9/attack.png', 'Battle'), ('16_9/attack2.png', 'Attack'), ('16_9/returnhome.png', 'Return Home'),
                  ('16_10/returnhome2.png', 'Return Home'), ('16_9/chestclaim.png', 'Claim Reward'),
-                 ('16_9/surrender.png', 'Surrender'), ('16_9/endbattle.png', 'End Battle')]
+                 ('16_9/surrender.png', 'Surrender'), ('16_9/endbattle.png', 'End Battle'),
+                 ('16_9/upgrademore.png', 'Upgrade More')]
         for art, label in cases:
             frame = self.frame_with(art)
             with self.subTest(art=art):
