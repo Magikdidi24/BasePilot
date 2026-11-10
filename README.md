@@ -8,6 +8,15 @@ Windows desktop app for **Clash of Clans on Google Play Games (PC)**. It plays t
 game the way a person does: screen capture, computer vision, and clicks. No memory
 reading, no packet manipulation, no modified client.
 
+> **About this fork.** Upstream's public source stopped at 1.0.1, before the October 2026
+> Clash of Clans UI. This fork merges upstream PR 1 and adapts the source to that UI: new
+> button art, a label-reading fallback for redrawn buttons (Battle, Attack, Return Home,
+> Upgrade More...), walls through the new Build panel, and fixes in the farm loop.
+> Not working on the new UI yet: auto-upgrade (skipped on purpose until the Build panel is
+> parsed), account switching (Settings moved into Profile), ranked fill and star-bonus mode.
+> These changes are covered by unit tests and checked on the game's real button art, not in
+> a live game yet. The fork publishes no exe: run it from source (below).
+
 **[Download the latest release](../../releases/latest)** — a single `BasePilot.exe`
 with the OCR engine bundled in, so there is nothing to install. This repository holds
 the full source; see [Running from source](#running-from-source) to build it yourself.
