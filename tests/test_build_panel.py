@@ -151,19 +151,24 @@ class BotFlowTests(unittest.TestCase):
         (x, _y, w, _h) = bot._find_template_once.call_args.kwargs['region']
         self.assertLessEqual(x + w, 0.29 * 1920)  # the Ranked Battle card starts there
 
+    @patch('app.core.bot.bb_strategy.identify', side_effect=['bomber', 'pekka', 'pekka'])
     @patch('app.core.bot.AttackStrategy')
-    @patch('app.core.bot.VisionService.find_all_template_centers', return_value=[(272, 1150), (430, 1150), (570, 1150)])
-    def test_bb_deploys_every_troop_card_and_leaves_the_hero_card(self, _swaps, strategy):
+    @patch('app.core.bot.VisionService.find_all_template_centers', return_value=[(272, 1150), (430, 1150), (570, 1150), (710, 1150)])
+    def test_bb_plays_the_machine_then_each_troop_in_its_order(self, _swaps, strategy, _identify):
         bot = make_bot()
-        bot._loot_prioritise = 'elixir'
-        bot._deploy_bb_battle_or_flying_machine = Mock()
+        bot.stop_event.wait.return_value = False
         bot.vision.find_template.side_effect = lambda f, name, **kw: (250, 1100) if name == 'battlemachine.png' else (None, None)
-        strategy.return_value._even_diamond_top_perimeter_points.return_value = [(10, 10), (20, 20)]
-        self.assertTrue(bot._deploy_bb_army(np.zeros((1200, 1920, 3), np.uint8)))
-        lift = int(91 * 0.75)
-        self.assertEqual([c.args[:2] for c in bot.input.click.call_args_list],
-                         [(430, 1150 - lift), (10, 10), (570, 1150 - lift), (20, 20)])
-        bot._deploy_bb_battle_or_flying_machine.assert_called_once()
+        strategy.return_value._even_diamond_top_perimeter_points.return_value = [(600, 300), (960, 120), (1320, 300)]
+        schedule = bot._deploy_bb_army(np.zeros((1200, 1920, 3), np.uint8))
+        lift = int(round(91 * 1200 / 1600))
+        cards = [c.args[:2] for c in bot.input.click.call_args_list][0::2]
+        # the machine card (its swap button beside it is not a troop), then the P.E.K.K.As, then the Bomber
+        self.assertEqual(cards, [(250, 1100), (570, 1150 - lift), (710, 1150 - lift), (430, 1150 - lift)])
+        points = [c.args[:2] for c in bot.input.click.call_args_list][1::2]
+        (ex, ey) = points[0]
+        self.assertTrue(all(abs(x - ex) <= 30 and abs(y - ey) <= 30 for (x, y) in points))  # one entry point
+        self.assertEqual([c for (_due, c, _every) in schedule], cards)  # every card gets its ability tap
+
 
     @patch('app.core.bot.wall_upgrade_button', return_value=((638, 1041), RESOURCE_ELIXIR))
     def test_selected_wall_goes_through_the_gem_safe_confirm(self, _button):

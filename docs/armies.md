@@ -44,7 +44,22 @@ A different routine: **12 Electro Dragons** placed individually around the diamo
 
 ## Builder Base
 
-Any army works, so Baby Dragon and Night Witches run the same routine. Every troop card on the
-bar (found by the green swap button under it) is deployed along the top edges of the diamond,
-then the Battle Machine or the Flying Machine on a random edge. Unless loot is set to elixir
-only, the cards are tapped again a few seconds later.
+Any army works, so Baby Dragon and Night Witches run the same routine
+(`app/core/bb_strategy.py`). Before the first deploy, each card on the bar is matched to its
+troop (the green swap buttons under the cards are only there until then). Each troop has a
+profile:
+
+| Troop | Order | Lands | Ability (its card tapped again) |
+|---|---|---|---|
+| Battle Machine / Copter | first, the tank | the entry point | at 16 s, charged |
+| Power P.E.K.K.A | right behind | the entry point | Overcharge at 9 s |
+| Bomber | 1.5 s later, behind the tanks | the entry point | Bouncing Bomb at 3 s, then every 12 s |
+| any other troop | last | a slot of its own along the front | at 10 s |
+
+The entry point is one of three spots along the top edges of the diamond (the bottom edges
+run into the troop bar), with a little jitter per card, so the groups push together. The
+timings are first guesses from Builder Base 2.0 guides.
+
+A battle is never ended early: no End Battle, no Surrender. When troops come back to the bar
+for the next stage (their swap buttons show again), they are deployed the same way, and the
+bot leaves only from the results screen (Return Home).

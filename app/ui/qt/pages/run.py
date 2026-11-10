@@ -2,13 +2,13 @@
 from __future__ import annotations
 from typing import Callable, List, Optional
 from PySide6.QtCore import QSettings, Qt, QTimer
-from PySide6.QtWidgets import QButtonGroup, QGridLayout, QHBoxLayout, QLabel, QMessageBox, QScrollArea, QSpinBox, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QButtonGroup, QGridLayout, QHBoxLayout, QLabel, QScrollArea, QSpinBox, QVBoxLayout, QWidget
 from app.config import check_game_window_aspect_for_start
-from app.ui.qt._constants import ATTACK_STRATEGIES, BUILDER_BASE_ATTACK_STRATEGIES, BUILDER_BASE_ATTACK_STRATEGIES_UNDER_DEV, BUILDER_BASE_PRIORITISE_LABELS
+from app.ui.qt._constants import ATTACK_STRATEGIES, BUILDER_BASE_ATTACK_STRATEGIES, BUILDER_BASE_ATTACK_STRATEGIES_UNDER_DEV
 from app.ui.qt.bot_controller import BotController
-from app.ui.qt.dialogs import show_bb_prioritise_help, show_error, show_under_development
+from app.ui.qt.dialogs import show_error, show_under_development
 from app.ui.qt.theme import SPACING, TOKENS
-from app.ui.qt.widgets import Card, HelpButton, SectionTitle, StepperButton, ToggleSwitch, chip_button, danger_button, neutral_button, primary_button, segment_button
+from app.ui.qt.widgets import Card, SectionTitle, StepperButton, ToggleSwitch, chip_button, danger_button, neutral_button, primary_button, segment_button
 from app.utils.player_list_store import PlayerEntry, load_players
 
 class RunPage(QWidget):
@@ -245,21 +245,7 @@ class RunPage(QWidget):
     def _build_bb_modes_card(self):
         card = Card()
         card.card_layout.addWidget(SectionTitle('Modes'))
-        prior_row = QHBoxLayout()
-        prior_row.addWidget(SectionTitle('Prioritise'))
-        prior_help = HelpButton((lambda : show_bb_prioritise_help(self.window())), parent = card)
-        prior_row.addWidget(prior_help, alignment = Qt.AlignmentFlag.AlignVCenter)
-        prior_row.addSpacing(SPACING['xs'])
-        self._bb_prioritise_group = QButtonGroup(self)
-        self._bb_prioritise_group.setExclusive(True)
-        for i, label in enumerate(BUILDER_BASE_PRIORITISE_LABELS):
-            btn = segment_button(label, parent = card)
-            if label == 'Both':
-                btn.setChecked(True)
-            self._bb_prioritise_group.addButton(btn, i)
-            prior_row.addWidget(btn)
-        prior_row.addStretch()
-        card.card_layout.addLayout(prior_row)
+        # No loot priority: every Builder Base battle is played to its end, never ended early.
         self._bb_auto_upgrade = ToggleSwitch('Auto upgrade (builders and star lab, mode from Home Village)', parent = card)
         card.card_layout.addWidget(self._bb_auto_upgrade)
         self._bb_upgrade_walls = ToggleSwitch('Upgrade walls', parent = card, under_development = True)
@@ -368,11 +354,6 @@ class RunPage(QWidget):
             self._stat_state.setStyleSheet(f'''color: {self._STATE_COLORS['idling' if idling else 'farming']};''')
             self._stat_note.setText(msg)
 
-    def _confirm_bb_elixir_prioritise(self):
-        reply = QMessageBox.warning(self.window(), 'Elixir priority', 'Prioritising Elixir will deplete your trophies.\n\nDo you want to continue?', QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
-        return reply == QMessageBox.StandardButton.Yes
-
-    
     def _build_controls_card(self):
         card = Card()
         btn_row = QHBoxLayout()
@@ -451,12 +432,6 @@ class RunPage(QWidget):
         return ATTACK_STRATEGIES.get(btn.text(), 1)
 
     
-    def _get_bb_prioritise(self):
-        btn = self._bb_prioritise_group.checkedButton()
-        if btn is None:
-            return 'both'
-        return btn.text().lower()
-
 
     def _get_auto_upgrade_mode(self):
         checked_id = self._auto_upgrade_group.checkedId()
@@ -531,12 +506,10 @@ class RunPage(QWidget):
             if mins <= 0 or mins > 999:
                 show_error(self.window(), 'Error', 'Invalid time duration. Enter 1-999 minutes.')
                 return None
-        if builder_base and self._get_bb_prioritise() == 'elixir' and not self._confirm_bb_elixir_prioritise():  # [recovered: decompiler inverted both conditions]
-            return None
         self._save_choices()
         # Clan assist rides the Home Village flow (the chat button is calibrated on it,
         # and the Builder Base has no clan chat).
-        self._controller.start(method = method, minutes = mins, star_bonus = star_bonus, upgrade_walls = False if builder_base else self._upgrade_walls.isChecked(), multi_run_players = multi_arg, builder_base = builder_base, loot_prioritise = self._get_bb_prioritise() if builder_base else 'both', auto_upgrade = (self._get_auto_upgrade_mode() if self._bb_auto_upgrade.isChecked() else 'off') if builder_base else self._get_auto_upgrade_mode(), auto_donate = False if builder_base else self._auto_donate.isChecked(), auto_request = False if builder_base else self._auto_request.isChecked())
+        self._controller.start(method = method, minutes = mins, star_bonus = star_bonus, upgrade_walls = False if builder_base else self._upgrade_walls.isChecked(), multi_run_players = multi_arg, builder_base = builder_base, auto_upgrade = (self._get_auto_upgrade_mode() if self._bb_auto_upgrade.isChecked() else 'off') if builder_base else self._get_auto_upgrade_mode(), auto_donate = False if builder_base else self._auto_donate.isChecked(), auto_request = False if builder_base else self._auto_request.isChecked())
 
     
     def is_star_bonus_enabled(self):

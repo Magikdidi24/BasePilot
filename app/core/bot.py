@@ -9,6 +9,7 @@ from app.config import ASPECT_16_10, ASPECT_16_9, Config
 from app.core.clan import ClanAssistant, ClanOptions, missing_templates
 from app.core.loot_filter import TEMPLATE_NEXT_BASE, LootFilter, combine_reads, meets, read_enemy_loot
 from app.core.strategies import AttackStrategy, EdragStrategy, TroopSpamStrategy, _EDRAG_DELAY
+from app.core import bb_strategy
 from app.core.build_panel import BuildPanelUpgrader, find_close, gem_prompt_visible, wall_upgrade_button
 from app.core.upgrade_menu import RESOURCE_ELIXIR, RESOURCE_GOLD
 from app.core.upgrader import AUTO_UPGRADE_MODES, LIVE_UPGRADE_MODES, MODE_OFF, UpgradeAdvisor, is_october_build_panel_hud
@@ -25,22 +26,18 @@ _HOME_VILLAGE_BUILDER_TEMPLATES = ('builder.png', 'gbuilder.png')
 _WALL_OCR_RETRY_DRAG_BASELINE: dict[str, tuple[tuple[int, int], tuple[int, int]]] = {
     ASPECT_16_9: ((1300, 280), (1300, 830)),
     ASPECT_16_10: ((1300, 280), (1300, 980)) }
-_BB_CARD_RECLICK_WAIT = 10  # s after the deploy before the cards are tapped again (troop abilities)
 _BB_CARD_SWAP_TEMPLATE = 'bbswap.png'  # green swap button under every troop card before the first deploy
 _BB_CARD_ABOVE_SWAP = 91  # ref px from that button up to the card art (tapping the button opens the swap menu)
 _BB_RETURN_HOME_TEMPLATE = 'breturnhome.png'
-_BB_RETURN_HOME_TEMPLATE_1080P = 'breturnhome1920.png'
-_BB_1080P_CAPTURE_SIZE = (1920, 1080)
-_BB_1080P_SIZE_TOLERANCE = 40
+_BB_RETURN_HOME_OCR_EVERY = 3  # s between label reads of Return Home while the art is not matched
+_BB_BATTLE_MAX_SECONDS = 360  # two stages of ~2 min, the scouting and the transitions; then recovery
+_BB_REDEPLOY_AFTER = 8  # s after a deploy before swap buttons on the bar mean a new stage
 _BB_TEMPLATE_SUPPRESS_PAD = 0.1
 _BB_FULL_ELIXIR_CART_TEMPLATES = ('fullecart.png', 'fullecart2.png', 'fullecart3.png')
 _BB_COLLECT_TEMPLATE = 'collect.png'
 _BB_STAR_BONUS_TEMPLATE = 'bstar.png'
-_BB_BATTLE_STAR_TEMPLATE = 'bbstar.png'
 _BB_BATTLE_MACHINE_TEMPLATE = 'battlemachine.png'
 _BB_FLYING_MACHINE_TEMPLATE = 'flyingmachine.png'
-_BB_GOLD_PRIORITISE_MIN_STARS = 2
-_BB_RETURN_HOME_END_BATTLE_RETRIES = 5
 _STAR_BONUS_THRESHOLD = 0.75
 _TROOP_FAILURE_LIMIT = 4
 _TROOP_RETRY_WAIT_SECONDS = 15  # training is instant since the Mar 2025 "Clash Anytime" update — this only lets the UI settle
@@ -1200,8 +1197,8 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         return None
 
     def _bb_attack_once(self, cb):
-        '''One Builder Base battle: Battle → Find Now → deploy → end it per loot_prioritise.
-        False when no battle was played (a control never showed up).'''
+        '''One Builder Base battle: Battle → Find Now → deploy → play it to its end (never
+        End Battle nor Surrender). False when no battle was played (a control never showed up).'''
         self.input.scroll(*self._scroll_point(), 20)
         if self.stop_event.wait(random.uniform(0.1, 0.25)):
             self._check_stop()
@@ -1238,15 +1235,11 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         if frame is None:
             return False
         self._update_config_size(frame)
-        if not self._deploy_bb_army(frame):
+        schedule = self._deploy_bb_army(frame)
+        if schedule is None:
             logger.warning('Builder Base: troop cards lost after zoom nudge / deploy failed')
             return False
-        if self._loot_prioritise == 'elixir':
-            self._bb_surrender_and_return_home()
-        elif self._loot_prioritise == 'gold':
-            self._bb_gold_prioritise_end_battle_and_return_home()
-        else:
-            self._bb_end_battle_and_return_home()
+        self._bb_fight_to_the_end(schedule)
         return True
 
     def _recover_safely(self):
@@ -1335,164 +1328,94 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
 
     
     def _deploy_bb_army(self, frame):
-        '''Deploy every troop card on the bar (found by its green swap button; the hero card
-        is left to the machine deploy) along the diamond's top edges, then the machine.'''
+        '''Read the bar and play the plan of :mod:`app.core.bb_strategy`: the machine, then
+        each troop group in its order, grouped troops on one entry point along the top edges
+        (the bottom ones run into the troop bar). Returns the ability schedule
+        ``[[due, card, every], ...]`` (monotonic seconds), or None when no card is on the bar.'''
         strategy = AttackStrategy(self.input, self.vision, self.config, self.stop_event)
+        (h, _w) = frame.shape[:2]
         roi = VisionService.bottom_half_region(frame)
         swaps = VisionService.find_all_template_centers(frame, _BB_CARD_SWAP_TEMPLATE, region = roi, max_matches = 12, suppress_pad_frac = _BB_TEMPLATE_SUPPRESS_PAD)
-        heroes = [self.vision.find_template(frame, t, region = roi)[0] for t in (_BB_BATTLE_MACHINE_TEMPLATE, _BB_FLYING_MACHINE_TEMPLATE)]
-        hero_x = next((x for x in heroes if x), None)
-        lift = int(round(_BB_CARD_ABOVE_SWAP * frame.shape[0] / 1600))  # 16:10 reference px; the bar scales with the height
+        machine = next((p for p in (self.vision.find_template(frame, t, region = roi) for t in (_BB_BATTLE_MACHINE_TEMPLATE, _BB_FLYING_MACHINE_TEMPLATE)) if p[0]), None)
+        lift = int(round(_BB_CARD_ABOVE_SWAP * h / 1600))  # 16:10 reference px; the bar scales with the height
         near = lift  # a card is ~1.4x that wide
-        cards = [(x, y - lift) for (x, y) in sorted(swaps) if hero_x is None or abs(x - hero_x) > near]
-        if not cards:
-            return False
-        logger.info('Builder Base: deploying %d troop card(s)', len(cards))
-        points = strategy._even_diamond_top_perimeter_points(frame, len(cards), reserve_top_corner_slot = True)
-        for (cx, cy), (px, py) in zip(cards, points):
+        cards = [bb_strategy.Card(bb_strategy.identify(self.vision, frame, (x, y)), (x, y - lift))
+                 for (x, y) in sorted(swaps) if machine is None or abs(x - machine[0]) > near]
+        if not cards and machine is None:
+            return None
+        spread = sum(1 for c in cards if bb_strategy.PROFILES.get(c.troop, bb_strategy.UNKNOWN).spread)
+        front = strategy._even_diamond_top_perimeter_points(frame, spread, reserve_top_corner_slot = True) if spread else []
+        entry = random.choice(strategy._even_diamond_top_perimeter_points(frame, 3))
+        steps = bb_strategy.plan(cards, machine, entry, front, h)
+        logger.info('Builder Base: deploying %s', ', '.join((c.troop or 'unknown') for c in cards) + (' + machine' if machine else ''))
+        schedule = []
+        for step in steps:
             self._check_stop()
-            self.input.click(cx, cy, pause = 0.25, rand = False)
-            self.input.click(px, py, pause = _EDRAG_DELAY, rand = False)
-        self._deploy_bb_battle_or_flying_machine(strategy)
-        if self._loot_prioritise != 'elixir':
-            if self.stop_event.wait(_BB_CARD_RECLICK_WAIT):
-                return True
-            for x, y in cards:
+            if step.wait and self.stop_event.wait(step.wait):
                 self._check_stop()
-                self.input.click(x, y, pause = 0.15, rand = False)
-        return True
+            self.input.click(*step.card, pause = 0.25, rand = False)
+            self.input.click(*step.point, pause = _EDRAG_DELAY, rand = False)
+            if step.profile.ability_at is not None:
+                schedule.append([time.monotonic() + step.profile.ability_at, step.card, step.profile.ability_every])
+        return schedule
 
-    
-    def _deploy_bb_battle_or_flying_machine(self, strategy):
-        '''One bar lookup: Battle Machine, else Flying Machine; deploy on a random diamond edge.'''
-        frame = self.window.screenshot()
-        if frame is None:
-            return None
-        self._update_config_size(frame)
+    def _bb_return_home_point(self, frame, ocr):
+        '''Return Home of the results screen: the art at the bot's scale or another (drawn at
+        0.9 on a 1227x767 GPG window), its label when ``ocr``; None during the fight.'''
         roi = VisionService.bottom_half_region(frame)
-        (tx, ty) = self.vision.find_template(frame, _BB_BATTLE_MACHINE_TEMPLATE, region = roi)
-        if not tx:
-            (tx, ty) = self.vision.find_template(frame, _BB_FLYING_MACHINE_TEMPLATE, region = roi)
-        if not tx:
-            logger.debug('Builder Base: %s / %s not found on troop bar', _BB_BATTLE_MACHINE_TEMPLATE, _BB_FLYING_MACHINE_TEMPLATE)
-            return None
-        (px, py) = strategy._random_diamond_perimeter_point(frame)
-        self.input.click(tx, ty, pause = 0.3, rand = False)
-        if self.stop_event.wait(0.2):
-            return None
-        self.input.click(px, py, pause = _EDRAG_DELAY, rand = False)
 
-    
-    def _bb_end_battle_and_return_home(self):
-        '''Wait for natural battle end, dismiss Okay, then tap BB Return Home.'''
-        (ex, ey) = self._wait_for_image('endbattle.png', timeout = 90, error = False, label_after = _BATTLE_LABEL_AFTER)
-        if ex:
-            self.input.click(ex, ey, pause = 0.15)
-        else:
-            logger.warning('Builder Base: endbattle.png not found')
-            return None
-        self._bb_dismiss_okay_and_return_home()
+        def at(scale):
+            (x, y, _score) = self.vision.find_template_with_confidence(frame, _BB_RETURN_HOME_TEMPLATE, threshold = 0.8, region = roi, scale = scale)
+            return (x, y) if x is not None else None
+        hit = self.vision.with_scale_fallback(at)
+        if hit:
+            return hit
+        if ocr:
+            (x, y) = self.vision.find_label(frame, 'Return Home', region = roi)
+            if x is not None:
+                return (x, y)
+        return None
 
-    
-    def _bb_gold_prioritise_end_battle_and_return_home(self):
-        '''Gold prioritise: wait for 2+ battle stars, then End Battle → Okay → Return Home.'''
-        start = time.time()
-        timeout = 90
-        end_battle_clicked = False
-        while time.time() - start < timeout:
+    def _bb_fight_to_the_end(self, schedule):
+        '''Play the battle out, never ending it early: fire the troop abilities on time,
+        deploy whatever comes back to the bar (stage 2: survivors and reinforcements), and
+        leave only from the results screen. End Battle and Surrender are never tapped.
+        True once Return Home was tapped.'''
+        start = time.monotonic()
+        last_deploy = start
+        next_ocr = start + _BB_RETURN_HOME_OCR_EVERY
+        while time.monotonic() - start < _BB_BATTLE_MAX_SECONDS:
             self._check_stop()
             frame = self.window.screenshot()
             if frame is None:
                 if self.stop_event.wait(0.5):
-                    return None
+                    self._check_stop()
                 continue
             self._update_config_size(frame)
-            bot_roi = VisionService.bottom_half_region(frame)
-            stars = VisionService.find_all_template_centers(frame, _BB_BATTLE_STAR_TEMPLATE, threshold = 0.8, region = bot_roi, max_matches = 3, suppress_pad_frac = 0.35)
-            if len(stars) >= _BB_GOLD_PRIORITISE_MIN_STARS:
-                bot_roi = VisionService.bottom_half_region(frame)
-                (ex, ey) = self.vision.find_template(frame, 'endbattle.png', region = bot_roi)
-                if ex:
-                    logger.info('Builder Base (gold): %d bbstar.png — clicking endbattle', len(stars))
-                    self.input.click(ex, ey, pause = 0.15)
-                    end_battle_clicked = True
-                    break  # [recovered: decompiler dropped this break and misnested the timeout warning inside the loop]
+            now = time.monotonic()
+            point = self._bb_return_home_point(frame, ocr = now >= next_ocr)
+            if now >= next_ocr:
+                next_ocr = now + _BB_RETURN_HOME_OCR_EVERY
+            if point:
+                logger.info('Builder Base: battle over after %ds — returning home', int(now - start))
+                self.input.click(*point, pause = 0.3)
+                return True
+            for item in schedule:
+                if item[0] is not None and now >= item[0]:
+                    self.input.click(*item[1], pause = 0.1, rand = False)  # the card again: the troop's ability
+                    item[0] = now + item[2] if item[2] else None
+            if now - last_deploy >= _BB_REDEPLOY_AFTER and VisionService.find_all_template_centers(
+                    frame, _BB_CARD_SWAP_TEMPLATE, region = VisionService.bottom_half_region(frame), max_matches = 1):
+                logger.info('Builder Base: troops back on the bar (next stage) — deploying them')
+                fresh = self._deploy_bb_army(frame)
+                if fresh is not None:
+                    schedule = fresh  # the last stage's cards are gone: their timers would tap the new ones
+                    last_deploy = time.monotonic()
             if self.stop_event.wait(0.5):
-                return None
-        if not end_battle_clicked:
-            logger.warning('Builder Base (gold): timed out waiting for %d+ %s', _BB_GOLD_PRIORITISE_MIN_STARS, _BB_BATTLE_STAR_TEMPLATE)
-            return None
-        self._bb_dismiss_okay_and_return_home()
+                self._check_stop()
+        logger.warning('Builder Base: no results screen after %ds — leaving it to recovery', _BB_BATTLE_MAX_SECONDS)
+        return False
 
-    
-    def _bb_return_home_template_for_screen(self, width, height):
-        '''Return (template name, scale_template) for Builder Base Return Home.'''
-        (tw, th) = _BB_1080P_CAPTURE_SIZE
-        tol = _BB_1080P_SIZE_TOLERANCE
-        if abs(width - tw) <= tol and abs(height - th) <= tol:
-            return (_BB_RETURN_HOME_TEMPLATE_1080P, False)
-        return (_BB_RETURN_HOME_TEMPLATE, True)
-
-    
-    def _wait_for_bb_return_home(self, timeout = 15):
-        '''Wait for BB Return Home; picks 1080p-native template when capture is ~1920x1080.'''
-        start = time.time()
-        template_name = _BB_RETURN_HOME_TEMPLATE
-        while time.time() - start < timeout:
-            self._check_stop()
-            frame = self.window.screenshot()
-            if frame is None:
-                continue
-            self._update_config_size(frame)
-            (h, w) = frame.shape[:2]
-            (template_name, scale_template) = self._bb_return_home_template_for_screen(w, h)
-            search_region = self._search_region_for_template(frame, template_name, None, None, 200)
-            (x, y) = self.vision.find_template(frame, template_name, threshold = 0.8, region = search_region, scale_template = scale_template)
-            if x:
-                return (x, y, template_name)
-            if self.stop_event.wait(0.5):
-                return (None, None, template_name)
-        return (None, None, template_name)
-
-    
-    def _bb_dismiss_okay_and_return_home(self, *, retry_battle_template = 'endbattle.png', max_retries = _BB_RETURN_HOME_END_BATTLE_RETRIES):
-        '''Dismiss Okay, tap Return Home; retry battle-end + Okay if Return Home stays hidden.'''
-        return_home_template = _BB_RETURN_HOME_TEMPLATE
-        for attempt in range(max_retries + 1):
-            self._check_stop()
-            if attempt > 0:
-                (bx, by) = self._wait_for_image(retry_battle_template, timeout = 3, error = False)
-                if bx:
-                    self.input.click(bx, by, pause = 0.15)
-                else:
-                    logger.debug('Builder Base: %s retry %d/%d — control not visible', retry_battle_template, attempt, max_retries)
-            okay_timeout = 10 if attempt == 0 else 5
-            (ox, oy) = self._wait_for_image('okay.png', timeout = okay_timeout, error = False)
-            if ox:
-                self.input.click(ox, oy, pause = 0.15)
-            (rx, ry, return_home_template) = self._wait_for_bb_return_home(timeout = 15)
-            if rx:
-                self.input.click(rx, ry, pause = 0.2)
-                if attempt > 0:
-                    logger.info('Builder Base: return home after %d %s retry(ies)', attempt, retry_battle_template)
-                return None
-            if not attempt < max_retries:
-                continue
-            logger.info('Builder Base: %s not found — retrying %s + okay (%d/%d)', return_home_template, retry_battle_template, attempt + 1, max_retries)
-        logger.warning('Builder Base: %s not found after %d %s retries', return_home_template, max_retries, retry_battle_template)
-
-    
-    def _bb_surrender_and_return_home(self):
-        '''Elixir prioritise: surrender right after deploy, then Okay + Return Home.'''
-        (sx, sy) = self._wait_for_image('surrender.png', timeout = 10, error = False)
-        if sx:
-            self.input.click(sx, sy, pause = 0.15)
-        else:
-            logger.warning('Builder Base (elixir): surrender.png not found')
-            return None
-        self._bb_dismiss_okay_and_return_home(retry_battle_template = 'surrender.png')
-
-    
     def _find_match_and_attack(self, method_id):
         """One attack cycle. Returns ``'troop'`` (troops missing — retry later),
         ``'no_attack'`` (Battle / Find a Match / the battle screen never came up), or None."""

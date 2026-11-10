@@ -10,4 +10,4 @@ BUILDER_BASE_ATTACK_STRATEGIES: dict[str, int] = {
     'Baby Dragon': 5,
     'Night Witches': 6 }
 BUILDER_BASE_ATTACK_STRATEGIES_UNDER_DEV = ()
-BUILDER_BASE_PRIORITISE_LABELS = ('Gold', 'Both', 'Elixir')
+
