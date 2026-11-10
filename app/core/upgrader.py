@@ -196,7 +196,7 @@ class UpgradeAdvisor:
         if frame is None:
             return False
         home_roi = VisionService.bottom_half_region(frame)
-        (ax, _ay) = self.vision.find_template(frame, 'attack.png', region = home_roi)
+        (ax, _ay) = self.vision.find_control(frame, 'attack.png', region = home_roi)
         if not ax:
             logger.info('Upgrade advisor: not on the home screen (Attack missing) — skipping')
             return False
@@ -221,7 +221,7 @@ class UpgradeAdvisor:
         if frame is None:
             return None
         home_roi = VisionService.bottom_half_region(frame)
-        (ax, _ay) = self.vision.find_template(frame, 'attack.png', region = home_roi)
+        (ax, _ay) = self.vision.find_control(frame, 'attack.png', region = home_roi)
         if not ax:
             # Not home: chip/HUD reads would be junk (and dumped chipfail frames of
             # battle screens are noise) — bail before reading anything.

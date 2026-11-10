@@ -106,6 +106,21 @@ try:
         'fullecart.png',
         'fullecart2.png',
         'fullecart3.png'})
+    # Button art is redrawn by game updates (Oct 2026: "Attack!" became "Battle"); the
+    # label text rarely changes, so these controls fall back to reading it.
+    # Never add confirm/Okay buttons here: a text match must not be able to spend anything.
+    # Find a Match is left out on purpose: the farming and ranked buttons share that label.
+    CONTROL_LABELS = {
+        'attack.png': 'Battle',
+        'attack2.png': 'Attack',
+        'returnhome.png': 'Return Home',
+        'returnhome2.png': 'Return Home',
+        'breturnhome.png': 'Return Home',
+        'chestclaim.png': 'Claim Reward',
+        'surrender.png': 'Surrender',
+        'endbattle.png': 'End Battle',
+        'findnow.png': 'Find Now',
+        'savedrecipes.png': 'Saved Recipes'}
     _WHITE_TEXT_BRIGHTNESS_FLOOR = 190
     _CC_INK_AREA_AT_BASELINE: Dict[str, Tuple[int, int]] = {
         ASPECT_16_9: (80, 500),
@@ -1738,6 +1753,87 @@ Extra kwargs are forwarded (e.g. ``min_confidence``, ``preprocess``).
 
             best = max(matches, key = pick_key)
             return best.center
+
+        @staticmethod
+        def _label_segments(words):
+            '''Group OCR words into same-line runs. A gap wider than ~1.5 glyph heights starts
+a new run, so neighbouring buttons ("Ranked Battle" beside "Battle") stay separate labels.'''
+            segments = []
+            for w in sorted(words, key = lambda b: b.left):
+                yc = w.top + w.height / 2
+                for seg in segments:
+                    last = seg[-1]
+                    h = max(last.height, w.height)
+                    gap = w.left - (last.left + last.width)
+                    if abs(last.top + last.height / 2 - yc) <= 0.6 * h and -0.5 * h <= gap <= 1.5 * h:
+                        seg.append(w)
+                        break
+                else:
+                    segments.append([w])
+            return segments
+
+        @staticmethod
+        def _label_key(text):
+            '''Letters/digits only, lowercased, with Tesseract's usual confusions folded
+(rn→m, vv→w, 0→o, 1→l, 5→s) so "Retum Home" compares equal to "Return Home".'''
+            key = re.sub('[^a-z0-9]', '', text.lower()).replace('rn', 'm').replace('vv', 'w')
+            return key.translate(str.maketrans('015', 'ols'))
+
+        @staticmethod
+        def _stacked(upper, lower):
+            '''True when segment ``lower`` sits right under ``upper`` and overlaps it horizontally
+(two-line button labels such as "Return / Home").'''
+            (ux0, ux1) = (min(w.left for w in upper), max(w.left + w.width for w in upper))
+            (lx0, lx1) = (min(w.left for w in lower), max(w.left + w.width for w in lower))
+            h = max(w.height for w in upper + lower)
+            gap = min(w.top for w in lower) - max(w.top + w.height for w in upper)
+            overlap = min(ux1, lx1) - max(ux0, lx0)
+            return -0.3 * h <= gap <= h and overlap > 0.3 * min(ux1 - ux0, lx1 - lx0)
+
+        @staticmethod
+        def find_label(screen_img, label, region = None, *, min_ratio = 0.85):
+            '''Center of a control whose whole label reads ``label`` (case and punctuation
+ignored, OCR confusions folded, fuzzy ratio >= ``min_ratio`` or the label plus at most two
+stray glyphs), or ``(None, None)``. Labels may wrap onto two lines.
+Passes: white low-saturation ink (the game's button text on coloured buttons), then the
+generic light-on-dark and dark-on-light binarizations.'''
+            want = VisionService._label_key(label)
+            (fh, fw) = screen_img.shape[:2]
+            (x, y, w, h) = region if region is not None else (0, 0, fw, fh)
+            hsv = cv2.cvtColor(screen_img[y:y + h, x:x + w], cv2.COLOR_BGR2HSV)
+            ink = np.full((fh, fw), 255, np.uint8)  # full frame so region coordinates stay valid
+            ink[y:y + h, x:x + w][(hsv[..., 1] <= 70) & (hsv[..., 2] >= 200)] = 0
+            ink_bgr = cv2.cvtColor(ink, cv2.COLOR_GRAY2BGR)
+            upscale = 2 if fh < 1000 else 1
+            passes = ((ink_bgr, False, False), (screen_img, True, True), (screen_img, True, False))
+            for (img, preprocess, white) in passes:
+                words = VisionService.find_words_ocr(img, region, preprocess = preprocess, white_text = white, roi_upscale = upscale) or []
+                segs = VisionService._label_segments(words)
+                candidates = segs + [a + b for a in segs for b in segs if a is not b and VisionService._stacked(a, b)]
+                for seg in candidates:
+                    got = VisionService._label_key(''.join(b.text for b in seg))
+                    if not got:
+                        continue
+                    if (want in got and len(got) - len(want) <= 2) or difflib.SequenceMatcher(None, got, want).ratio() >= min_ratio:
+                        x0 = min(b.left for b in seg)
+                        y0 = min(b.top for b in seg)
+                        x1 = max(b.left + b.width for b in seg)
+                        y1 = max(b.top + b.height for b in seg)
+                        return ((x0 + x1) // 2, (y0 + y1) // 2)
+            return (None, None)
+
+        @staticmethod
+        def find_control(screen_img, template_name, threshold = 0.8, region = None, *, ocr = True):
+            ''':meth:`find_template`, then (when ``ocr``) the control's label from
+:data:`CONTROL_LABELS` — for buttons whose art a game update redrew.'''
+            (x, y) = VisionService.find_template(screen_img, template_name, threshold = threshold, region = region)
+            label = CONTROL_LABELS.get(template_name)
+            if x or not ocr or label is None:
+                return (x, y)
+            (lx, ly) = VisionService.find_label(screen_img, label, region = region)
+            if lx is not None:
+                logger.info('%s not matched; found its label %r by OCR at (%d, %d)', template_name, label, lx, ly)
+            return (lx, ly)
 
 
 except ImportError:

@@ -56,6 +56,7 @@ _WALL_MENU_OPEN_SECONDS = 1.2  # the builder popup renders ~1s after the click (
 _WALL_MENU_WHEEL_CLICKS = 2  # ~3-4 rows per nudge; the OCR band spans the whole popup so a nudge cannot jump the Wall row past it
 _WALL_ROW_STABLE_TOL = 30  # ref px: max y drift between consecutive frames before the row is trusted for a click
 _AUTO_UPGRADE_SCAN_INTERVAL_SECONDS = 600  # full popup scan is OCR-heavy (~15-25s); keep it rare vs the ~35s attack cycle
+_LABEL_FALLBACK_AFTER = 1.0  # s of template misses before also reading the control's label (OCR is slower)
 _IDLE_RECHECK_SECONDS = 300  # while idling (storages full, nothing startable): wake, recover the screen, re-read state
 _CLAN_UNCALIBRATED_BACKOFF_SECONDS = 3600  # no chat button picked: say so once, not once per raid
 # "never done" for the clan clocks. They are compared against time.monotonic(), which
@@ -311,6 +312,18 @@ wall upgrades for the first pre-Attack snapshot that would otherwise count as an
                 continue
             return (x, y)
         return (None, None)
+
+    def _home_hud_visible(self, frame):
+        '''Home Village screen: its builder chip, else the Battle and Build buttons together with
+        no Builder Base chip (the Oct 2026 HUD redrew the chip; a stale chip template must not
+        leave recovery looping on a screen that is already home).'''
+        top_roi = VisionService.top_half_region(frame)
+        if self._find_home_village_builder(frame, top_roi)[0]:
+            return True
+        if self.vision.find_template(frame, 'mbuilder.png', region = top_roi)[0]:
+            return False
+        bottom = VisionService.bottom_half_region(frame)
+        return bool(self.vision.find_template(frame, 'attack.png', region = bottom)[0] and self.vision.find_template(frame, 'build.png')[0])
 
     
     def _wall_menu_drag_to_bottom(self):
@@ -982,7 +995,7 @@ deselect, which would eat the upcoming Attack click.'''
         self._update_config_size(frame)
         top_roi = VisionService.top_half_region(frame)
         home_roi = VisionService.bottom_half_region(frame)
-        (hax, hay) = self.vision.find_template(frame, 'attack.png', region = home_roi)
+        (hax, hay) = self.vision.find_control(frame, 'attack.png', region = home_roi)
         if not hax:
             logger.info('Wall upgrade: not on the home screen (Attack button missing) — skipping this pass')
             return None
@@ -1184,7 +1197,7 @@ deselect, which would eat the upcoming Attack click.'''
                 logger.warning('Attack wait: live battle detected (surrender visible) — leaving it to recovery')
                 return (None, None)
             search_region = self._search_region_for_template(frame, 'attack.png', None, None, 200)
-            (ax, ay) = self.vision.find_template(frame, 'attack.png', region = search_region)
+            (ax, ay) = self.vision.find_control(frame, 'attack.png', region = search_region, ocr = time.time() - start >= _LABEL_FALLBACK_AFTER)
             if ax:
                 return (ax, ay)
             self._nudge_view_to_reveal_attack()
@@ -1807,29 +1820,29 @@ deselect, which would eat the upcoming Attack click.'''
 
     
     def _return_home(self):
-        '''Dismiss Okay if present, then wait for ``returnhome.png`` (+ ``returnhome2.png`` on 16:10) or ``chestclaim.png`` (mutually exclusive).'''
-        (ox, oy) = self._wait_for_image('okay.png', timeout = 10)
-        if ox:
-            self.input.click(ox, oy, pause = 0.1)
-        (kind, hx, hy) = self._wait_for_return_home_or_chest_claim(timeout = 10)
+        '''Dismiss Okay if present, then click ``returnhome.png`` (+ ``returnhome2.png`` on 16:10) or run the
+        ``chestclaim.png`` flow (mutually exclusive). Okay is polled in the same loop, so a battle that
+        ended without a confirm dialog no longer waits out a 10 s Okay timeout first.'''
+        (kind, hx, hy) = self._wait_for_return_home_or_chest_claim(timeout = 20, dismiss_okay = True)
         if kind == 'return' and hx:
             self.input.click(hx, hy, pause = 0.1)
-            return ox is not None
-        if kind == 'chest' and hx:
+        elif kind == 'chest' and hx:
             logger.info('Post-battle UI: chestclaim.png (replacing return home); running chest flow')
             self.input.click(hx, hy, pause = 0.2)
             if self.stop_event.wait(0.35):
-                return ox is not None
+                return None
             self._tap_empty_until_chest_continue()
-        return ox is not None
 
     
-    def _wait_for_return_home_or_chest_claim(self, timeout = 10):
+    def _wait_for_return_home_or_chest_claim(self, timeout = 10, dismiss_okay = False):
         '''
-Poll one frame for ``returnhome.png`` (+ ``returnhome2.png`` on 16:10 only) then ``chestclaim.png`` (only one should match).
+Poll one frame for ``returnhome.png`` (+ ``returnhome2.png`` on 16:10 only) then ``chestclaim.png`` (only one should match),
+then, after :data:`_LABEL_FALLBACK_AFTER`, their "Return Home" / "Claim Reward" labels (redrawn buttons).
+With ``dismiss_okay``, an ``okay.png`` confirm on the way is clicked first (at most twice).
 Returns (``"return"`` | ``"chest"``, x, y) or (None, None, None) on timeout.
 '''
         start = time.time()
+        okay_clicks = 0
         while time.time() - start < timeout:
             self._check_stop()
             frame = self.window.screenshot()
@@ -1840,6 +1853,12 @@ Returns (``"return"`` | ``"chest"``, x, y) or (None, None, None) on timeout.
             self._update_config_size(frame)
             if self._battle_rewards.handle(frame):
                 continue
+            if dismiss_okay and okay_clicks < 2:
+                (ox, oy) = self.vision.find_template(frame, 'okay.png')
+                if ox:
+                    self.input.click(ox, oy, pause = 0.1)
+                    okay_clicks += 1
+                    continue
             (rx, ry) = (None, None)
             returnhome_tpls = ('returnhome.png', 'returnhome2.png') if self.config.aspect_key == ASPECT_16_10 else ('returnhome.png',)
             for tpl in returnhome_tpls:
@@ -1851,6 +1870,15 @@ Returns (``"return"`` | ``"chest"``, x, y) or (None, None, None) on timeout.
             (cx, cy) = self.vision.find_template(frame, 'chestclaim.png')
             if cx:
                 return ('chest', cx, cy)
+            if time.time() - start >= _LABEL_FALLBACK_AFTER:
+                bottom = VisionService.bottom_half_region(frame)
+                (rx, ry) = self.vision.find_label(frame, 'Return Home', region = bottom)
+                if rx:
+                    logger.info('Return Home art not matched; clicking its label read by OCR')
+                    return ('return', rx, ry)
+                (cx, cy) = self.vision.find_label(frame, 'Claim Reward', region = bottom)
+                if cx:
+                    return ('chest', cx, cy)
             if self.stop_event.wait(0.5):
                 return (None, None, None)
             if time.time() - start < timeout:
@@ -1944,7 +1972,12 @@ Returns (``"return"`` | ``"chest"``, x, y) or (None, None, None) on timeout.
                 if self.stop_event.wait(0.5):
                     return None
                 continue
-            (rx, ry) = self.vision.find_template(frame, 'returnhome.png')
+            returnhome_tpls = ('returnhome.png', 'returnhome2.png') if self.config.aspect_key == ASPECT_16_10 else ('returnhome.png',)
+            (rx, ry) = (None, None)
+            for tpl in returnhome_tpls:
+                (rx, ry) = self.vision.find_template(frame, tpl)
+                if rx:
+                    break
             if rx:
                 logger.info('Recovery: clicking Return Home')
                 self.input.click(rx, ry, pause = 0.3)
@@ -1968,11 +2001,17 @@ Returns (``"return"`` | ``"chest"``, x, y) or (None, None, None) on timeout.
                     if self.stop_event.wait(2):
                         return None
                     continue
-            top_roi = VisionService.top_half_region(frame)
-            (hx, hy) = self._find_home_village_builder(frame, top_roi)
-            if hx:
+            if self._home_hud_visible(frame):
                 self._reload_first_seen = None
                 return None
+            # Not home: a redrawn Return Home button is still labelled "Return Home".
+            (rx, ry) = self.vision.find_label(frame, 'Return Home', region = VisionService.bottom_half_region(frame))
+            if rx:
+                logger.info('Recovery: clicking Return Home (label read by OCR)')
+                self.input.click(rx, ry, pause = 0.3)
+                if self.stop_event.wait(0.5):
+                    return None
+                continue
             if not self.stop_event.wait(1):
                 continue
         return None
@@ -2051,10 +2090,9 @@ Each iteration dismisses ``okay.png`` / ``exit.png`` if present, then village / 
                     if self.stop_event.wait(1):
                         return (None, None)
                     continue
-                (hx, hy) = self._find_home_village_builder(frame, top_roi)
-                if hx:
+                if self._home_hud_visible(frame):
                     bot_roi = VisionService.bottom_half_region(frame)
-                    (ax, ay) = self.vision.find_template(frame, 'attack.png', region = bot_roi)
+                    (ax, ay) = self.vision.find_control(frame, 'attack.png', region = bot_roi, ocr = time.time() - start >= _LABEL_FALLBACK_AFTER)
                     if ax:
                         return (ax, ay)
             self._nudge_view_to_reveal_attack()
@@ -2356,10 +2394,13 @@ OCR is limited to the right half of the window unless ``region`` is passed expli
             self._check_stop()
             frame = self.window.screenshot()
             if frame is None:
+                if self.stop_event.wait(0.5):
+                    return (None, None)
                 continue
             self._update_config_size(frame)
             if self._battle_rewards.handle(frame):
                 continue
+            ocr = time.time() - start >= _LABEL_FALLBACK_AFTER
             search_region = region
             if search_region is None and region_from_frame is not None:  # [recovered: both conditions were inverted]
                 search_region = region_from_frame(frame)
@@ -2367,7 +2408,7 @@ OCR is limited to the right half of the window unless ``region`` is passed expli
                 tpl_region = search_region
                 if tpl_region is None:
                     tpl_region = self._search_region_for_template(frame, template, None, None, 200)
-                (x, y) = self.vision.find_template(frame, template, threshold = threshold, region = tpl_region)
+                (x, y) = self.vision.find_control(frame, template, threshold = threshold, region = tpl_region, ocr = ocr)
                 if x:  # [recovered: was an unconditional `return`, so only the first template was ever checked]
                     return (x, y)
             if self.stop_event.wait(0.5):
@@ -2385,12 +2426,15 @@ OCR is limited to the right half of the window unless ``region`` is passed expli
             self._check_stop()
             frame = self.window.screenshot()
             if frame is None:
+                if self.stop_event.wait(0.5):
+                    return (None, None)
                 continue
             self._update_config_size(frame)
             if self._battle_rewards.handle(frame):
                 continue
             search_region = self._search_region_for_template(frame, template, region, y_anchor, y_slop)
-            (x, y) = self.vision.find_template(frame, template, threshold = threshold, region = search_region)
+            ocr = time.time() - start >= _LABEL_FALLBACK_AFTER
+            (x, y) = self.vision.find_control(frame, template, threshold = threshold, region = search_region, ocr = ocr)
             if x:
                 return (x, y)
             if self.stop_event.wait(0.5):

@@ -64,14 +64,14 @@ class EventTests(unittest.TestCase):
         bot = Bot.__new__(Bot)
         bot.stop_event, bot.input, bot.window = self.stop, self.input, self.window
         bot.vision = Mock()
-        bot.vision.find_template.return_value = (40, 570)
+        bot.vision.find_control.return_value = (40, 570)
         bot._update_config_size = Mock()
         bot._search_region_for_template = Mock(return_value=None)
         bot._battle_rewards = Mock()
         bot._battle_rewards.handle.side_effect = [True, False]
         bot._wait_for_battle_end(False)
         self.input.click.assert_called_once_with(40, 570, pause=.1)
-        bot.vision.find_template.assert_called_once()
+        bot.vision.find_control.assert_called_once()
 
     def test_shifted_ability_uses_live_portrait(self):
         frame = np.zeros((731, 1299, 3), dtype=np.uint8)
