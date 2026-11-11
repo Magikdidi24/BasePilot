@@ -1368,6 +1368,14 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             logger.info('Builder Base: elixir cart collected')
         else:
             logger.warning('Builder Base: collect.png not found after elixir cart')
+        # The cart's window stays open after Collect (live: the next Battle tap only closed
+        # it, and Find Now never came): its X closes it.
+        if self.stop_event.wait(0.6):
+            return None
+        frame = self.window.screenshot()
+        close = find_close(self.vision, frame) if frame is not None else None
+        if close:
+            self.input.click(*close, pause = 0.3)
 
     
     def _read_bb_bar(self, frame):

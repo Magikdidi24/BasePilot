@@ -14,6 +14,7 @@ import numpy as np
 from app.config import Config
 from app.core import bb_scout, bb_strategy
 from app.core.bot import Bot
+from app.core.build_panel import find_close
 from app.services.vision import VisionService
 
 FIXTURES = Path(__file__).parent / 'fixtures'
@@ -382,15 +383,23 @@ class CartTests(unittest.TestCase):
         bot = make_bot()
         with patch.object(bot, '_find_bb_full_elixir_cart', side_effect=finds), \
                 patch.object(bot, '_bb_pan_down_left_from_center') as pan, \
-                patch.object(bot, '_wait_for_image', return_value=(613, 600)):
+                patch.object(bot, '_wait_for_image', return_value=(613, 600)), \
+                patch('app.core.bot.find_close', return_value=(1072, 78)):
             bot._bb_collect_elixir_cart_after_attack()
         return ([c.args[:2] for c in bot.input.click.call_args_list], pan.call_count)
 
     def test_a_cart_on_screen_is_collected_without_a_pan(self):
-        self.assertEqual(self.collect([(842, 120)]), ([(842, 120), (613, 600)], 0))
+        # the cart, its Collect, then its window's X (left open, it ate the next Battle tap)
+        self.assertEqual(self.collect([(842, 120)]), ([(842, 120), (613, 600), (1072, 78)], 0))
 
     def test_a_cart_off_screen_is_looked_for_after_one_pan(self):
-        self.assertEqual(self.collect([None, (848, 393)]), ([(848, 393), (613, 600)], 1))
+        self.assertEqual(self.collect([None, (848, 393)]), ([(848, 393), (613, 600), (1072, 78)], 1))
+
+    def test_the_cart_window_x(self):
+        frame = np.zeros((767, 1227, 3), np.uint8)
+        frame[60:700, 600:1227] = cv2.imread(str(FIXTURES / 'gpg767_bb_cart_window.jpg'))  # live, after Collect
+        Config().set_target_size_from_frame(frame)
+        self.assertLessEqual(math.dist(find_close(VisionService, frame), (1072, 78)), 6)
 
     def test_no_tap_at_all_without_a_full_cart(self):
         self.assertEqual(self.collect([None, None]), ([], 1))  # no "empty" taps on the walls
