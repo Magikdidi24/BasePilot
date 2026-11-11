@@ -11,7 +11,7 @@ from app.core.clan import ClanAssistant, ClanOptions, missing_templates
 from app.core.loot_filter import TEMPLATE_NEXT_BASE, LootFilter, combine_reads, meets, read_enemy_loot
 from app.core.strategies import AttackStrategy, EdragStrategy, TroopSpamStrategy, _EDRAG_DELAY
 from app.core import bb_learning, bb_results, bb_scout, bb_strategy, hv_results
-from app.core.build_panel import BuildPanelUpgrader, find_close, gem_prompt_visible, wall_upgrade_button
+from app.core.build_panel import TAB_BUILDINGS, BuildPanelUpgrader, find_close, gem_prompt_visible, panel_tab, wall_upgrade_button
 from app.core.upgrade_menu import RESOURCE_ELIXIR, RESOURCE_GOLD
 from app.core.upgrader import AUTO_UPGRADE_MODES, LIVE_UPGRADE_MODES, MODE_OFF, UpgradeAdvisor, is_october_build_panel_hud
 from app.core.village_state import read_hud_triplet_stable, read_village_state, read_village_state_stable, storages_full
@@ -72,6 +72,8 @@ _WALL_MENU_WHEEL_CLICKS = 2  # ~3-4 rows per nudge; the OCR band spans the whole
 _WALL_ROW_STABLE_TOL = 30  # ref px: max y drift between consecutive frames before the row is trusted for a click
 _AUTO_UPGRADE_SCAN_INTERVAL_SECONDS = 600  # full popup scan is OCR-heavy (~15-25s); keep it rare vs the ~35s attack cycle
 _WALL_RETRY_SECONDS = 600  # a wall pass that bought nothing fails the same way next raid; wait before paying for another
+_BUILD_PANEL_POLLS = 6  # ~3 s for the Build panel to slide in (its title read, or its tab art)
+_TAP_EATEN_AFTER = 3.0  # s without the next screen: a tap a selection on screen ate (it deselects); tapped again
 # Oct 2026 HUD: the Build panel's card list fills the right edge, above its tab bar.
 _BUILD_PANEL_ROI_FRAC = (0.70, 0.08, 0.30, 0.80)  # x, y, w, h as fractions of the capture
 _LABEL_FALLBACK_AFTER = 1.0  # s of template misses before also reading the control's label (OCR is slower)
@@ -178,7 +180,7 @@ class Bot:
         self._suppress_loot_negative_error_once = False
 
     
-    def start(self, method, run_time_minutes, star_bonus = False, status_callback = None, loot_callback = None, multi_run_players = None, upgrade_walls = False, earthquake_method = EARTHQUAKE_METHOD_CURVE, builder_base = False, loot_prioritise = 'both', wall_upgrade_threshold = 0, auto_upgrade = MODE_OFF, reserve_builders = 1, state_callback = None, upgrade_order = None, clan_options = None, loot_filter = None):
+    def start(self, method, run_time_minutes, star_bonus = False, status_callback = None, loot_callback = None, multi_run_players = None, upgrade_walls = False, earthquake_method = EARTHQUAKE_METHOD_CURVE, builder_base = False, loot_prioritise = 'both', wall_upgrade_threshold = 0, auto_upgrade = MODE_OFF, reserve_builders = 1, state_callback = None, upgrade_order = None, clan_options = None, loot_filter = None, bb_wall_threshold = 0):
         '''Starts the bot loop. With ``multi_run_players``, runs a full session per enabled player.
         ``run_time_minutes <= 0`` (single Home Village runs only) means UNLIMITED — farm,
         upgrade and idle until the user stops the bot ("run until maxed").'''
@@ -199,6 +201,7 @@ class Bot:
         self._builder_base = builder_base
         self._loot_prioritise = loot_prioritise
         self._wall_upgrade_threshold = max(0, int(wall_upgrade_threshold or 0))
+        self._bb_wall_threshold = max(0, int(bb_wall_threshold or 0))
         self._auto_upgrade_mode = auto_upgrade if auto_upgrade in AUTO_UPGRADE_MODES else MODE_OFF
         self._auto_upgrade_last_scan = 0
         self._wall_retry_at = 0
@@ -484,19 +487,35 @@ past the bottom is a harmless no-op, so this can be called repeatedly.
         return (int(w * fx), int(h * fy), int(w * fw), int(h * fh))
 
     def _open_build_panel(self, frame):
-        '''Oct 2026 HUD: tap Build (bottom right), then its Buildings & Heroes tab, which
-        lists the Wall card. True once the tab was tapped and the list had time to render.'''
-        (bx, by) = self.vision.find_template(frame, 'build.png', region = VisionService.bottom_half_region(frame))
-        if not bx:
-            logger.info('Wall upgrade: Build button not found — skipping this pass')
-            return False
-        self.input.click(bx, by, pause = 0.5)
-        (tx, ty) = self._wait_for_image('buildings_tab.png', timeout = 4, error = False)
-        if not tx:
-            logger.info('Wall upgrade: Buildings & Heroes tab not found after Build — skipping this pass')
-            return False
-        self.input.click(tx, ty, pause = 0.3, rand = False)
-        return not self.stop_event.wait(_WALL_MENU_OPEN_SECONDS)
+        '''Oct 2026 HUD: tap Build (bottom right) and have its Buildings & Heroes list, which
+        holds the Wall card: the panel opens on it (its title reads so; the Builder Base's
+        panel has no other), or its tab is tapped. A Build tap that a selection still on
+        screen ate (a wall just bought: the tap only deselects it) goes again, once the
+        Build button shows with no panel. True once the list had time to render.'''
+        for attempt in range(2):
+            (bx, by) = self.vision.find_template(frame, 'build.png', region = VisionService.bottom_half_region(frame))
+            if not bx:
+                logger.info('Wall upgrade: Build button not found — skipping this pass')
+                return False
+            self.input.click(bx, by, pause = 0.5)
+            for _ in range(_BUILD_PANEL_POLLS):
+                self._check_stop()
+                frame = self.window.screenshot()
+                if frame is None:
+                    return False
+                self._update_config_size(frame)
+                if panel_tab(self.vision, frame) == TAB_BUILDINGS:
+                    return not self.stop_event.wait(_WALL_MENU_OPEN_SECONDS)
+                (tx, ty) = self.vision.find_template(frame, 'buildings_tab.png')
+                if tx:
+                    self.input.click(tx, ty, pause = 0.3, rand = False)
+                    return not self.stop_event.wait(_WALL_MENU_OPEN_SECONDS)
+                if self.stop_event.wait(0.5):
+                    return False
+            if attempt == 0:
+                logger.info('Wall upgrade: no Build panel after the tap — tapping Build again (a selection ate it)')
+        logger.info('Wall upgrade: Buildings & Heroes not open after Build — skipping this pass')
+        return False
 
     def _find_wall_row_once(self):
         '''One fresh screenshot → Wall label OCR, both polarities (dark popup text first).
@@ -543,7 +562,7 @@ past the bottom is a harmless no-op, so this can be called repeatedly.
         return (int(self.config.width * (fx + fw / 2)), int(self.config.height * (fy + fh / 2)))
 
 
-    def _should_upgrade_walls(self):
+    def _should_upgrade_walls(self, threshold = None):
         '''The resources a wall pass may spend (a set of RESOURCE_GOLD / RESOURCE_ELIXIR, empty
         when the pass is not worth what it costs). Only those pay: walls bought with elixir
         because gold was full would drain the elixir the laboratory needs.
@@ -551,7 +570,7 @@ past the bottom is a harmless no-op, so this can be called repeatedly.
         A pass is expensive: it opens the builder menu, OCR-scrolls to find the Wall row,
         batches walls and confirms — far longer than a raid cycle. So the threshold the
         user set (*Settings → Wall upgrade threshold*) is the gate, and the HUD numbers
-        decide against it.
+        decide against it. ``threshold``: the Builder Base's, else the Home Village's.
 
         A full-storage icon on its own is NOT enough to spend that time: those fire from
         ~85% of a storage and say nothing about what a wall costs. The icons only stand
@@ -564,7 +583,9 @@ past the bottom is a harmless no-op, so this can be called repeatedly.
         self._update_config_size(frame)
         full = frozenset(r for (r, on) in zip((RESOURCE_GOLD, RESOURCE_ELIXIR), storages_full(frame)) if on)
         icons_full = bool(full)
-        threshold = int(getattr(self, '_wall_upgrade_threshold', 0) or 0)
+        if threshold is None:
+            threshold = getattr(self, '_wall_upgrade_threshold', 0)
+        threshold = int(threshold or 0)
         if threshold <= 0:
             if icons_full:
                 logger.info('Wall upgrades: full storage (%s), threshold is 0', ', '.join(sorted(full)))
@@ -1192,6 +1213,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                 cb(msg)
             return None
         self._maybe_auto_upgrade()
+        self._safely('Walls', self._bb_maybe_upgrade_walls)
         self._safely('Live status', self._bb_live_status)
         failures = 0
         while time.time() - start_time < duration_seconds:
@@ -1221,12 +1243,51 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             self._bb_collect_elixir_cart_after_attack()
             self._safely('Live status', self._bb_live_status)
             self._maybe_auto_upgrade()
+            self._safely('Walls', self._bb_maybe_upgrade_walls)
             if star_bonus and self._is_bb_star_bonus_finished():
                 logger.info('Builder Base star bonus finished (bstar.png no longer visible). Stopping.')
                 return None
             if self.stop_event.wait(random.uniform(0.35, 0.6)):
                 return None
         return None
+
+    def _bb_maybe_upgrade_walls(self):
+        '''Builder Base walls, with the Home Village's pass (:meth:`_upgrade_walls`: the Build
+        panel's Wall card, the selected wall's own Upgrade button paid with gold or elixir
+        but never the Wall Ring, the gem-safe Confirm), from the Builder Base's threshold
+        (*Settings → Wall upgrade threshold → Builder Base*). Walls are instant: no builder
+        is used. No tap on "empty" ground here (it lands on walls and obstacles): a wall
+        left selected deselects on the next tap, which is tapped again (Build, Battle).'''
+        if not getattr(self, '_walls_enabled', False) or time.monotonic() < getattr(self, '_wall_retry_at', 0):
+            return None
+        threshold = getattr(self, '_bb_wall_threshold', 0)
+        resources = self._should_upgrade_walls(threshold)
+        if not resources:
+            return None
+        cb = getattr(self, '_status_callback', None)
+        if cb:
+            cb('Builder Base: upgrading walls...')
+        bought = 0
+        for i in range(_WALL_SINGLE_MAX):
+            self._check_stop()
+            if i:
+                resources = self._should_upgrade_walls(threshold)
+                if not resources:
+                    break
+            if not self._upgrade_walls(resources):
+                if not bought:
+                    self._wall_retry_at = time.monotonic() + _WALL_RETRY_SECONDS
+                    if cb:
+                        cb(f'Builder Base walls: nothing bought this pass — next try in {_WALL_RETRY_SECONDS // 60} min (see Logs)')
+                break
+            bought += 1
+        frame = self.window.screenshot()
+        point = find_close(self.vision, frame) if frame is not None else None
+        if point:
+            self.input.click(*point, pause = 0.3)  # the Build panel, when a pass stopped with it open
+        if bought:
+            logger.info('Builder Base walls: %d bought this pass', bought)
+        self._suppress_loot_negative_error_once = True
 
     def _bb_live_status(self):
         '''The Builder Base HUD into the live status: storages (gold / elixir) and the
@@ -1252,7 +1313,13 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             logger.warning('Builder Base: attack.png not found')
             return False
         self.input.click(ax, ay, pause = 0.15)
-        (fx, fy) = self._wait_for_image('findnow.png', timeout = 10)
+        (fx, fy) = self._wait_for_image('findnow.png', timeout = _TAP_EATEN_AFTER, error = False)
+        if not fx:
+            (ax, ay) = self._find_template_once('attack.png')
+            if ax:  # still home: a selection (a wall just bought) took the tap
+                logger.info('Builder Base: Battle tap eaten (a selection on screen) — tapping it again')
+                self.input.click(ax, ay, pause = 0.15)
+            (fx, fy) = self._wait_for_image('findnow.png', timeout = 10)
         if not fx:
             logger.warning('Builder Base: findnow.png not found')
             return False

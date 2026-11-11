@@ -12,7 +12,7 @@ from app.ui.qt.template_capture import TemplateCaptureDialog
 from app.ui.qt.theme import SPACING, TOKENS
 from app.ui.qt.widgets import Card, PageTitle, SectionTitle, ToggleSwitch, neutral_button, primary_button
 from app.utils.logger import setup_logger
-from app.utils.profile_settings_store import ATTACK_MAX_SKIPS_MAX, ATTACK_MIN_DARK_K_MAX, ATTACK_MIN_LOOT_K_MAX, CLAN_MIN_ELIXIR_K_MAX, CLAN_DONATE_COUNT_MAX, CLAN_DONATE_INTERVAL_M_MAX, CLAN_DONATE_INTERVAL_M_MIN, CLAN_REQUEST_INTERVAL_M_MAX, CLAN_REQUEST_INTERVAL_M_MIN, EARTHQUAKE_METHOD_OPTIONS, RESERVE_BUILDERS_MAX, WALL_UPGRADE_THRESHOLD_M_MAX, ProfileSettings, load_profile_settings, save_profile_settings
+from app.utils.profile_settings_store import BB_WALL_THRESHOLD_K_MAX, ATTACK_MAX_SKIPS_MAX, ATTACK_MIN_DARK_K_MAX, ATTACK_MIN_LOOT_K_MAX, CLAN_MIN_ELIXIR_K_MAX, CLAN_DONATE_COUNT_MAX, CLAN_DONATE_INTERVAL_M_MAX, CLAN_DONATE_INTERVAL_M_MIN, CLAN_REQUEST_INTERVAL_M_MAX, CLAN_REQUEST_INTERVAL_M_MIN, EARTHQUAKE_METHOD_OPTIONS, RESERVE_BUILDERS_MAX, WALL_UPGRADE_THRESHOLD_M_MAX, ProfileSettings, load_profile_settings, save_profile_settings
 from app.utils.window_settings_store import clear_window_selection, load_window_selection, save_window_selection
 logger = setup_logger('SettingsPage')
 # Display label -> the key stored in settings.json (see app.core.clan).
@@ -124,6 +124,17 @@ class SettingsPage(QWidget):
         wall_unit = QLabel('gold or elixir')
         wall_unit.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
         wall_row.addWidget(wall_unit)
+        wall_row.addSpacing(SPACING['md'])
+        bb_label = QLabel('Builder Base')
+        wall_row.addWidget(bb_label)
+        self._bb_wall_threshold = QSpinBox()
+        self._bb_wall_threshold.setRange(0, BB_WALL_THRESHOLD_K_MAX)
+        self._bb_wall_threshold.setSingleStep(100)
+        self._bb_wall_threshold.setSuffix('k')
+        self._bb_wall_threshold.setSpecialValueText('full')
+        self._bb_wall_threshold.setFixedWidth(96)
+        self._bb_wall_threshold.setToolTip('Builder Base walls (Run page, Builder Base, Upgrade walls): from this much gold or elixir; "full" = only when a storage is full.')
+        wall_row.addWidget(self._bb_wall_threshold)
         wall_row.addStretch()
         card.card_layout.addLayout(wall_row)
         card.card_layout.addWidget(SectionTitle('Upgrade order'))
@@ -482,6 +493,7 @@ class SettingsPage(QWidget):
         if idx >= 0:
             self._earthquake.setCurrentIndex(idx)
         self._wall_threshold.setValue(settings.wall_upgrade_threshold_m)
+        self._bb_wall_threshold.setValue(settings.bb_wall_threshold_k)
         self._reserve_builders.setValue(settings.reserve_builders)
         self._upgrade_order.setCurrentIndex(1 if settings.upgrade_order == 'cheapest' else 0)
         self._clan_chat_point = list(settings.clan_chat_point) if settings.clan_chat_point else None
@@ -507,6 +519,7 @@ class SettingsPage(QWidget):
         save_profile_settings(ProfileSettings(
             earthquake_method = self._earthquake.currentText(),
             wall_upgrade_threshold_m = self._wall_threshold.value(),
+            bb_wall_threshold_k = self._bb_wall_threshold.value(),
             reserve_builders = self._reserve_builders.value(),
             upgrade_order = 'cheapest' if self._upgrade_order.currentIndex() == 1 else 'priciest',
             clan_dry_run = self._clan_dry_run.isChecked(),

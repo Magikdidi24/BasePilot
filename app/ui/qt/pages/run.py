@@ -395,8 +395,13 @@ class RunPage(QWidget):
         # No loot priority: every Builder Base battle is played to its end, never ended early.
         self._bb_auto_upgrade = ToggleSwitch('Auto upgrade (builders and star lab, mode from Home Village)', parent = card)
         card.card_layout.addWidget(self._bb_auto_upgrade)
-        self._bb_upgrade_walls = ToggleSwitch('Upgrade walls', parent = card, under_development = True)
+        self._bb_upgrade_walls = ToggleSwitch('Upgrade walls', parent = card)
         card.card_layout.addWidget(self._bb_upgrade_walls)
+        bb_walls_hint = self._muted('Between battles, a wall at a time from the Build panel, paid with the gold or elixir over '
+                                    'the threshold in Settings → Wall upgrade threshold → Builder Base (full storages by default). '
+                                    'Never through a gem prompt, never the Wall Ring.', card)
+        bb_walls_hint.setWordWrap(True)
+        card.card_layout.addWidget(bb_walls_hint)
         mr_row = QHBoxLayout()
         self._bb_multi_run = ToggleSwitch('Multi-run', parent = card, under_development = True)
         mr_row.addWidget(self._bb_multi_run)
@@ -600,6 +605,7 @@ class RunPage(QWidget):
         self._set_auto_upgrade_mode(str(self._settings.value('run/autoUpgrade', 'off')))
         self._upgrade_walls.setChecked(self._settings.value('run/upgradeWalls', False, type = bool))
         self._bb_auto_upgrade.setChecked(self._settings.value('run/bbAutoUpgrade', False, type = bool))
+        self._bb_upgrade_walls.setChecked(self._settings.value('run/bbUpgradeWalls', False, type = bool))
         self._auto_donate.setChecked(self._settings.value('run/autoDonate', False, type = bool))
         self._auto_request.setChecked(self._settings.value('run/autoRequest', False, type = bool))
         self._until_maxed.setChecked(self._settings.value('run/untilMaxed', False, type = bool))
@@ -611,6 +617,7 @@ class RunPage(QWidget):
         self._settings.setValue('run/autoUpgrade', self._get_auto_upgrade_mode())
         self._settings.setValue('run/upgradeWalls', self._upgrade_walls.isChecked())
         self._settings.setValue('run/bbAutoUpgrade', self._bb_auto_upgrade.isChecked())
+        self._settings.setValue('run/bbUpgradeWalls', self._bb_upgrade_walls.isChecked())
         self._settings.setValue('run/autoDonate', self._auto_donate.isChecked())
         self._settings.setValue('run/autoRequest', self._auto_request.isChecked())
         self._settings.setValue('run/untilMaxed', self._until_maxed.isChecked())
@@ -657,7 +664,7 @@ class RunPage(QWidget):
         self._save_choices()
         # Clan assist rides the Home Village flow (the chat button is calibrated on it,
         # and the Builder Base has no clan chat).
-        self._controller.start(method = method, minutes = mins, star_bonus = star_bonus, upgrade_walls = False if builder_base else self._upgrade_walls.isChecked(), multi_run_players = multi_arg, builder_base = builder_base, auto_upgrade = (self._get_auto_upgrade_mode() if self._bb_auto_upgrade.isChecked() else 'off') if builder_base else self._get_auto_upgrade_mode(), auto_donate = False if builder_base else self._auto_donate.isChecked(), auto_request = False if builder_base else self._auto_request.isChecked())
+        self._controller.start(method = method, minutes = mins, star_bonus = star_bonus, upgrade_walls = self._bb_upgrade_walls.isChecked() if builder_base else self._upgrade_walls.isChecked(), multi_run_players = multi_arg, builder_base = builder_base, auto_upgrade = (self._get_auto_upgrade_mode() if self._bb_auto_upgrade.isChecked() else 'off') if builder_base else self._get_auto_upgrade_mode(), auto_donate = False if builder_base else self._auto_donate.isChecked(), auto_request = False if builder_base else self._auto_request.isChecked())
 
     
     def is_star_bonus_enabled(self):

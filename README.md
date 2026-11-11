@@ -74,7 +74,10 @@ if that is within 10 minutes.
 
 **Wall upgrades.** Buys walls one at a time (up to five per pass) when loot passes a
 threshold you set, elixir first. The builder reserve in Settings only applies while this is
-on.
+on. The Builder Base has its own switch on the Run page and its own threshold (*Settings →
+Wall upgrade threshold → Builder Base*, in thousands; "full" by default: only a full
+storage is spent): between battles, the same pass through the Build panel's Wall card,
+paid with gold or elixir, never the Wall Ring, never through a gem prompt.
 
 **Loot filter.** Home Village only. Reads the loot a matched base is holding and presses
 **Next** until one clears your minimums (gold, elixir, and dark elixir if you set one), so an army is never spent on a 40k base. Off until

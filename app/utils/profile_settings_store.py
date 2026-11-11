@@ -12,6 +12,8 @@ EARTHQUAKE_METHOD_OPTIONS = (EARTHQUAKE_METHOD_CURVE, EARTHQUAKE_METHOD_RANDOM, 
 SETTINGS_FILENAME = 'settings.json'
 WALL_UPGRADE_THRESHOLD_M_DEFAULT = 3
 WALL_UPGRADE_THRESHOLD_M_MAX = 20
+BB_WALL_THRESHOLD_K_DEFAULT = 0  # Builder Base walls: 0 = only when a storage is full
+BB_WALL_THRESHOLD_K_MAX = 20000  # thousands of Builder Base gold or elixir
 RESERVE_BUILDERS_DEFAULT = 1
 RESERVE_BUILDERS_MAX = 5
 UPGRADE_ORDER_PRICIEST = 'priciest'
@@ -63,6 +65,7 @@ class ProfileSettings:
     attack_min_elixir_k: 'int' = ATTACK_MIN_ELIXIR_K_DEFAULT
     attack_min_dark_k: 'int' = ATTACK_MIN_DARK_K_DEFAULT
     attack_max_skips: 'int' = ATTACK_MAX_SKIPS_DEFAULT  # Next presses per attack cycle; 0 = attack anything
+    bb_wall_threshold_k: 'int' = BB_WALL_THRESHOLD_K_DEFAULT
 
 
 def get_settings_path():
@@ -170,7 +173,8 @@ def load_profile_settings():
             attack_min_gold_k = _normalize_int(raw.get('attack_min_gold_k'), ATTACK_MIN_GOLD_K_DEFAULT, 0, ATTACK_MIN_LOOT_K_MAX),
             attack_min_elixir_k = _normalize_int(raw.get('attack_min_elixir_k'), ATTACK_MIN_ELIXIR_K_DEFAULT, 0, ATTACK_MIN_LOOT_K_MAX),
             attack_min_dark_k = _normalize_int(raw.get('attack_min_dark_k'), ATTACK_MIN_DARK_K_DEFAULT, 0, ATTACK_MIN_DARK_K_MAX),
-            attack_max_skips = _normalize_int(raw.get('attack_max_skips'), ATTACK_MAX_SKIPS_DEFAULT, 0, ATTACK_MAX_SKIPS_MAX))
+            attack_max_skips = _normalize_int(raw.get('attack_max_skips'), ATTACK_MAX_SKIPS_DEFAULT, 0, ATTACK_MAX_SKIPS_MAX),
+            bb_wall_threshold_k = _normalize_int(raw.get('bb_wall_threshold_k'), BB_WALL_THRESHOLD_K_DEFAULT, 0, BB_WALL_THRESHOLD_K_MAX))
     except (json.JSONDecodeError, OSError):
         return ProfileSettings()  # [recovered: decompiler turned this into `return None`, crashing every caller on a corrupt settings.json]
 
@@ -195,6 +199,7 @@ def save_profile_settings(settings):
         attack_min_gold_k = _normalize_int(getattr(settings, 'attack_min_gold_k', ATTACK_MIN_GOLD_K_DEFAULT), ATTACK_MIN_GOLD_K_DEFAULT, 0, ATTACK_MIN_LOOT_K_MAX),
         attack_min_elixir_k = _normalize_int(getattr(settings, 'attack_min_elixir_k', ATTACK_MIN_ELIXIR_K_DEFAULT), ATTACK_MIN_ELIXIR_K_DEFAULT, 0, ATTACK_MIN_LOOT_K_MAX),
         attack_min_dark_k = _normalize_int(getattr(settings, 'attack_min_dark_k', ATTACK_MIN_DARK_K_DEFAULT), ATTACK_MIN_DARK_K_DEFAULT, 0, ATTACK_MIN_DARK_K_MAX),
-        attack_max_skips = _normalize_int(getattr(settings, 'attack_max_skips', ATTACK_MAX_SKIPS_DEFAULT), ATTACK_MAX_SKIPS_DEFAULT, 0, ATTACK_MAX_SKIPS_MAX))
+        attack_max_skips = _normalize_int(getattr(settings, 'attack_max_skips', ATTACK_MAX_SKIPS_DEFAULT), ATTACK_MAX_SKIPS_DEFAULT, 0, ATTACK_MAX_SKIPS_MAX),
+        bb_wall_threshold_k = _normalize_int(getattr(settings, 'bb_wall_threshold_k', BB_WALL_THRESHOLD_K_DEFAULT), BB_WALL_THRESHOLD_K_DEFAULT, 0, BB_WALL_THRESHOLD_K_MAX))
     payload = asdict(normalized)
     path.write_text(json.dumps(payload, indent = 2), encoding = 'utf-8')
