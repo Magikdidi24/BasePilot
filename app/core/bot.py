@@ -1658,7 +1658,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             if frame is None:
                 return None
             self._update_config_size(frame)
-            (nx, ny) = self.vision.find_template(frame, TEMPLATE_NEXT_BASE)
+            (nx, ny) = self._next_base_point(frame) or (None, None)
             if not nx:
                 logger.warning('Loot filter: %s gold / %s elixir is below %s but Next was not found — attacking this base', gold, elixir, lf.summary())
                 return None
@@ -1673,6 +1673,14 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                 logger.warning('Loot filter: the next base did not load — attacking whatever is on screen')
                 return None
         logger.info('Loot filter: %d skips used on this cycle — attacking this base', lf.max_skips)
+
+    def _next_base_point(self, frame):
+        '''The battle-prep screen's Next button, at the bot's scale or another (the 16:10
+        art is the 16:9 one scaled by the screen height, as most buttons are), or None.'''
+        def at(scale):
+            (x, y, _score) = self.vision.find_template_with_confidence(frame, TEMPLATE_NEXT_BASE, threshold = 0.8, scale = scale)
+            return (x, y) if x is not None else None
+        return self.vision.with_scale_fallback(at)
 
     def _battle_prep_visible(self, frame):
         '''True while the battle-prep controls (Surrender / End Battle) are on screen.'''

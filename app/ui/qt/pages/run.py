@@ -1,5 +1,6 @@
 '''Run page — attack, schedule, modes, live status, controls.'''
 from __future__ import annotations
+from dataclasses import replace
 from typing import Callable, List, Optional
 from PySide6.QtCore import QSettings, Qt, QTimer
 from PySide6.QtWidgets import QButtonGroup, QGridLayout, QHBoxLayout, QLabel, QScrollArea, QSpinBox, QVBoxLayout, QWidget
@@ -11,6 +12,7 @@ from app.ui.qt.dialogs import show_error, show_under_development
 from app.ui.qt.theme import SPACING, TOKENS
 from app.ui.qt.widgets import Card, SectionTitle, StepperButton, ToggleSwitch, chip_button, danger_button, neutral_button, primary_button, segment_button
 from app.utils.player_list_store import PlayerEntry, load_players
+from app.utils.profile_settings_store import ATTACK_MIN_LOOT_K_MAX, load_profile_settings, save_profile_settings
 
 class RunPage(QWidget):
     _STRATEGY_LABELS = [
@@ -118,7 +120,59 @@ class RunPage(QWidget):
             self._strategy_group.addButton(btn, i)
             row.addWidget(btn)
         card.card_layout.addLayout(row)
+        loot_row = QHBoxLayout()
+        loot_row.addWidget(SectionTitle('Minimum loot'))
+        loot_row.addSpacing(SPACING['xs'])
+        self._min_gold = self._min_loot_spin(card)
+        loot_row.addWidget(self._min_gold)
+        loot_row.addWidget(self._muted('gold', card))
+        loot_row.addSpacing(SPACING['md'])
+        self._min_elixir = self._min_loot_spin(card)
+        loot_row.addWidget(self._min_elixir)
+        loot_row.addWidget(self._muted('elixir', card))
+        loot_row.addStretch()
+        card.card_layout.addLayout(loot_row)
+        loot_hint = self._muted('Home Village only. On the battle-prep screen a base holding less than this is skipped with Next '
+                                '(each Next costs a search fee; Settings → Minimum loot to attack caps the skips per raid). '
+                                '"any" attacks every base.', card)
+        loot_hint.setWordWrap(True)
+        card.card_layout.addWidget(loot_hint)
+        self._load_min_loot()
+        self._min_gold.valueChanged.connect(self._save_min_loot)
+        self._min_elixir.valueChanged.connect(self._save_min_loot)
         return card
+
+    @staticmethod
+    def _min_loot_spin(parent):
+        spin = QSpinBox(parent)
+        spin.setRange(0, ATTACK_MIN_LOOT_K_MAX)
+        spin.setSingleStep(50)
+        spin.setSuffix('k')
+        spin.setSpecialValueText('any')
+        spin.setFixedWidth(88)
+        return spin
+
+    @staticmethod
+    def _muted(text, parent):
+        label = QLabel(text, parent)
+        label.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
+        return label
+
+    def _load_min_loot(self):
+        '''The loot filter's minimums from the profile (Settings edits them too).'''
+        settings = load_profile_settings()
+        for (spin, value) in ((self._min_gold, settings.attack_min_gold_k), (self._min_elixir, settings.attack_min_elixir_k)):
+            spin.blockSignals(True)
+            spin.setValue(value)
+            spin.blockSignals(False)
+
+    def _save_min_loot(self, _value = None):
+        save_profile_settings(replace(load_profile_settings(), attack_min_gold_k = self._min_gold.value(),
+                                      attack_min_elixir_k = self._min_elixir.value()))
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._load_min_loot()
 
     
     def _build_bb_attack_card(self):
