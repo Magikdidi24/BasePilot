@@ -49,11 +49,13 @@ class AttackCycleTests(unittest.TestCase):
 
     def test_battle_that_ended_by_itself_is_not_waited_on(self):
         bot = make_bot()
-        bot._wait_for_any_image = Mock(return_value=(640, 650))  # results screen
-        bot._search_region_for_template = Mock(return_value=None)
-        bot._wait_for_battle_end(False)
+        bot.vision.find_template.side_effect = lambda f, name, **kw: (640, 650) if name == 'returnhome.png' else (None, None)  # results screen
+        bot._battle_rewards = Mock()
+        bot._battle_rewards.handle.return_value = False
+        with patch('app.core.bot.read_enemy_loot', return_value=None):
+            bot._wait_for_battle_end(False)
         bot.input.click.assert_not_called()
-        self.assertEqual(bot._wait_for_any_image.call_args.args[0], ('endbattle.png', 'returnhome.png', 'chestclaim.png'))
+        self.assertEqual(bot.window.screenshot.call_count, 1)
 
 
 class LiveBattleTests(unittest.TestCase):

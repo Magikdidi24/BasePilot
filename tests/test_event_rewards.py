@@ -60,20 +60,21 @@ class EventTests(unittest.TestCase):
         self.assertCountEqual(ability_clicks, list(positions.values()))
         self.assertEqual(sum(c.args[1]=='queen.png' for c in vision.find_template.call_args_list), 1)
 
-    def test_exit_immediately_after_reward_clears(self):
+    def test_a_reward_overlay_during_the_battle_is_cleared_and_the_battle_goes_on(self):
         bot = Bot.__new__(Bot)
         bot.stop_event, bot.input, bot.window = self.stop, self.input, self.window
         bot.vision = Mock()
-        bot.vision.find_control.return_value = (40, 570)
+        bot.vision.find_template.side_effect = lambda f, name, **kw: (40, 570) if name == 'endbattle.png' else (None, None)
         self.window.screenshot.return_value = np.zeros((731, 1299, 3), dtype=np.uint8)
         bot._update_config_size = Mock()
-        bot._search_region_for_template = Mock(return_value=None)
         bot._battle_rewards = Mock()
-        bot._battle_rewards.handle.side_effect = [True, False]
-        bot._wait_for_battle_end(False)
-        self.input.click.assert_called_once_with(40, 570, pause=.1)
-        # one match in the wait, one re-check that End Battle (not the results screen) is up
-        self.assertEqual(bot.vision.find_control.call_count, 2)
+        bot._battle_rewards.handle.side_effect = [True] + [False] * 100
+        clock = iter(range(1000))
+        with patch('app.core.bot.time.monotonic', side_effect=lambda: next(clock)), \
+                patch('app.core.bot.read_enemy_loot', return_value=None):  # the loot never reads: it never drops
+            bot._wait_for_battle_end(False)
+        self.input.click.assert_called_once_with(40, 570, pause=.1)  # End Battle, once the loot stopped coming
+        self.assertGreater(bot._battle_rewards.handle.call_count, 1)  # the overlay first, then the battle
 
     def test_shifted_ability_uses_live_portrait(self):
         frame = np.zeros((731, 1299, 3), dtype=np.uint8)

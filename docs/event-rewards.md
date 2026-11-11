@@ -4,8 +4,9 @@ The event overlay at 33%, 66%, and 100% pauses battle input while its countdown
 automatically picks a reward. The bot verifies that it disappears before resuming.
 No OCR or reward-card click is needed. Stop interrupts the wait.
 
-The main strategy's End Battle and Surrender rules remain unchanged. The bot does
-not wait for later milestones. Final damage can advance during exit confirmation.
+The raid plays on while the loot drops (see [Ending a Home Village raid](armies.md#ending-a-home-village-raid)),
+so a later milestone's overlay can show before End Battle: it is let expire the same way,
+then the battle goes on. Final damage can advance during exit confirmation.
 Hero abilities retain their stored deployment slots; only a reward interruption
 requires relocating the live hero portrait if the troop bar moves.
 

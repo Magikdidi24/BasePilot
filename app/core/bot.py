@@ -76,6 +76,10 @@ _WALL_RETRY_SECONDS = 600  # a wall pass that bought nothing fails the same way 
 _BUILD_PANEL_ROI_FRAC = (0.70, 0.08, 0.30, 0.80)  # x, y, w, h as fractions of the capture
 _LABEL_FALLBACK_AFTER = 1.0  # s of template misses before also reading the control's label (OCR is slower)
 _BATTLE_LABEL_AFTER = 20  # s; during a live battle none of the end buttons shows for a while, and OCR on every poll loads the CPU next to the game
+_LOOT_STALL = 12.0  # s with the base's available loot not dropping: the troops took what they could reach
+_BATTLE_GIVE_UP = 60.0  # s with no star (Surrender only) and no loot coming before surrendering
+_BATTLE_LONGEST = 200.0  # s: past a battle's 3 minutes, end it whatever shows
+_LOOT_POLL = 1.0  # s between two reads of the available loot
 _BATTLE_CARD_MAX_X = 0.28  # Battle menu: the Battle card ends here, the Ranked Battle card starts at ~0.29 W (16:10 live)
 _IDLE_RECHECK_SECONDS = 300  # while idling (storages full, nothing startable): wake, recover the screen, re-read state
 _CLAN_UNCALIBRATED_BACKOFF_SECONDS = 3600  # no chat button picked: say so once, not once per raid
@@ -1836,19 +1840,58 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                 self.input.click(bx, by, pause = 0.1)
                 return None
             return None
-        # A battle that ends on its own goes straight to the results screen: stop waiting
-        # for End Battle as soon as that screen is up (it cost up to 60 s per raid).
-        (x, _y) = self._wait_for_any_image(('endbattle.png', 'returnhome.png', 'chestclaim.png'), timeout = 60, error = False, region_from_frame = VisionService.bottom_half_region, label_after = _BATTLE_LABEL_AFTER)
-        if x:
+        self._play_out_battle()
+
+    def _play_out_battle(self):
+        '''Let the raid take the loot. The base's available loot (top left) is read every
+        second: once it has stopped dropping for :data:`_LOOT_STALL` s with a star won (End
+        Battle shows), the battle is ended; with no star yet (Surrender) and nothing coming
+        after :data:`_BATTLE_GIVE_UP` s, it is surrendered, as before. Ending at the first
+        star, as the bot did, left 1.2M of 2.1M on a live base. A battle that ends by itself
+        goes to its results screen: nothing is tapped.'''
+        start = time.monotonic()
+        last_drop = start
+        best = None  # the lowest plausible available loot read so far
+        while time.monotonic() - start < _BATTLE_LONGEST:
+            self._check_stop()
             frame = self.window.screenshot()
-            (bx, by) = self.vision.find_control(frame, 'endbattle.png', region = self._search_region_for_template(frame, 'endbattle.png', None, None, 200)) if frame is not None else (None, None)
-            if bx:
-                self.input.click(bx, by, pause = 0.1)
-            return None
-        (sx, sy) = self._wait_for_image('surrender.png', timeout = 2, error = False)
-        if sx:
-            self.input.click(sx, sy, pause = 0.1)
-            return None
+            if frame is None:
+                if self.stop_event.wait(0.5):
+                    self._check_stop()
+                continue
+            self._update_config_size(frame)
+            now = time.monotonic()
+            rewards = getattr(self, '_battle_rewards', None)
+            if rewards is not None and rewards.handle(frame):
+                continue  # an event's reward overlay, cleared: look again
+            if any(self.vision.find_template(frame, t)[0] for t in ('returnhome.png', 'chestclaim.png')):
+                return None  # over by itself
+            loot = read_enemy_loot(frame)
+            if loot is not None and (best is None or (loot != best and all(b * 0.5 <= v <= b for (v, b) in zip(loot, best)))):
+                if best is not None:
+                    last_drop = now  # a drop, not a misread (live: 735196 read 7093790 once)
+                best = loot
+            bottom = VisionService.bottom_half_region(frame)
+            stalled = now - last_drop >= _LOOT_STALL
+            (ex, ey) = self.vision.find_template(frame, 'endbattle.png', region = bottom)
+            if ex and stalled:
+                logger.info('Battle: the loot stopped coming (%s left) — End Battle after %ds', best, int(now - start))
+                self.input.click(ex, ey, pause = 0.1)
+                return None
+            if not ex and stalled and now - start >= _BATTLE_GIVE_UP:
+                (sx, sy) = self.vision.find_template(frame, 'surrender.png', region = bottom)
+                if sx:
+                    logger.info('Battle: no star and no loot coming after %ds — Surrender', int(now - start))
+                    self.input.click(sx, sy, pause = 0.1)
+                    return None
+            if self.stop_event.wait(_LOOT_POLL):
+                self._check_stop()
+        frame = self.window.screenshot()  # past the battle's own length: whatever way out shows
+        for name in ('endbattle.png', 'surrender.png'):
+            (x, y) = self.vision.find_control(frame, name, region = self._search_region_for_template(frame, name, None, None, 200)) if frame is not None else (None, None)
+            if x:
+                self.input.click(x, y, pause = 0.1)
+                return None
 
     
     def _return_home(self):

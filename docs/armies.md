@@ -42,6 +42,21 @@ remaining clicks land harmlessly.
 A different routine: **12 Electro Dragons** placed individually around the diamond perimeter,
 0.2s apart, rather than dragged. Heroes and spells follow as above.
 
+## Ending a Home Village raid
+
+The raid goes on while it takes loot. Every second the bot reads the base's available loot
+(top left, the panel the loot filter reads before the attack). Once it has not dropped for
+12 s and a star is won (End Battle shows), End Battle is tapped; ending at the first star, as
+the bot used to, left 1.2M of a base's 2.1M on a live raid. With no star (Surrender shows)
+and nothing coming for a minute, the battle is surrendered. A read that does not fit (above
+the last one, or under half of it: a digit dropped or misread) is not a drop. A battle that
+ends by itself (its timer, or 100 %) goes to its results screen and nothing is tapped. Past
+200 s, whichever way out shows is tapped. An event's reward overlay is let expire, then the
+battle goes on.
+
+Sneaky Goblins (method 1) still leave as soon as they can: they take the outer storages in
+seconds.
+
 ## Builder Base
 
 One strategy, whatever the army (*Your army (auto)* on the Run page;
