@@ -9,7 +9,7 @@ from app.config import ASPECT_16_10, ASPECT_16_9, Config
 from app.core.clan import ClanAssistant, ClanOptions, missing_templates
 from app.core.loot_filter import TEMPLATE_NEXT_BASE, LootFilter, combine_reads, meets, read_enemy_loot
 from app.core.strategies import AttackStrategy, EdragStrategy, TroopSpamStrategy, _EDRAG_DELAY
-from app.core import bb_strategy
+from app.core import bb_scout, bb_strategy
 from app.core.build_panel import BuildPanelUpgrader, find_close, gem_prompt_visible, wall_upgrade_button
 from app.core.upgrade_menu import RESOURCE_ELIXIR, RESOURCE_GOLD
 from app.core.upgrader import AUTO_UPGRADE_MODES, LIVE_UPGRADE_MODES, MODE_OFF, UpgradeAdvisor, is_october_build_panel_hud
@@ -43,7 +43,8 @@ _BB_FLYING_MACHINE_TEMPLATE = 'flyingmachine.png'
 _BB_SPEED_TEMPLATE = 'bbspeed1x.png'
 _BB_SPEED_MIN = 0.9
 _BB_SPEED_RETRY = 3  # s before another tap if it still reads 1x (a lost tap)
-_BB_LANDED_CHECK_AFTER = 0.6  # s after the last deploy before the bar is read again (a landed troop's card is green by then)
+_BB_LANDED_CHECK_AFTER = 0.6  # s after a deploy before the bar is read again (a landed troop's card is green by then)
+_BB_SIDES_TRIED = 3  # sides of the base the first troop tries before a map edge
 _STAR_BONUS_THRESHOLD = 0.75
 _TROOP_FAILURE_LIMIT = 4
 _TROOP_RETRY_WAIT_SECONDS = 15  # training is instant since the Mar 2025 "Clash Anytime" update — this only lets the UI settle
@@ -269,7 +270,7 @@ class Bot:
 
     
     def _emit_loot_update(self):
-        cb = self._loot_callback
+        cb = getattr(self, '_loot_callback', None)
         if not cb:
             return None
         (g, el, de) = self._loot_totals
@@ -298,6 +299,11 @@ wall upgrades for the first pre-Attack snapshot that would otherwise count as an
             logger.debug('Loot tracker: no stable HUD read this cycle')
             self._emit_loot_update()
             return None
+        self._record_loot(triplet)
+
+    def _record_loot(self, triplet):
+        '''Add the gains since the last HUD read ``triplet`` to the session totals (see
+        :meth:`_loot_snapshot_before_attack`) and push them to the UI.'''
         self._last_hud_triplet = triplet
         (cur_g, cur_el, cur_de) = triplet
         prev = self._loot_prev_resources
@@ -1168,6 +1174,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                 cb(msg)
             return None
         self._maybe_auto_upgrade()
+        self._safely('Live status', self._bb_live_status)
         failures = 0
         while time.time() - start_time < duration_seconds:
             self._check_stop()
@@ -1194,6 +1201,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                 continue
             failures = 0
             self._bb_collect_elixir_cart_after_attack()
+            self._safely('Live status', self._bb_live_status)
             self._maybe_auto_upgrade()
             if star_bonus and self._is_bb_star_bonus_finished():
                 logger.info('Builder Base star bonus finished (bstar.png no longer visible). Stopping.')
@@ -1201,6 +1209,18 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             if self.stop_event.wait(random.uniform(0.35, 0.6)):
                 return None
         return None
+
+    def _bb_live_status(self):
+        '''The Builder Base HUD into the live status: storages (gold / elixir) and the
+        session's gains (the HUD's third number there is the gems: left out).'''
+        triplet = self._read_hud_triplet_stable()
+        if triplet is None:
+            self._emit_loot_update()
+            self._emit_state(state = 'Builder Base')
+            return
+        (gold, elixir, _gems) = triplet
+        self._record_loot((gold, elixir, 0))
+        self._emit_state(state = 'Builder Base', storages = f'{self._fmt_resource(gold)} / {self._fmt_resource(elixir)}')
 
     def _bb_attack_once(self, cb):
         '''One Builder Base battle: Battle → Find Now → deploy → play it to its end (never
@@ -1354,31 +1374,70 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             self.input.click(*step.point, pause = _EDRAG_DELAY, rand = False)
             abilities.add(step, time.monotonic())
 
+    def _bb_fronts(self, frame):
+        '''``(label, front)`` to attack from, best first: the sides of the base the scouting
+        found (:mod:`app.core.bb_scout`), then one top edge of the map as a last resort.'''
+        h = frame.shape[0]
+        fronts = []
+        try:
+            scouting = bb_scout.scout(frame)
+        except Exception:
+            logger.warning('Builder Base: scouting failed', exc_info = True)
+            scouting = None
+        if scouting is not None:
+            for entry in scouting.entries[:_BB_SIDES_TRIED]:
+                fronts.append((f'at {entry}, {bb_scout.side(scouting, entry)} of the base centred at {scouting.centre}',
+                               bb_scout.front(scouting, entry)))
+        else:
+            logger.info('Builder Base: no base found on the screen — attacking from a map edge')
+        side = random.choice(('left', 'right'))
+        edge = bb_strategy.front_edge(self.config.get_point(side), self.config.get_point('top'), h)
+        fronts.append((f'from the {side} edge of the map', bb_strategy.edge_front(edge, h)))
+        return fronts
+
+    def _bb_swaps_shown(self, frame):
+        return bool(VisionService.find_all_template_centers(frame, _BB_CARD_SWAP_TEMPLATE, region = VisionService.bottom_half_region(frame), max_matches = 1))
+
+    def _bb_landed(self):
+        '''A troop has landed: the swap buttons have left the bar.'''
+        if self.stop_event.wait(_BB_LANDED_CHECK_AFTER):
+            self._check_stop()
+        frame = self.window.screenshot()
+        return frame is None or not self._bb_swaps_shown(frame)
+
     def _deploy_bb_army(self, frame):
         '''Read the bar and play the plan of :mod:`app.core.bb_strategy`: the machine, then
-        each troop by its role, along one top edge of the map picked at random (the bottom
-        ones run into the troop bar). A troop still on the bar after that (its tap fell off
-        the deploy zone) lands once more, mid-front. Returns the stage's
+        each troop by its role, along the side of the base the scouting picked. Once the
+        first troop is down, the rest follow; a first troop that did not land (its spot is
+        no-deploy) goes again from the next side. A troop still on the bar after the deploy
+        lands once more at the entry. Returns the stage's
         :class:`~app.core.bb_strategy.Abilities`, or None when no card is on the bar.'''
         (h, _w) = frame.shape[:2]
         (cards, machine) = self._read_bb_bar(frame)
         if not cards and machine is None:
             return None
-        side = random.choice(('left', 'right'))
-        edge = bb_strategy.front_edge(self.config.get_point(side), self.config.get_point('top'), h)
-        steps = bb_strategy.plan(cards, machine, edge, h)
-        logger.info('Builder Base: deploying %s from the %s edge', ', '.join((s.troop or 'unknown') for s in steps), side)
+        fronts = self._bb_fronts(frame)
+        check = self._bb_swaps_shown(frame)  # before any troop lands, the swap buttons show
         abilities = bb_strategy.Abilities()
-        self._land_bb_steps(steps, abilities)
+        for (k, (label, front)) in enumerate(fronts):
+            steps = bb_strategy.plan(cards, machine, front)
+            if k == 0:
+                logger.info('Builder Base: deploying %s %s', ', '.join((s.troop or 'unknown') for s in steps), label)
+            self._land_bb_steps(steps[:1], abilities)
+            if not check or k == len(fronts) - 1 or self._bb_landed():
+                break
+            abilities.forget([steps[0].card], 0.05 * h)
+            logger.warning('Builder Base: the first troop did not land at %s — attacking %s instead', steps[0].point, fronts[k + 1][0])
+        self._land_bb_steps(steps[1:], abilities)
         if self.stop_event.wait(_BB_LANDED_CHECK_AFTER):
             self._check_stop()
         frame = self.window.screenshot()
         (left, _machine) = self._read_bb_bar(frame) if frame is not None else ([], None)
         if left:
-            middle = tuple(int(round((a + b) / 2)) for (a, b) in zip(*edge))
-            logger.warning('Builder Base: %s still on the bar — landing mid-front', ', '.join(c.troop or 'unknown' for c in left))
+            entry = front(0.0)
+            logger.warning('Builder Base: %s still on the bar — landing at the entry %s', ', '.join(c.troop or 'unknown' for c in left), entry)
             abilities.forget([c.tap for c in left], 0.05 * h)
-            self._land_bb_steps(bb_strategy.plan(left, None, (middle, middle), h), abilities)
+            self._land_bb_steps(bb_strategy.plan(left, None, lambda _offset: entry), abilities)
         return abilities
 
     def _bb_return_home_point(self, frame, ocr):

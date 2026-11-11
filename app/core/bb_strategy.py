@@ -3,8 +3,9 @@
 Every card is matched to a troop before its deploy, by the bottom of its portrait: in a
 later stage, the health bar of a troop that survived the last one covers the top of its
 portrait, and its card has no swap button any more. A troop's role says where and when it
-lands (:func:`plan`). The front is one top edge of the map (the bottom ones run into the
-troop bar); the push enters near its middle, and
+lands (:func:`plan`) along the front: the edge of the base the scouting picked
+(:mod:`app.core.bb_scout`), or else one top edge of the map (the bottom ones run into the
+troop bar). The push enters at the front's entry, and
 
 - the machine and the tanks (Boxer Giant, Power P.E.K.K.A, Drop Ship) open it, a little
   apart, so that one splash (Roaster, Crusher, Multi Mortar) does not hit them all;
@@ -314,19 +315,28 @@ def _lone_offsets(count, spacing):
     return [(1 if i % 2 == 0 else -1) * (_LONE_FROM + spacing * (i // 2)) for i in range(count)]
 
 
-def plan(cards, machine, edge, frame_height, rng = random):
-    '''Deploy steps, in order: the machine (``machine``: its card, or None), then the cards
-    role by role (see the module doc), each kind's cards left to right. ``edge`` is the
-    stretch of front they land on (:func:`front_edge`); the push enters near its middle.'''
+def edge_front(edge, frame_height, rng = random):
+    '''The landing spots along ``edge`` (:func:`front_edge`), entered near its middle:
+    ``at(offset)`` is the spot ``offset`` screen heights along it from the entry, a little
+    jitter each, kept on the edge.'''
     ((x0, y0), (x1, y1)) = edge
     length = math.hypot(x1 - x0, y1 - y0)
     (ux, uy) = ((x1 - x0) / length, (y1 - y0) / length) if length else (0.0, 0.0)
     entry = length * (0.5 + rng.uniform(-_ENTRY_SPREAD, _ENTRY_SPREAD))
     jitter = _ENTRY_JITTER * frame_height
 
-    def at(offset):  # the front's point ``offset`` screen heights from the entry
+    def at(offset):
         s = min(length, max(0.0, entry + offset * frame_height + rng.uniform(-jitter, jitter)))
         return (int(round(x0 + ux * s)), int(round(y0 + uy * s)))
+    return at
+
+
+def plan(cards, machine, front):
+    '''Deploy steps, in order: the machine (``machine``: its card, or None), then the cards
+    role by role (see the module doc), each kind's cards left to right. ``front(offset)``
+    is the landing spot ``offset`` screen heights along the front from its entry
+    (:func:`edge_front`, :func:`app.core.bb_scout.front`).'''
+    at = front
     kinds = list(PROFILES)
     rank = lambda t: (_ROLE_ORDER.index(profile(t).role), kinds.index(t) if t in kinds else len(kinds), t)
     ordered = sorted(cards, key = lambda c: (rank(c.troop), c.tap[0]))

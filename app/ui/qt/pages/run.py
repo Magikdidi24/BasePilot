@@ -321,6 +321,7 @@ class RunPage(QWidget):
 
     _STATE_COLORS = {
         'farming': '#4ADE80',  # engaged green
+        'builder base': '#4ADE80',
         'idling': '#F59E0B',   # holding amber
     }
 

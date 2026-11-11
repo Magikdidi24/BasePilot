@@ -2,6 +2,7 @@
 Crops of a live 1227x767 GPG battle (no player name in them), PNG like the other 767p ones."""
 import itertools
 import math
+import random
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,7 +12,7 @@ import cv2
 import numpy as np
 
 from app.config import Config
-from app.core import bb_strategy
+from app.core import bb_scout, bb_strategy
 from app.core.bot import Bot
 from app.services.vision import VisionService
 
@@ -120,7 +121,7 @@ class PlanTests(unittest.TestCase):
 
     def test_the_machine_and_tanks_open_a_little_apart_the_bomber_behind(self):
         cards = [bb_strategy.Card('bomber', (724, 688))] + [bb_strategy.Card('pekka', (275 + 90 * k, 688)) for k in range(5)]
-        steps = bb_strategy.plan(cards, (159, 705), self.EDGE, self.H, rng=self.STILL)
+        steps = bb_strategy.plan(cards, (159, 705), bb_strategy.edge_front(self.EDGE, self.H, rng=self.STILL))
         self.assertEqual([s.troop for s in steps], ['machine'] + ['pekka'] * 5 + ['bomber'])
         self.assertEqual([s.card for s in steps[1:6]], [(275 + 90 * k, 688) for k in range(5)])  # left to right
         self.assertEqual([s.wait for s in steps], [0.0, 0.3, 0.0, 0.0, 0.0, 0.0, 1.0])  # the Bomber once the tanks draw fire
@@ -134,7 +135,7 @@ class PlanTests(unittest.TestCase):
     def test_flankers_out_on_both_sides_then_breakers_support_and_lone_dragons(self):
         cards = ([bb_strategy.Card('barbarian', (100 + 10 * k, 688)) for k in range(6)]
                  + [bb_strategy.Card(t, (300 + 10 * k, 688)) for (k, t) in enumerate(('witch', 'babydragon', 'bomber', 'witch', 'babydragon', 'cannoncart', ''))])
-        steps = bb_strategy.plan(cards, None, self.EDGE, self.H, rng=self.STILL)
+        steps = bb_strategy.plan(cards, None, bb_strategy.edge_front(self.EDGE, self.H, rng=self.STILL))
         self.assertEqual([s.troop for s in steps],
                          ['barbarian'] * 6 + ['bomber', 'witch', 'witch', 'cannoncart', 'babydragon', 'babydragon', ''])
         self.assertEqual([s.wait for s in steps], [0.0] * 6 + [1.0, 1.2, 0.0, 0.0, 0.5, 0.0, 0.3])
@@ -151,8 +152,67 @@ class PlanTests(unittest.TestCase):
     def test_points_stay_on_a_short_front(self):
         edge = ((300.0, 200.0), (340.0, 170.0))  # 50 px: the flanks would fall off it
         cards = [bb_strategy.Card('archer', (100 + 10 * k, 688)) for k in range(6)]
-        for step in bb_strategy.plan(cards, None, edge, self.H):
+        for step in bb_strategy.plan(cards, None, bb_strategy.edge_front(edge, self.H)):
             self.assertTrue(300 <= step.point[0] <= 340 and 170 <= step.point[1] <= 200, step.point)
+
+
+class ScoutTests(unittest.TestCase):
+    # base centre on each live scouting crop (y 70-630 of a 1227x767 battle, no names in it):
+    # the map, and the base on it, sit somewhere else in each
+    BASES = {'green_middle': (623, 377), 'blue_middle': (618, 353), 'green_long_wall': (667, 315),
+             'blue_bottom_left': (550, 443), 'green_bottom': (485, 313), 'green_left': (570, 339), 'blue_spread': (606, 308)}
+    BEST = SimpleNamespace(choices=lambda population, weights: [population[0]], uniform=lambda a, b: 0.0)
+
+    @staticmethod
+    def battle(name):
+        frame = np.zeros((767, 1227, 3), np.uint8)
+        frame[70:630] = cv2.imread(str(FIXTURES / f'gpg767_bb_scout_{name}.jpg'))
+        return frame
+
+    def test_the_base_is_found_wherever_it_sits(self):
+        for (name, (x, y)) in self.BASES.items():
+            scouting = bb_scout.scout(self.battle(name))
+            self.assertIsNotNone(scouting, name)
+            self.assertLessEqual(math.hypot(scouting.centre[0] - x, scouting.centre[1] - y), 40, (name, scouting.centre))
+
+    def test_entries_lie_just_off_the_base_out_of_the_hud(self):
+        for name in self.BASES:
+            scouting = bb_scout.scout(self.battle(name))
+            entries = scouting.entries[:3]
+            self.assertEqual(len(entries), 3, name)
+            for (x, y) in entries:
+                self.assertTrue(scouting.valid[y // 4, x // 4], (name, x, y))
+                self.assertTrue(0.045 <= scouting.distance[y // 4, x // 4] <= 0.075, (name, x, y))
+                for (x0, y0, x1, y1) in bb_scout._HUD:
+                    self.assertFalse(x0 * 1227 <= x <= x1 * 1227 and y0 * 767 <= y <= y1 * 767, (name, x, y))
+            for (a, b) in itertools.combinations(entries, 2):
+                self.assertGreaterEqual(math.hypot(a[0] - b[0], a[1] - b[1]), 0.15 * 767, name)
+
+    def test_the_side_changes_from_battle_to_battle(self):
+        frame = self.battle('green_middle')
+        firsts = {bb_scout.scout(frame, rng=random.Random(seed)).entries[0] for seed in range(20)}
+        self.assertEqual(len(firsts), 3)  # one of the three best sides each time
+
+    def test_buildings_draw_the_attack_not_empty_walls(self):
+        # three long walls with nothing inside on the right, the buildings bottom-left: walls
+        # counted as targets, the best spot was by them, at (642, 294)
+        best = bb_scout.scout(self.battle('blue_bottom_left'), rng=self.BEST).entries[0]
+        (buildings, walls) = ((470, 480), (830, 400))
+        self.assertLess(math.dist(best, buildings), math.dist(best, walls), best)
+
+    def test_the_formation_hugs_the_base(self):
+        for name in self.BASES:
+            scouting = bb_scout.scout(self.battle(name), rng=random.Random(2))
+            entry = scouting.entries[0]
+            at = bb_scout.front(scouting, entry, rng=self.BEST)
+            self.assertLessEqual(math.hypot(at(0.0)[0] - entry[0], at(0.0)[1] - entry[1]), 4, name)
+            for offset in (0.025, -0.025, 0.09, -0.09, 0.17, -0.17):
+                (x, y) = at(offset)
+                self.assertTrue(scouting.valid[y // 4, x // 4], (name, offset, x, y))
+                self.assertLessEqual(math.hypot(x - entry[0], y - entry[1]), 0.3 * 767, (name, offset))
+
+    def test_no_base_on_a_blank_screen(self):
+        self.assertIsNone(bb_scout.scout(np.zeros((767, 1227, 3), np.uint8)))
 
 
 class FightTests(unittest.TestCase):
@@ -213,19 +273,50 @@ class FightTests(unittest.TestCase):
             self.assertTrue(bot._bb_fight_to_the_end(bb_strategy.Abilities()))
         deploy.assert_called_once()
 
-    def test_a_troop_left_on_the_bar_lands_once_more_mid_front(self):
+    def test_a_troop_left_on_the_bar_lands_once_more_at_the_entry(self):
         bot = make_bot()
         bot.config = SimpleNamespace(get_point=lambda key: list({'left': (105, 364), 'top': (614, -10), 'right': (1126, 364)}[key]))
         pekkas = [bb_strategy.Card('pekka', (275 + 90 * k, 688)) for k in range(3)]
         reads = [(pekkas, None), ([pekkas[2]], None)]  # the third one's tap fell off the deploy zone
         with patch.object(bot, '_read_bb_bar', side_effect=reads):
-            abilities = bot._deploy_bb_army(np.zeros((767, 1227, 3), np.uint8))
+            abilities = bot._deploy_bb_army(np.zeros((767, 1227, 3), np.uint8))  # no base on it: a map edge
         taps = [c.args[:2] for c in bot.input.click.call_args_list]
         self.assertEqual(taps[0::2], [(275, 688), (365, 688), (455, 688), (455, 688)])
-        edge = bb_strategy.front_edge(*([(105, 364), (614, -10)] if taps[1][0] < 614 else [(1126, 364), (614, -10)]), 767)
-        middle = tuple(int(round((a + b) / 2)) for (a, b) in zip(*edge))
-        self.assertTrue(abs(taps[-1][0] - middle[0]) <= 5 and abs(taps[-1][1] - middle[1]) <= 5)
+        self.assertTrue(abs(taps[-1][0] - taps[1][0]) <= 10 and abs(taps[-1][1] - taps[1][1]) <= 10)  # where the first one landed
         self.assertEqual([a.card for a in abilities.items], [(275, 688), (365, 688), (455, 688)])  # one each
+
+    def test_a_first_troop_that_does_not_land_goes_again_from_the_next_side(self):
+        bot = make_bot()
+        pekkas = [bb_strategy.Card('pekka', (275 + 90 * k, 688)) for k in range(2)]
+        fronts = [('A', lambda o: (300, 200)), ('B', lambda o: (800, 300)), ('C', lambda o: (500, 500))]
+        with patch.object(bot, '_read_bb_bar', side_effect=[(pekkas, (159, 705)), ([], None)]), \
+                patch.object(bot, '_bb_fronts', return_value=fronts), \
+                patch.object(bot, '_bb_swaps_shown', return_value=True), \
+                patch.object(bot, '_bb_landed', side_effect=[False, True]) as landed:
+            abilities = bot._deploy_bb_army(np.zeros((767, 1227, 3), np.uint8))
+        taps = [c.args[:2] for c in bot.input.click.call_args_list]
+        # the machine on side A (a no-deploy spot), again on side B, where everyone follows
+        self.assertEqual(taps, [(159, 705), (300, 200), (159, 705), (800, 300), (275, 688), (800, 300), (365, 688), (800, 300)])
+        self.assertEqual(landed.call_count, 2)
+        self.assertEqual([a.card for a in abilities.items], [(159, 705), (275, 688), (365, 688)])  # the machine's once
+
+
+class LiveStatusTests(unittest.TestCase):
+    def test_storages_and_the_session_gains_after_each_battle(self):
+        bot = make_bot()
+        bot._loot_callback = Mock()
+        bot._state_callback = Mock()
+        bot._reset_loot_session()
+        reads = [(651626, 1356974, 278), (660000, 1400000, 283), None]  # gold, elixir, gems; then an unreadable HUD
+        with patch.object(bot, '_read_hud_triplet_stable', side_effect=reads):
+            bot._bb_live_status()
+            bot._bb_live_status()
+            bot._bb_live_status()
+        self.assertEqual(bot._loot_totals, (8374, 43026, 0))  # the gems are no loot
+        self.assertEqual(bot._loot_callback.call_args.args[:3], (8374, 43026, 0))
+        states = [c.args[0] for c in bot._state_callback.call_args_list]
+        self.assertEqual([s['state'] for s in states], ['Builder Base'] * 3)
+        self.assertEqual([s['storages'] for s in states], ['652k / 1.4M', '660k / 1.4M', None])
 
 
 class CardTests(unittest.TestCase):

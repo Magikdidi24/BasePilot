@@ -154,7 +154,7 @@ class BotFlowTests(unittest.TestCase):
     @patch('app.core.bot.bb_strategy.alive', return_value=True)
     @patch('app.core.bot.bb_strategy._portrait_hits', return_value=[])  # no other card than the swap buttons'
     @patch('app.core.bot.bb_strategy.identify', side_effect=['bomber', 'pekka', 'pekka'])
-    @patch('app.core.bot.VisionService.find_all_template_centers', side_effect=[[(272, 1150), (430, 1150), (570, 1150), (710, 1150)], []])
+    @patch('app.core.bot.VisionService.find_all_template_centers', side_effect=[[(272, 1150), (430, 1150), (570, 1150), (710, 1150)], [(272, 1150)], []])
     def test_bb_plays_the_machine_then_each_troop_in_its_order(self, _swaps, _identify, _hits, _alive):
         bot = make_bot()
         corners = {'left': (165, 570), 'top': (960, -15), 'right': (1762, 570)}  # the 16:10 diamond at 1920x1200

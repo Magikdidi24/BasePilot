@@ -50,10 +50,20 @@ by the bottom of its portrait: in the second stage, a survivor's health bar cove
 of its portrait and its card has no swap button. A card still to deploy has a blue
 background; it turns green as its troop lands.
 
-The front is one of the two top edges of the map, picked at random (the bottom ones run
-into the troop bar), clear of its corner and of the top HUD; the push enters near its
-middle. Each troop has a role, after the play of Builder Base 2.0 guides (tank first,
-Bombers behind it, flanks at once, troops spread against splash):
+Before each stage's deploy the bot scouts the base (`app/core/bb_scout.py`): the map and
+the base on it sit somewhere else on the screen in each battle and stage. The floor is
+the map's smooth tiled ground (not the forest, the cliffs or the water), the base is what
+stands lit on it (buildings, walls), closed over the gaps between them like the game's
+no-deploy zone. Troops land in a band just off the base, out of the HUD. Each spot of
+that band is scored by the buildings in reach (not the walls) and its distance to the
+base's centre; the best spot of each side of the base is an entry, and the attack takes
+one of the three best sides at random, so it does not always come from the same place.
+If the first troop does not land (a no-deploy spot), it goes again from the next side;
+with no base found, from one top edge of the map.
+
+The push enters at the entry; the front runs along the base's edge there. Each troop has
+a role, after the play of Builder Base 2.0 guides (tank first, Bombers behind it, flanks
+at once, troops spread against splash):
 
 | Troop | Role | Lands | Ability (its card tapped again) |
 |---|---|---|---|
@@ -70,9 +80,9 @@ Bombers behind it, flanks at once, troops spread against splash):
 | Baby Dragon | alone | one each side of the push, apart (Tantrum) | Fiery Sneeze once under 85 % health (3-9 s) |
 | any other troop | last | behind the tanks | at 10 s |
 
-The flanks clear the outer buildings, so the push goes into the core instead of walking
-around it. A troop still on the bar after the deploy (its tap fell off the deploy zone)
-lands once more, mid-front.
+The flanks land along the base's sides and clear the outer buildings, so the push goes
+into the core instead of walking around it. A troop still on the bar after the deploy
+(its tap fell off the deploy zone) lands once more at the entry.
 
 Abilities go at the right moment, not all at once. During the fight each card shows its
 troop's health bar; an ability fires once its troop is engaged (health under the share
