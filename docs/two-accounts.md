@@ -8,7 +8,13 @@ or **both at once**, which needs a second Android client and is where the real l
 Already built. The **Players** page holds your Supercell account names; tick *Run* on the
 ones you want and start a session. BasePilot farms the first account for the session
 length, then opens *Settings → Change user*, OCRs the account list, picks the next name
-and farms that one — for as many accounts as you have listed.
+and farms that one — for as many accounts as you have listed. Since the October 2026 UI,
+Settings sit in the profile: the bot taps the profile badge (top left), then the profile
+window's *Settings* tab, read by OCR (its tabs: My Profile, Social, Inbox, Settings), and
+looks for the Supercell ID switch button there (`changeuser.png`). This path comes from
+Supercell's notes on the new UI and has not run on a live switch yet: when a step does
+not show, the switch fails for that account (the log says which step), the windows are
+closed, and a frame of the screen goes to `%LOCALAPPDATA%\BasePilot\debug`.
 
 Each account starts its session with a clan visit due rather than inheriting the previous
 one's clocks, because they sit in different clans.

@@ -14,7 +14,7 @@ from app.core import bb_learning, bb_results, bb_scout, bb_strategy, hv_results
 from app.core.build_panel import TAB_BUILDINGS, BuildPanelUpgrader, find_close, gem_prompt_visible, panel_tab, wall_upgrade_button
 from app.core.upgrade_menu import RESOURCE_ELIXIR, RESOURCE_GOLD
 from app.core.upgrader import AUTO_UPGRADE_MODES, LIVE_UPGRADE_MODES, MODE_OFF, UpgradeAdvisor, is_october_build_panel_hud
-from app.core.village_state import read_hud_triplet_stable, read_village_state, read_village_state_stable, storages_full
+from app.core.village_state import is_october_hud, read_hud_triplet_stable, read_village_state, read_village_state_stable, storages_full
 from app.services.input import InputService
 from app.services.vision import BOTTOM_HALF_BOT_TEMPLATES, TOP_HALF_BOT_TEMPLATES, VisionService
 from app.services.window import WindowService
@@ -74,6 +74,10 @@ _AUTO_UPGRADE_SCAN_INTERVAL_SECONDS = 600  # full popup scan is OCR-heavy (~15-2
 _WALL_RETRY_SECONDS = 600  # a wall pass that bought nothing fails the same way next raid; wait before paying for another
 _BUILD_PANEL_POLLS = 6  # ~3 s for the Build panel to slide in (its title read, or its tab art)
 _TAP_EATEN_AFTER = 3.0  # s without the next screen: a tap a selection on screen ate (it deselects); tapped again
+# Oct 2026 HUD: the profile (Town Hall and XP badge, top left) holds Settings; its centre in
+# screen heights from the top-left corner (live 1227x767: (61, 72), both villages)
+_PROFILE_BADGE = (0.08, 0.094)
+_PROFILE_TABS_Y = 0.22  # the profile window's tabs (My Profile, Social, Inbox, Settings) sit above this
 # Oct 2026 HUD: the Build panel's card list fills the right edge, above its tab bar.
 _BUILD_PANEL_ROI_FRAC = (0.70, 0.08, 0.30, 0.80)  # x, y, w, h as fractions of the capture
 _LABEL_FALLBACK_AFTER = 1.0  # s of template misses before also reading the control's label (OCR is slower)
@@ -2255,13 +2259,13 @@ Returns (``"return"`` | ``"chest"``, x, y) or (None, None, None) on timeout.
         logger.info(msg)
         if cb:
             cb(msg)
-        (stx, sty) = self._wait_for_image('settings.png')
-        if not stx:
-            raise RuntimeError('Multi-run: settings button not found')
-        self.input.click(stx, sty, pause = 0.25)
-        (cux, cuy) = self._wait_for_image('changeuser.png')
+        if not self._open_game_settings():
+            raise RuntimeError('Multi-run: Settings not found (the profile at the top left, then its Settings tab)')
+        (cux, cuy) = self._wait_for_image('changeuser.png', timeout = 10, error = False)
         if not cux:
-            raise RuntimeError('Multi-run: change user button not found')
+            _dump_debug_frame(self.window.screenshot(), 'settings')
+            self._close_windows()
+            raise RuntimeError('Multi-run: the switch-account button (changeuser.png) is not in Settings — a frame of that screen is in the debug folder')
         self.input.click(cux, cuy, pause = 1)
         (ucx, ucy) = self._wait_for_player_name(username, timeout = 25, min_confidence = 70, tesseract_config = '--psm 11', match_alnum_only = True, fuzzy_min_ratio = 0.8, white_text = True)
         if not ucx:
@@ -2283,6 +2287,49 @@ Returns (``"return"`` | ``"chest"``, x, y) or (None, None, None) on timeout.
         self._loot_prev_resources = None
 
     
+    def _open_game_settings(self):
+        '''The game's Settings, where the Supercell ID switch is. The October 2026 HUD keeps
+        them in the profile: its badge at the top left, then the profile window's Settings
+        tab (its tabs, at the top: My Profile, Social, Inbox, Settings). The old HUD had a
+        gear (``settings.png``). True once Settings was tapped; a profile window left open
+        without a Settings tab read is closed again.'''
+        frame = self.window.screenshot()
+        if frame is None:
+            return False
+        self._update_config_size(frame)
+        if not is_october_hud(frame):
+            (stx, sty) = self._wait_for_image('settings.png', timeout = 10, error = False)
+            if not stx:
+                return False
+            self.input.click(stx, sty, pause = 0.25)
+            return True
+        (h, w) = frame.shape[:2]
+        self.input.click(int(_PROFILE_BADGE[0] * h), int(_PROFILE_BADGE[1] * h), pause = 0.6, rand = False)
+        for _ in range(10):  # ~5 s for the profile window
+            self._check_stop()
+            frame = self.window.screenshot()
+            if frame is not None:
+                self._update_config_size(frame)
+                (fh, fw) = frame.shape[:2]
+                (x, y) = self.vision.find_label(frame, 'Settings', region = (fw // 3, 0, fw - fw // 3, int(_PROFILE_TABS_Y * fh)))
+                if x:
+                    self.input.click(x, y, pause = 0.5, rand = False)
+                    return True
+            if self.stop_event.wait(0.5):
+                self._check_stop()
+        _dump_debug_frame(frame, 'profile')
+        self._close_windows()
+        return False
+
+    def _close_windows(self):
+        '''Tap the X on top until none shows (at most three windows).'''
+        for _ in range(3):
+            frame = self.window.screenshot()
+            point = find_close(self.vision, frame) if frame is not None else None
+            if point is None:
+                return None
+            self.input.click(*point, pause = 0.5, rand = False)
+
     def _wake_home_and_wait_for_attack(self, timeout = 30):
         '''
 After switching accounts: dismiss idle UI, then poll the **top half** for village type

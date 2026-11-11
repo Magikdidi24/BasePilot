@@ -22,8 +22,8 @@ reading, no packet manipulation, no modified client.
 > It is also faster: in-process OCR through tesserocr (falls back to pytesseract),
 > one-copy screen capture, coarse-to-fine template matching, and no dead waits after a
 > battle that ends by itself.
-> Not working on the new UI yet: account switching (Settings moved into Profile) and
-> star-bonus mode.
+> Account switching on the new UI goes through the profile (top left) and its Settings tab,
+> untested on a live switch yet. Not working on the new UI yet: star-bonus mode.
 > The screen readers are tested on 16:10 screenshots of the current game, but the bot has
 > not run a full session yet, and no upgrade was started in a test (no builder was free).
 > Test builds are on the Releases page as pre-releases, or run it from source (below).
