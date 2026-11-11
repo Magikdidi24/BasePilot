@@ -1,4 +1,5 @@
 import time
+from datetime import datetime
 from app.core.battle_rewards import BattleRewards
 import random
 import threading
@@ -181,6 +182,7 @@ class Bot:
         if not self.window.find_window():
             raise RuntimeError('Clash of Clans window not found. Please ensure the game is open.')
         self._reset_loot_session()
+        self._session_id = datetime.now().isoformat(timespec = 'seconds')  # groups the session's battles in the history
         self._emit_loot_update()
         self.running = True
         self.stop_event.clear()
@@ -305,9 +307,10 @@ wall upgrades for the first pre-Attack snapshot that would otherwise count as an
             return None
         self._record_loot(triplet)
 
-    def _record_loot(self, triplet):
+    def _record_loot(self, triplet, village = 'home'):
         '''Add the gains since the last HUD read ``triplet`` to the session totals (see
-        :meth:`_loot_snapshot_before_attack`) and push them to the UI.'''
+        :meth:`_loot_snapshot_before_attack`) and push them to the UI. A Home Village gain
+        (the last raid's loot) goes in the battle history too.'''
         self._last_hud_triplet = triplet
         (cur_g, cur_el, cur_de) = triplet
         prev = self._loot_prev_resources
@@ -329,6 +332,8 @@ wall upgrades for the first pre-Attack snapshot that would otherwise count as an
                 if dg <= _LOOT_DELTA_MAX_MAIN and d_el <= _LOOT_DELTA_MAX_MAIN and d_de <= _LOOT_DELTA_MAX_DARK:
                     (tg, te, td) = self._loot_totals
                     self._loot_totals = (tg + dg, te + d_el, td + d_de)
+                    if village == 'home' and (dg or d_el or d_de):
+                        battle_history.append({'village': 'home', 'session': getattr(self, '_session_id', None), 'gold': dg, 'elixir': d_el, 'dark': d_de})
                     logger.info('Loot tracker: +%s / +%s / +%s (G/E/DE) → session %s / %s / %s', dg, d_el, d_de, self._loot_totals[0], self._loot_totals[1], self._loot_totals[2])
                 else:
                     # One battle cannot earn this much — an OCR misread slipped through.
@@ -1222,7 +1227,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             self._emit_state(state = 'Builder Base')
             return
         (gold, elixir, _gems) = triplet
-        self._record_loot((gold, elixir, 0))
+        self._record_loot((gold, elixir, 0), village = 'builder')
         self._emit_state(state = 'Builder Base', storages = f'{self._fmt_resource(gold)} / {self._fmt_resource(elixir)}')
 
     def _bb_attack_once(self, cb):
@@ -1465,7 +1470,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         plan = getattr(self, '_bb_plan', None)
         logger.info('Builder Base: %d star(s), %d %% damage, %s gold, %s trophies (plan %s, %ds)', result.stars, result.damage,
                     result.gold, result.trophies, plan[1] if plan else '-', int(time.monotonic() - start))
-        record = dict(result.as_dict(), village = 'builder', seconds = int(time.monotonic() - start))
+        record = dict(result.as_dict(), village = 'builder', session = getattr(self, '_session_id', None), seconds = int(time.monotonic() - start))
         if plan is not None:
             record.update(army = plan[0], plan = plan[1])
             self._bb_learner().record(plan[0], plan[1], result.damage)

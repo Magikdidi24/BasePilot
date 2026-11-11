@@ -13,15 +13,18 @@ from app.ui.qt.pages.logs import LogsPage
 from app.ui.qt.pages.players import PlayersPage
 from app.ui.qt.pages.run import RunPage
 from app.ui.qt.pages.settings import SettingsPage
+from app.ui.qt.pages.stats import StatsPage
 from app.ui.qt.taskbar_thumb_qt import QtTaskbarThumb
 from app.ui.qt.theme import SIDEBAR_WIDTH, TOKENS, WINDOW_DEFAULT, WINDOW_MIN
 PAGE_KEYS = [
     'run',
+    'stats',
     'settings',
     'players',
     'logs']
 PAGE_LABELS = [
     'Run',
+    'Stats',
     'Settings',
     'Players',
     'Logs']
@@ -71,10 +74,11 @@ class MainWindow(QMainWindow):
         root.addWidget(sidebar_panel)
         self._stack = QStackedWidget()
         self._run_page = RunPage(self._controller, self.navigate_to)
+        self._stats_page = StatsPage()
         self._settings_page = SettingsPage()
         self._players_page = PlayersPage()
         self._logs_page = LogsPage()
-        for page in (self._run_page, self._settings_page, self._players_page, self._logs_page):
+        for page in (self._run_page, self._stats_page, self._settings_page, self._players_page, self._logs_page):
             self._stack.addWidget(page)
         root.addWidget(self._stack, stretch = 1)
         self._build_status_bar()
