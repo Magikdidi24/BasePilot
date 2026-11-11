@@ -38,6 +38,12 @@ _BB_COLLECT_TEMPLATE = 'collect.png'
 _BB_STAR_BONUS_TEMPLATE = 'bstar.png'
 _BB_BATTLE_MACHINE_TEMPLATE = 'battlemachine.png'
 _BB_FLYING_MACHINE_TEMPLATE = 'flyingmachine.png'
+# The speed button of a stage's last minute, while it reads 1x: a tap makes it 4x. Live GPG
+# 1227x767: 1.00 on "1x", 0.72 on "4x", under 0.4 without the button.
+_BB_SPEED_TEMPLATE = 'bbspeed1x.png'
+_BB_SPEED_MIN = 0.9
+_BB_SPEED_RETRY = 3  # s before another tap if it still reads 1x (a lost tap)
+_BB_LANDED_CHECK_AFTER = 0.6  # s after the last deploy before the bar is read again (a landed troop's card is green by then)
 _STAR_BONUS_THRESHOLD = 0.75
 _TROOP_FAILURE_LIMIT = 4
 _TROOP_RETRY_WAIT_SECONDS = 15  # training is instant since the Mar 2025 "Clash Anytime" update — this only lets the UI settle
@@ -1327,12 +1333,9 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         self.input.click(pause = 0.15, *self.config.get_point('empty'))
 
     
-    def _deploy_bb_army(self, frame):
-        '''Read the bar and play the plan of :mod:`app.core.bb_strategy`: the machine, then
-        each troop group in its order, grouped troops on one entry point along the top edges
-        (the bottom ones run into the troop bar). Returns the stage's
-        :class:`~app.core.bb_strategy.Abilities`, or None when no card is on the bar.'''
-        strategy = AttackStrategy(self.input, self.vision, self.config, self.stop_event)
+    def _read_bb_bar(self, frame):
+        '''``(cards, machine)`` still to deploy on the bar of ``frame``: the troop cards
+        (:func:`~app.core.bb_strategy.read_bar`) and the machine card's point, or None.'''
         (h, _w) = frame.shape[:2]
         roi = VisionService.bottom_half_region(frame)
         swaps = VisionService.find_all_template_centers(frame, _BB_CARD_SWAP_TEMPLATE, region = roi, max_matches = 12, suppress_pad_frac = _BB_TEMPLATE_SUPPRESS_PAD)
@@ -1340,15 +1343,9 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         if machine is not None and not bb_strategy.alive(frame, machine):
             machine = None  # a grey machine card: already out, or down for this stage
         lift = int(round(_BB_CARD_ABOVE_SWAP * h / 1600))  # 16:10 reference px; the bar scales with the height
-        cards = bb_strategy.read_bar(self.vision, frame, swaps, lift, machine[0] if machine else None)
-        if not cards and machine is None:
-            return None
-        spread = sum(1 for c in cards if bb_strategy.PROFILES.get(c.troop, bb_strategy.UNKNOWN).spread)
-        front = strategy._even_diamond_top_perimeter_points(frame, spread, reserve_top_corner_slot = True) if spread else []
-        entry = random.choice(strategy._even_diamond_top_perimeter_points(frame, 3))
-        steps = bb_strategy.plan(cards, machine, entry, front, h)
-        logger.info('Builder Base: deploying %s', ', '.join((c.troop or 'unknown') for c in cards) + (' + machine' if machine else ''))
-        abilities = bb_strategy.Abilities()
+        return (bb_strategy.read_bar(self.vision, frame, swaps, lift, machine[0] if machine else None), machine)
+
+    def _land_bb_steps(self, steps, abilities):
         for step in steps:
             self._check_stop()
             if step.wait and self.stop_event.wait(step.wait):
@@ -1356,6 +1353,32 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             self.input.click(*step.card, pause = 0.25, rand = False)
             self.input.click(*step.point, pause = _EDRAG_DELAY, rand = False)
             abilities.add(step, time.monotonic())
+
+    def _deploy_bb_army(self, frame):
+        '''Read the bar and play the plan of :mod:`app.core.bb_strategy`: the machine, then
+        each troop by its role, along one top edge of the map picked at random (the bottom
+        ones run into the troop bar). A troop still on the bar after that (its tap fell off
+        the deploy zone) lands once more, mid-front. Returns the stage's
+        :class:`~app.core.bb_strategy.Abilities`, or None when no card is on the bar.'''
+        (h, _w) = frame.shape[:2]
+        (cards, machine) = self._read_bb_bar(frame)
+        if not cards and machine is None:
+            return None
+        side = random.choice(('left', 'right'))
+        edge = bb_strategy.front_edge(self.config.get_point(side), self.config.get_point('top'), h)
+        steps = bb_strategy.plan(cards, machine, edge, h)
+        logger.info('Builder Base: deploying %s from the %s edge', ', '.join((s.troop or 'unknown') for s in steps), side)
+        abilities = bb_strategy.Abilities()
+        self._land_bb_steps(steps, abilities)
+        if self.stop_event.wait(_BB_LANDED_CHECK_AFTER):
+            self._check_stop()
+        frame = self.window.screenshot()
+        (left, _machine) = self._read_bb_bar(frame) if frame is not None else ([], None)
+        if left:
+            middle = tuple(int(round((a + b) / 2)) for (a, b) in zip(*edge))
+            logger.warning('Builder Base: %s still on the bar — landing mid-front', ', '.join(c.troop or 'unknown' for c in left))
+            abilities.forget([c.tap for c in left], 0.05 * h)
+            self._land_bb_steps(bb_strategy.plan(left, None, (middle, middle), h), abilities)
         return abilities
 
     def _bb_return_home_point(self, frame, ocr):
@@ -1375,14 +1398,22 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                 return (x, y)
         return None
 
+    def _bb_speed_point(self, frame):
+        '''The speed button of a stage's last minute while it reads 1x, or None (not shown
+        yet, or already 4x).'''
+        (x, y, _score) = self.vision.find_template_with_confidence(frame, _BB_SPEED_TEMPLATE, threshold = _BB_SPEED_MIN,
+                                                                   region = VisionService.right_half_region(frame))
+        return (x, y) if x is not None else None
+
     def _bb_fight_to_the_end(self, abilities):
         '''Play the battle out, never ending it early: fire the troop abilities at their moment
-        (one per poll, see :class:`~app.core.bb_strategy.Abilities`),
-        deploy whatever comes back to the bar (stage 2: survivors and reinforcements), and
-        leave only from the results screen. End Battle and Surrender are never tapped.
-        True once Return Home was tapped.'''
+        (one per poll, see :class:`~app.core.bb_strategy.Abilities`), speed the last minute
+        of each stage up to 4x, deploy whatever comes back to the bar (stage 2: survivors and
+        reinforcements), and leave only from the results screen. End Battle and Surrender
+        are never tapped. True once Return Home was tapped.'''
         start = time.monotonic()
         last_deploy = start
+        next_speed = start
         next_ocr = start + _BB_RETURN_HOME_OCR_EVERY
         while time.monotonic() - start < _BB_BATTLE_MAX_SECONDS:
             self._check_stop()
@@ -1405,6 +1436,11 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                 self.input.click(*ability.card, pause = 0.1, rand = False)  # the card again: the troop's ability
                 logger.info('Builder Base: %s ability at %ds%s', ability.troop or 'unknown', int(now - start),
                             f' (health {ability.health:.0%})' if ability.health is not None else '')
+            speed = self._bb_speed_point(frame) if now >= next_speed else None
+            if speed:
+                self.input.click(*speed, pause = 0.1)
+                next_speed = now + _BB_SPEED_RETRY
+                logger.info('Builder Base: last minute of the stage at %ds — speed 4x', int(now - start))
             if now - last_deploy >= _BB_REDEPLOY_AFTER and VisionService.find_all_template_centers(
                     frame, _BB_CARD_SWAP_TEMPLATE, region = VisionService.bottom_half_region(frame), max_matches = 1):
                 logger.info('Builder Base: troops back on the bar (next stage) — deploying them')

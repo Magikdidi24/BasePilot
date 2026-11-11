@@ -152,23 +152,28 @@ class BotFlowTests(unittest.TestCase):
         self.assertLessEqual(x + w, 0.29 * 1920)  # the Ranked Battle card starts there
 
     @patch('app.core.bot.bb_strategy.alive', return_value=True)
+    @patch('app.core.bot.bb_strategy._portrait_hits', return_value=[])  # no other card than the swap buttons'
     @patch('app.core.bot.bb_strategy.identify', side_effect=['bomber', 'pekka', 'pekka'])
-    @patch('app.core.bot.AttackStrategy')
-    @patch('app.core.bot.VisionService.find_all_template_centers', return_value=[(272, 1150), (430, 1150), (570, 1150), (710, 1150)])
-    def test_bb_plays_the_machine_then_each_troop_in_its_order(self, _swaps, strategy, _identify, _alive):
+    @patch('app.core.bot.VisionService.find_all_template_centers', side_effect=[[(272, 1150), (430, 1150), (570, 1150), (710, 1150)], []])
+    def test_bb_plays_the_machine_then_each_troop_in_its_order(self, _swaps, _identify, _hits, _alive):
         bot = make_bot()
-        bot.vision.find_all_template_centers.return_value = []  # no other card than the swap buttons'
-        bot.stop_event.wait.return_value = False
+        corners = {'left': (165, 570), 'top': (960, -15), 'right': (1762, 570)}  # the 16:10 diamond at 1920x1200
+        bot.config.get_point = lambda key: list(corners[key])
         bot.vision.find_template.side_effect = lambda f, name, **kw: (250, 1100) if name == 'battlemachine.png' else (None, None)
-        strategy.return_value._even_diamond_top_perimeter_points.return_value = [(600, 300), (960, 120), (1320, 300)]
         schedule = bot._deploy_bb_army(np.zeros((1200, 1920, 3), np.uint8))
         lift = int(round(91 * 1200 / 1600))
         cards = [c.args[:2] for c in bot.input.click.call_args_list][0::2]
         # the machine card (its swap button beside it is not a troop), then the P.E.K.K.As, then the Bomber
         self.assertEqual(cards, [(250, 1100), (570, 1150 - lift), (710, 1150 - lift), (430, 1150 - lift)])
         points = [c.args[:2] for c in bot.input.click.call_args_list][1::2]
-        (ex, ey) = points[0]
-        self.assertTrue(all(abs(x - ex) <= 30 and abs(y - ey) <= 30 for (x, y) in points))  # one entry point
+        corner = corners['left'] if points[0][0] < 960 else corners['right']
+        (ux, uy) = (960 - corner[0], -15 - corner[1])
+        for (x, y) in points:  # on the edge from that corner to the top one, under the top HUD
+            cross = ((x - corner[0]) * uy - (y - corner[1]) * ux) / (ux * ux + uy * uy) ** 0.5
+            self.assertLessEqual(abs(cross), 2)
+            self.assertGreaterEqual(y, 0.12 * 1200 - 1)
+        (mx, my) = points[0]
+        self.assertTrue(all(abs(x - mx) <= 0.1 * 1200 and abs(y - my) <= 0.1 * 1200 for (x, y) in points))  # one push
         self.assertEqual([a.card for a in schedule.items], cards)  # every card has an ability to come
 
 

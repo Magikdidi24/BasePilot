@@ -1,38 +1,61 @@
 '''Builder Base attack plan: which troop each bar card holds, and how each troop is played.
 
-Every card is matched to a troop before the first deploy: the green swap buttons that
-locate the cards, and the colours the portraits lose once deployed, are only there until
-then. A troop's profile gives its order (tanks open the way, wall breakers follow, damage
-comes behind), where it lands (one shared entry point, so the groups push together, or
-a slot of its own along the front for troops that do better alone) and when its ability
-fires, by tapping its card again (BB 2.0): Boxer Block, Overcharge, Bouncing Bomb (it
-recharges), Skeleton Bomb, Bat Swarm, Fiery Sneeze, and the machine's, which grows
-stronger the longer it charges.
+Every card is matched to a troop before its deploy, by the bottom of its portrait: in a
+later stage, the health bar of a troop that survived the last one covers the top of its
+portrait, and its card has no swap button any more. A troop's role says where and when it
+lands (:func:`plan`). The front is one top edge of the map (the bottom ones run into the
+troop bar); the push enters near its middle, and
 
-An ability goes at the right moment, not all at once: once its troop is engaged (the
-health bar its card shows during the fight falls under the profile's share), at the
-latest after the profile's delay, never before its earliest one; never two of one troop
-kind within :data:`_ABILITY_SPACING`, one tap per poll, and none for a dead troop (grey
-card). A troop card's background tells its ability's state (:func:`ability_state`): it
-is only tapped while ready (green), a used one-time ability turns it grey, a recharging
-one red until it is green again. Only the machine charges its ability (tapped early, the
-game answers "You need to wait..."), so it goes on time, and again at intervals. A card no template recognises keeps the old play: a slot along the front, ability
-at 10 s. The timings are first guesses from BB 2.0 guides, to tune on live battles.
+- the machine and the tanks (Boxer Giant, Power P.E.K.K.A, Drop Ship) open it, a little
+  apart, so that one splash (Roaster, Crusher, Multi Mortar) does not hit them all;
+- flankers (Raged Barbarians, Sneaky Archers, Beta Minions), a pair or two of them, land
+  far out on both sides at once: they clear the outer buildings, so the push is funnelled
+  into the core instead of walking around it; the others follow the tanks;
+- wall breakers (Bombers) come a second after the tanks, once the defences are on them,
+  and the support (Night Witches, Cannon Carts) right behind;
+- Baby Dragons land alone along the front, apart from the push (Tantrum: more damage with
+  no other air unit near).
+
+That is the play of BB 2.0 guides (tank first, Bombers behind it, flanks at once, troops
+spread against splash), for a base the bot does not read.
+
+A troop's profile also says when its ability fires, by tapping its card again (BB 2.0):
+Boxer Block, Overcharge, Bouncing Bomb (it recharges), Skeleton Bomb, Bat Swarm, Fiery
+Sneeze, and the machine's, which grows stronger the longer it charges. An ability goes at
+the right moment, not all at once: once its troop is engaged (the health bar its card
+shows during the fight falls under the profile's share), at the latest after the
+profile's delay, never before its earliest one; never two of one troop kind within
+:data:`_ABILITY_SPACING`, one tap per poll, and none for a dead troop (grey card). A troop
+card's background tells its ability's state (:func:`ability_state`): it is only tapped
+while ready (green), a used one-time ability turns it grey, a recharging one red until it
+is green again. Only the machine charges its ability (tapped early, the game answers "You
+need to wait..."), so it goes on time, and again at intervals. A card no template
+recognises follows the push, ability at 10 s. The timings are first guesses from BB 2.0
+guides, to tune on live battles.
 '''
+import math
 import random
 from dataclasses import dataclass, field
 from typing import Optional
 
 import cv2
+import numpy as np
+
+from app.utils.common import get_template_path
 
 MACHINE = 'machine'
+# Roles, in their deploy order (see the module doc)
+TANK = 'tank'
+FLANK = 'flank'
+BREAKER = 'breaker'
+SUPPORT = 'support'
+LONE = 'lone'
+OTHER = 'other'
 
 
 @dataclass(frozen = True)
 class TroopProfile:
-    order: int  # groups land in ascending order
-    spread: bool  # a slot of its own along the front instead of the shared entry point
-    gap: float  # s to wait before this troop's first card, after the previous group
+    role: str  # where and when it lands (see plan)
     ability_at: Optional[float]  # earliest s after landing for its ability (None: no active ability)
     ability_hp: Optional[float] = None  # fire once its health falls under this share (the troop is engaged)
     ability_latest: Optional[float] = None  # fire by then whatever its health (None: at ability_at)
@@ -40,29 +63,44 @@ class TroopProfile:
 
 
 PROFILES = {
-    # the tank; no health bar on its card, and its ability charges (up to three levels): on time, then again
-    MACHINE: TroopProfile(order = 0, spread = False, gap = 0.0, ability_at = 20.0, ability_every = 20.0),
-    'boxer': TroopProfile(order = 1, spread = False, gap = 0.4, ability_at = 2.0, ability_hp = 0.75, ability_latest = 15.0),  # tank: Boxer Block shield under fire
-    'pekka': TroopProfile(order = 1, spread = False, gap = 0.4, ability_at = 4.0, ability_hp = 0.6, ability_latest = 16.0),  # tank: Overcharge in the thick of it
-    'barbarian': TroopProfile(order = 2, spread = False, gap = 1.0, ability_at = None),  # Rage (22 s, passive): right behind the tanks
-    'bomber': TroopProfile(order = 2, spread = False, gap = 1.5, ability_at = 3.0, ability_every = 2.0),  # walls first: Bouncing Bomb, again once recharged
-    'cannoncart': TroopProfile(order = 2, spread = False, gap = 1.0, ability_at = None),  # stays a mobile cart (Mortar Mode left off)
-    'archer': TroopProfile(order = 3, spread = False, gap = 1.0, ability_at = None),  # Cloak (11 s, passive): behind the tanks
-    'dropship': TroopProfile(order = 3, spread = False, gap = 1.5, ability_at = 4.0, ability_hp = 0.85, ability_latest = 9.0),  # Skeleton Bomb once over the defences
-    'minion': TroopProfile(order = 3, spread = False, gap = 1.0, ability_at = None),  # Power Shot (passive)
-    'witch': TroopProfile(order = 3, spread = False, gap = 2.0, ability_at = 4.0, ability_hp = 0.9, ability_latest = 10.0),  # Bat Swarm once she is hit
-    'babydragon': TroopProfile(order = 3, spread = True, gap = 1.0, ability_at = 3.0, ability_hp = 0.85, ability_latest = 9.0),  # apart (Tantrum); Fiery Sneeze when hit
+    # no health bar on its card, and its ability charges (up to three levels): on time, then again
+    MACHINE: TroopProfile(TANK, ability_at = 20.0, ability_every = 20.0),
+    'boxer': TroopProfile(TANK, 2.0, ability_hp = 0.75, ability_latest = 15.0),  # Boxer Block shield under fire
+    'pekka': TroopProfile(TANK, 4.0, ability_hp = 0.6, ability_latest = 16.0),  # Overcharge in the thick of it
+    'dropship': TroopProfile(TANK, 4.0, ability_hp = 0.85, ability_latest = 9.0),  # flies over the walls; Skeleton Bomb once hit
+    'barbarian': TroopProfile(FLANK, None),  # Rage (22 s, passive)
+    'archer': TroopProfile(FLANK, None),  # Cloak (11 s, passive): picks off the outer buildings
+    'minion': TroopProfile(FLANK, None),  # Power Shot (passive): the edge buildings
+    'bomber': TroopProfile(BREAKER, 3.0, ability_every = 2.0),  # walls: Bouncing Bomb, again once recharged
+    'witch': TroopProfile(SUPPORT, 4.0, ability_hp = 0.9, ability_latest = 10.0),  # Bat Swarm once she is hit
+    'cannoncart': TroopProfile(SUPPORT, None),  # stays a mobile cart (Mortar Mode left off)
+    'babydragon': TroopProfile(LONE, 3.0, ability_hp = 0.85, ability_latest = 9.0),  # Fiery Sneeze when hit
 }
-UNKNOWN = TroopProfile(order = 9, spread = True, gap = 0.3, ability_at = 10.0)
+UNKNOWN = TroopProfile(OTHER, ability_at = 10.0)
 TROOP_NAMES = {MACHINE: 'Battle Machine / Copter', 'boxer': 'Boxer Giant', 'pekka': 'Power P.E.K.K.A',
-               'barbarian': 'Raged Barbarian', 'bomber': 'Bomber', 'cannoncart': 'Cannon Cart',
-               'archer': 'Sneaky Archer', 'dropship': 'Drop Ship', 'minion': 'Beta Minion',
-               'witch': 'Night Witch', 'babydragon': 'Baby Dragon'}
+               'dropship': 'Drop Ship', 'barbarian': 'Raged Barbarian', 'archer': 'Sneaky Archer',
+               'minion': 'Beta Minion', 'bomber': 'Bomber', 'witch': 'Night Witch', 'cannoncart': 'Cannon Cart',
+               'babydragon': 'Baby Dragon'}
+
+# role: (s to wait before its first card, screen heights between two of its cards along the front)
+_ROLES = {TANK: (0.3, 0.025), FLANK: (0.0, 0.02), BREAKER: (1.0, 0.015), SUPPORT: (1.2, 0.025), LONE: (0.5, 0.08), OTHER: (0.3, 0.02)}
+_ROLE_ORDER = (TANK, FLANK, BREAKER, SUPPORT, LONE, OTHER)
+_FLANK = 0.17  # screen heights from the entry out to each flank (~10 tiles)
+_FLANK_PAIRS = 2  # flankers out on each side at most: one pair per three of them, the rest follow the tanks
+_LONE_FROM = 0.09  # screen heights from the entry to the first lone troop
+_ENTRY_SPREAD = 0.1  # the entry: the front's middle, give or take this share of it
+_ENTRY_JITTER = 0.006  # screen heights along the front, so two troops do not stack on one pixel
+_FRONT_MARGIN = 0.06  # screen heights kept clear of the map's corner
+_FRONT_TOP = 0.12  # screen heights under the top HUD (the players' names, the timer)
 
 # (troop, template of its card portrait), cut from a live GPG bar and from the Change Troops
 # menu, whose portraits are drawn at the bar's scale (the bar's templates match it at 0.96+)
 TROOP_TEMPLATES = tuple((troop, f'bb{troop}.png') for troop in PROFILES if troop != MACHINE)
 _MATCH_MIN = 0.8
+# A portrait is matched from this share of its height down: a survivor's health bar covers
+# the top ~35 % in the next stage (0.45 there on the full portrait, 0.98+ on the rest; the
+# other troops' portraits stay under 0.46 on that part).
+_PORTRAIT_FROM = 0.45
 # A card whose troop died in the last stage is drawn in grey but its portrait still matches
 # (0.86 measured): colour tells. Mean HSV saturation of a portrait, live GPG: 75-160 alive,
 # 0-1 dead.
@@ -71,7 +109,6 @@ _ALIVE_MIN_SATURATION = 30
 # (the bar scales with the height; measured on a 1227x767 GPG bar).
 _PORTRAIT_OFFSET = (-0.018, -0.047)
 _PORTRAIT_HALF = (0.065, 0.045)
-_ENTRY_JITTER = 0.012  # screen heights around the entry point, so groups do not stack on one pixel
 # The health bar a card shows during the fight: the card's width (its tap sits right of the
 # centre) and the band above the portrait, in screen heights from the tap point.
 _HEALTH_X = (-0.071, 0.032)
@@ -81,9 +118,12 @@ _ABILITY_RECHECK = 1.5  # s after a one-time ability's tap before its card is ch
 _ABILITY_TRIES = 3
 # Card background beside the portrait's top corners, in screen heights from the tap point.
 # Live GPG HSV: blue (110, 183, 255) not deployed; green (42, 170, 188) ready; red (1, 74-175,
-# 185-216) recharging; grey (95-110, 4-11, 170) used.
+# 185-216) recharging; grey (95-110, 4-11, 170) used. A card turns green as its troop lands.
 _BACKGROUND_X = (-0.057, 0.023)
 _BACKGROUND_Y = -0.004
+# Share of that background in the blue of a card still to deploy. Live GPG: 1.0 on a fresh
+# card, 0.42-0.72 on a selected one, 0.55 on a survivor of the last stage, 0 once deployed.
+_WAITING_MIN_BLUE = 0.25
 READY = 'ready'
 RECHARGING = 'recharging'
 USED = 'used'
@@ -104,6 +144,37 @@ class Step:
     troop: str = ''
 
 
+def profile(troop):
+    return PROFILES.get(troop, UNKNOWN)
+
+
+def _portrait_hits(vision, frame, template, region, limit = 1, threshold = -1.0):
+    '''Up to ``limit`` spots of ``region`` (x, y, w, h) where the card portrait ``template``
+    matches, at ``threshold`` or above, best first and a portrait apart:
+    ``(score, (x, y))``, the portrait's centre. Only its part under
+    :data:`_PORTRAIT_FROM` is matched (a survivor's health bar covers the top).'''
+    full = cv2.imread(str(get_template_path(template)))
+    (x, y, w, h) = region
+    if full is None:
+        return []
+    full = vision._resize_template_for_screen(full, frame)
+    top = int(round(_PORTRAIT_FROM * full.shape[0]))
+    part = full[top:]
+    (ph, pw) = part.shape[:2]
+    patch = frame[max(0, y):y + h, max(0, x):x + w]
+    if patch.shape[0] < ph or patch.shape[1] < pw:
+        return []
+    scores = cv2.matchTemplate(patch, part, cv2.TM_CCOEFF_NORMED)
+    hits = []
+    while len(hits) < limit:
+        (_low, score, _at, (cx, cy)) = cv2.minMaxLoc(scores)
+        if score < threshold:
+            break
+        hits.append((float(score), (max(0, x) + cx + pw // 2, max(0, y) + cy - top + full.shape[0] // 2)))
+        scores[max(0, cy - ph):cy + ph, max(0, cx - pw):cx + pw] = -1.0  # the next one a portrait away
+    return hits
+
+
 def identify(vision, frame, swap):
     '''The troop of the card whose swap button is at ``swap``, or '' when unknown.'''
     (h, w) = frame.shape[:2]
@@ -112,9 +183,9 @@ def identify(vision, frame, swap):
     (x1, y1) = (min(w, int(cx + _PORTRAIT_HALF[0] * h)), min(h, int(cy + _PORTRAIT_HALF[1] * h)))
     best = ('', _MATCH_MIN)
     for (troop, template) in TROOP_TEMPLATES:
-        (_x, _y, score) = vision.find_template_with_confidence(frame, template, threshold = 0, region = (x0, y0, x1 - x0, y1 - y0))
-        if score >= best[1]:
-            best = (troop, score)
+        for (score, _centre) in _portrait_hits(vision, frame, template, (x0, y0, x1 - x0, y1 - y0)):
+            if score >= best[1]:
+                best = (troop, score)
     return best[0]
 
 
@@ -144,69 +215,138 @@ def health(frame, tap):
     return share if share >= 0.03 else None
 
 
+def _background(frame, tap):
+    '''HSV pixels (an int array, one row each) of the card background beside the top
+    corners of the portrait of the card at ``tap``.'''
+    (h, w) = frame.shape[:2]
+    patches = []
+    for dx in _BACKGROUND_X:
+        (x, y) = (int(tap[0] + dx * h), int(tap[1] + _BACKGROUND_Y * h))
+        patch = frame[max(0, y - 4):min(h, y + 4), max(0, x - 4):min(w, x + 4)]
+        if patch.size:
+            patches.append(cv2.cvtColor(patch, cv2.COLOR_BGR2HSV).reshape(-1, 3).astype(int))
+    return np.concatenate(patches) if patches else np.zeros((0, 3), int)
+
+
 def ability_state(frame, tap):
     ''':data:`READY`, :data:`RECHARGING` or :data:`USED` from the background of the troop
     card at ``tap``, or None (not deployed yet: blue; or unreadable). Pixels vote one by one:
     hue is circular, and the red of a recharge sits at both ends of it.'''
-    (h, w) = frame.shape[:2]
-    counts = {READY: 0, RECHARGING: 0, USED: 0}
-    total = 0
-    for dx in _BACKGROUND_X:
-        (x, y) = (int(tap[0] + dx * h), int(tap[1] + _BACKGROUND_Y * h))
-        patch = frame[max(0, y - 4):min(h, y + 4), max(0, x - 4):min(w, x + 4)]
-        if patch.size == 0:
-            continue
-        hsv = cv2.cvtColor(patch, cv2.COLOR_BGR2HSV).reshape(-1, 3).astype(int)
-        (hue, sat, val) = (hsv[:, 0], hsv[:, 1], hsv[:, 2])
-        counts[USED] += int(((sat <= 35) & (val >= 120) & (val <= 220)).sum())
-        counts[RECHARGING] += int(((sat >= 60) & ((hue <= 10) | (hue >= 170))).sum())
-        counts[READY] += int(((sat >= 100) & (hue >= 30) & (hue <= 60)).sum())
-        total += len(hsv)
-    if not total:
+    hsv = _background(frame, tap)
+    if not len(hsv):
         return None
+    (hue, sat, val) = (hsv[:, 0], hsv[:, 1], hsv[:, 2])
+    counts = {READY: int(((sat >= 100) & (hue >= 30) & (hue <= 60)).sum()),
+              RECHARGING: int(((sat >= 60) & ((hue <= 10) | (hue >= 170))).sum()),
+              USED: int(((sat <= 35) & (val >= 120) & (val <= 220)).sum())}
     (state, n) = max(counts.items(), key = lambda kv: kv[1])
-    return state if n >= 0.5 * total else None
+    return state if n >= 0.5 * len(hsv) else None
+
+
+def waiting(frame, tap):
+    '''The troop of the card at ``tap`` is still to deploy: in colour (alive), on the blue
+    background of a card not deployed yet.'''
+    hsv = _background(frame, tap)
+    if not len(hsv):
+        return False
+    blue = ((hsv[:, 0] >= 95) & (hsv[:, 0] <= 125) & (hsv[:, 1] >= 120) & (hsv[:, 2] >= 170)).mean()
+    return blue >= _WAITING_MIN_BLUE and alive(frame, tap)
 
 
 def read_bar(vision, frame, swaps, lift, machine_x = None):
-    '''The deployable troop cards on the bar, left to right: the cards over a swap button
-    (new troops, before their first deploy) and the portraits a template recognises in
-    colour (troops back from the last stage carry no swap button; a selected card's button
-    may not match). Dead troops' grey cards and the machine card are left out.'''
+    '''The troop cards still to deploy on the bar, left to right: the cards over a swap
+    button (new troops, before the stage's first deploy) and the portraits a template
+    recognises on a card :func:`waiting` (the swap buttons go once a troop has landed, and
+    troops back from the last stage carry none). Deployed troops' cards, dead troops' grey
+    ones and the machine card are left out. Every card's tap sits where a swap button's
+    would put it, ``lift`` px over the button.'''
     h = frame.shape[0]
     same = 0.05 * h  # cards are ~0.12 h apart
     cards = [Card(identify(vision, frame, s), (s[0], s[1] - lift)) for s in sorted(swaps)
              if machine_x is None or abs(s[0] - machine_x) > lift]
     roi = vision.bottom_half_region(frame)
     for (troop, template) in TROOP_TEMPLATES:
-        for (x, y) in vision.find_all_template_centers(frame, template, threshold = _MATCH_MIN, region = roi, max_matches = 10, suppress_pad_frac = 0.1):
-            if machine_x is not None and abs(x - machine_x) <= lift:
+        for (_score, (x, y)) in _portrait_hits(vision, frame, template, roi, limit = 10, threshold = _MATCH_MIN):
+            tap = (int(round(x - _PORTRAIT_OFFSET[0] * h)), int(round(y - _PORTRAIT_OFFSET[1] * h - lift)))
+            if machine_x is not None and abs(tap[0] - machine_x) <= lift:
                 continue
-            twin = next((i for (i, c) in enumerate(cards) if abs(c.tap[0] - x) < same), None)
+            twin = next((i for (i, c) in enumerate(cards) if abs(c.tap[0] - tap[0]) < same), None)
             if twin is None:
-                if alive(frame, (x, y)):
-                    cards.append(Card(troop, (x, y)))
+                if waiting(frame, tap):
+                    cards.append(Card(troop, tap))
             elif not cards[twin].troop:
                 cards[twin] = Card(troop, cards[twin].tap)
     return sorted(cards, key = lambda c: c.tap[0])
 
 
-def plan(cards, machine, entry, front, frame_height, rng = random):
-    '''Deploy steps, in order: the machine (``machine``: its card, or None) and each card,
-    grouped by troop profile. Grouped troops land on ``entry`` (a little jitter each);
-    spread ones take the ``front`` slots in turn.'''
+def front_edge(corner, top, frame_height):
+    '''The stretch of the map's top edge from ``corner`` (its left or right corner) towards
+    ``top`` (its top corner) that troops land on: clear of the corner, and under the top
+    HUD (the timer and the players' names). Two points, the corner's end first.'''
+    ((ax, ay), (bx, by)) = (corner, top)
+    length = math.hypot(bx - ax, by - ay)
+    if length <= 0:
+        return ((ax, ay), (ax, ay))
+    (ux, uy) = ((bx - ax) / length, (by - ay) / length)
+    start = min(_FRONT_MARGIN * frame_height, length / 2)
+    end = length - start
+    floor = _FRONT_TOP * frame_height
+    if uy < 0 and ay + uy * end < floor:
+        end = max(start, (floor - ay) / uy)
+    return ((ax + ux * start, ay + uy * start), (ax + ux * end, ay + uy * end))
+
+
+def _centre_out(count, spacing):
+    '''Offsets of ``count`` troops spread around 0, nearest first: 0, +s, -s, +2s, ...'''
+    return [spacing * ((i + 1) // 2) * (1 if i % 2 else -1) for i in range(count)]
+
+
+def _flank_offsets(count, spacing):
+    '''Offsets of ``count`` flankers: a pair (one each side) per three of them, up to
+    :data:`_FLANK_PAIRS`, the others behind the tanks.'''
+    pairs = min(_FLANK_PAIRS, count // 3)
+    out = [side * (_FLANK + spacing * (i // 2)) for (i, side) in zip(range(2 * pairs), (-1, 1) * pairs)]
+    return out + _centre_out(count - len(out), spacing)
+
+
+def _lone_offsets(count, spacing):
+    '''Offsets of ``count`` lone troops, by turns on each side of the push, each apart.'''
+    return [(1 if i % 2 == 0 else -1) * (_LONE_FROM + spacing * (i // 2)) for i in range(count)]
+
+
+def plan(cards, machine, edge, frame_height, rng = random):
+    '''Deploy steps, in order: the machine (``machine``: its card, or None), then the cards
+    role by role (see the module doc), each kind's cards left to right. ``edge`` is the
+    stretch of front they land on (:func:`front_edge`); the push enters near its middle.'''
+    ((x0, y0), (x1, y1)) = edge
+    length = math.hypot(x1 - x0, y1 - y0)
+    (ux, uy) = ((x1 - x0) / length, (y1 - y0) / length) if length else (0.0, 0.0)
+    entry = length * (0.5 + rng.uniform(-_ENTRY_SPREAD, _ENTRY_SPREAD))
     jitter = _ENTRY_JITTER * frame_height
-    near = lambda: (int(entry[0] + rng.uniform(-jitter, jitter)), int(entry[1] + rng.uniform(-jitter, jitter)))
-    groups = sorted({c.troop for c in cards}, key = lambda t: (PROFILES.get(t, UNKNOWN).order, t))
+
+    def at(offset):  # the front's point ``offset`` screen heights from the entry
+        s = min(length, max(0.0, entry + offset * frame_height + rng.uniform(-jitter, jitter)))
+        return (int(round(x0 + ux * s)), int(round(y0 + uy * s)))
+    kinds = list(PROFILES)
+    rank = lambda t: (_ROLE_ORDER.index(profile(t).role), kinds.index(t) if t in kinds else len(kinds), t)
+    ordered = sorted(cards, key = lambda c: (rank(c.troop), c.tap[0]))
     steps = []
     if machine is not None:
-        steps.append(Step(machine, near(), 0.0, PROFILES[MACHINE], MACHINE))
-    slots = iter(front)
-    for troop in groups:
-        profile = PROFILES.get(troop, UNKNOWN)
-        for (i, card) in enumerate(c for c in cards if c.troop == troop):
-            point = next(slots, entry) if profile.spread else near()
-            steps.append(Step(card.tap, point, profile.gap if i == 0 and steps else 0.0, profile, troop))
+        steps.append(Step(machine, at(0.0), 0.0, PROFILES[MACHINE], MACHINE))
+    for role in _ROLE_ORDER:
+        group = [c for c in ordered if profile(c.troop).role == role]
+        if not group:
+            continue
+        (gap, spacing) = _ROLES[role]
+        if role == FLANK:
+            offsets = _flank_offsets(len(group), spacing)
+        elif role == LONE:
+            offsets = _lone_offsets(len(group), spacing)
+        else:  # the machine holds the tanks' middle slot
+            skip = 1 if role == TANK and machine is not None else 0
+            offsets = _centre_out(len(group) + skip, spacing)[skip:]
+        for (i, (card, offset)) in enumerate(zip(group, offsets)):
+            steps.append(Step(card.tap, at(offset), gap if i == 0 and steps else 0.0, profile(card.troop), card.troop))
     return steps
 
 
@@ -232,6 +372,11 @@ class Abilities:
         if p.ability_at is not None:
             latest = p.ability_latest if p.ability_latest is not None else p.ability_at
             self.items.append(Ability(step.card, step.troop, p, landed + p.ability_at, landed + latest))
+
+    def forget(self, taps, near):
+        '''Drop the abilities of the cards at ``taps`` (within ``near`` px across): their
+        troops did not land.'''
+        self.items = [a for a in self.items if all(abs(a.card[0] - t[0]) > near for t in taps)]
 
     def next_tap(self, now, frame):
         """The :class:`Ability` to tap now (its ``card``), or None. Among the ready ones (past

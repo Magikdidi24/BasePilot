@@ -45,27 +45,34 @@ A different routine: **12 Electro Dragons** placed individually around the diamo
 ## Builder Base
 
 One strategy, whatever the army (*Your army (auto)* on the Run page;
-`app/core/bb_strategy.py`). Before the first deploy, each card on the bar is matched to its
-troop (the green swap buttons under the cards are only there until then). Each troop has a
-profile:
+`app/core/bb_strategy.py`). Before its deploy, each card on the bar is matched to its troop
+by the bottom of its portrait: in the second stage, a survivor's health bar covers the top
+of its portrait and its card has no swap button. A card still to deploy has a blue
+background; it turns green as its troop lands.
 
-| Troop | Order | Lands | Ability (its card tapped again) |
+The front is one of the two top edges of the map, picked at random (the bottom ones run
+into the troop bar), clear of its corner and of the top HUD; the push enters near its
+middle. Each troop has a role, after the play of Builder Base 2.0 guides (tank first,
+Bombers behind it, flanks at once, troops spread against splash):
+
+| Troop | Role | Lands | Ability (its card tapped again) |
 |---|---|---|---|
-| Battle Machine / Copter | first, the tank | the entry point | at 20 s, then every 20 s (it charges) |
-| Boxer Giant | right behind | the entry point | Boxer Block once under 75 % health (2-15 s) |
-| Power P.E.K.K.A | right behind | the entry point | Overcharge once under 60 % health (4-16 s) |
-| Raged Barbarian | behind the tanks | the entry point | Rage (passive, first 22 s) |
-| Bomber | 1.5 s later, behind the tanks | the entry point | Bouncing Bomb at 3 s, then each time it has recharged |
-| Cannon Cart | behind the tanks | the entry point | none (stays a cart) |
-| Sneaky Archer | support | the entry point | Cloak (passive, first 11 s) |
-| Drop Ship | support | the entry point | Skeleton Bomb once under 85 % health (4-9 s) |
-| Beta Minion | support | the entry point | Power Shot (passive) |
-| Night Witch | 2 s later, behind the tanks | the entry point | Bat Swarm once hit, under 90 % (4-10 s) |
-| Baby Dragon | support | apart, a slot each along the front (Tantrum) | Fiery Sneeze once under 85 % health (3-9 s) |
-| any other troop | last | a slot of its own along the front | at 10 s |
+| Battle Machine / Copter | tank, first | the entry point | at 20 s, then every 20 s (it charges) |
+| Boxer Giant | tank | around the entry, 0.025 screen heights apart | Boxer Block once under 75 % health (2-15 s) |
+| Power P.E.K.K.A | tank | around the entry, 0.025 screen heights apart | Overcharge once under 60 % health (4-16 s) |
+| Drop Ship | tank (flies over the walls) | around the entry | Skeleton Bomb once under 85 % health (4-9 s) |
+| Raged Barbarian | flank | a pair per three, up to two pairs, far out on both sides at once (the funnel); the rest behind the tanks | Rage (passive, first 22 s) |
+| Sneaky Archer | flank | the same | Cloak (passive, first 11 s) |
+| Beta Minion | flank | the same | Power Shot (passive) |
+| Bomber | wall breaker, 1 s after | behind the tanks | Bouncing Bomb at 3 s, then each time it has recharged |
+| Night Witch | support, 1.2 s after | behind the tanks | Bat Swarm once hit, under 90 % (4-10 s) |
+| Cannon Cart | support | behind the tanks | none (stays a cart) |
+| Baby Dragon | alone | one each side of the push, apart (Tantrum) | Fiery Sneeze once under 85 % health (3-9 s) |
+| any other troop | last | behind the tanks | at 10 s |
 
-The entry point is one of three spots along the top edges of the diamond (the bottom edges
-run into the troop bar), with a little jitter per card, so the groups push together.
+The flanks clear the outer buildings, so the push goes into the core instead of walking
+around it. A troop still on the bar after the deploy (its tap fell off the deploy zone)
+lands once more, mid-front.
 
 Abilities go at the right moment, not all at once. During the fight each card shows its
 troop's health bar; an ability fires once its troop is engaged (health under the share
@@ -79,6 +86,8 @@ guesses from Builder Base 2.0 guides, to tune on live battles (each ability is l
 the troop's health).
 
 A battle is never ended early: no End Battle, no Surrender. When troops come back to the bar
-for the next stage (a reinforcement's swap button shows), the troops still in colour on the
-bar (survivors carry no swap button; dead troops' cards turn grey) are deployed the same way,
-and the bot leaves only from the results screen (Return Home).
+for the next stage (a reinforcement's swap button shows), the survivors of the last stage
+and the reinforcements are deployed the same way (dead troops' cards turn grey and stay
+on the bar), and the bot leaves only from the results screen (Return Home). The speed
+button a stage shows for its last minute is tapped while it reads 1x: the minute plays at
+4x.
