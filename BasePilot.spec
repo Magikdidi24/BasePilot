@@ -57,14 +57,16 @@ a = Analysis(
 # Tesseract's DLLs that PyInstaller adds as dependencies of the bundle's exe (tesseract.exe
 # loads them from its own folder).
 _UNUSED = ('opencv_videoio_ffmpeg', 'opengl32sw.dll', '_avif.')
-_BUNDLE = os.path.abspath(TESSERACT).lower()
+# Tesseract's DLLs by name: a top-level copy can come from the bundle or, on the CI where
+# Chocolatey puts Tesseract on the PATH, from its install.
+_TESSERACT_DLLS = {os.path.basename(src).lower() for (src, dest) in tesseract_datas() if src.lower().endswith('.dll')}
 
 
 def _kept(entry):
-    (dest, src) = (entry[0].replace('\\', '/').lower(), os.path.abspath(entry[1]).lower())
+    dest = entry[0].replace('\\', '/').lower()
     if any(part in dest for part in _UNUSED) or dest.startswith('pyside6/translations/'):
         return False
-    return not (src.startswith(_BUNDLE) and not dest.startswith('tesseract/'))
+    return not ('/' not in dest and dest in _TESSERACT_DLLS)
 
 
 a.binaries = [b for b in a.binaries if _kept(b)]

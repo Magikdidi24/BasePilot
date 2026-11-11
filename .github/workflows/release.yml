@@ -83,6 +83,11 @@ jobs:
             if (-not $smoke.HasExited) { Stop-Process -Id $smoke.Id }
           }
 
+      # What weighs in the exe, to keep it from growing unnoticed.
+      - name: List the exe's biggest files
+        run: |
+          python -c "from PyInstaller.archive.readers import CArchiveReader as R; t = R('dist/BasePilot.exe').toc; rows = sorted(((e[1], e[2], n) for (n, e) in t.items()), reverse=True); print(f'{sum(r[0] for r in rows) / 2**20:.1f} MB stored, {sum(r[1] for r in rows) / 2**20:.1f} MB unpacked, {len(rows)} files'); [print(f'{c / 2**20:7.1f} MB stored {u / 2**20:7.1f} MB  {n}') for (c, u, n) in rows[:25]]"
+
       - name: Verify build output
         shell: pwsh
         run: |
