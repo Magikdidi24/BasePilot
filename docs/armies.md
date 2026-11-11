@@ -74,7 +74,7 @@ at once, troops spread against splash):
 | Raged Barbarian | flank | a pair per three, up to two pairs, far out on both sides at once (the funnel); the rest behind the tanks | Rage (passive, first 22 s) |
 | Sneaky Archer | flank | the same | Cloak (passive, first 11 s) |
 | Beta Minion | flank | the same | Power Shot (passive) |
-| Bomber | wall breaker, 1 s after | behind the tanks | Bouncing Bomb at 3 s, then each time it has recharged |
+| Bomber | wall breaker, 1 s after | behind the tanks | Bouncing Bomb as it lands (its card tapped again: the first wall), then each time it has recharged; a lost tap goes again at once, first of all under 50 % health |
 | Night Witch | support, 1.2 s after | behind the tanks | Bat Swarm once hit, under 90 % (4-10 s) |
 | Cannon Cart | support | behind the tanks | none (stays a cart) |
 | Baby Dragon | alone | one each side of the push, apart (Tantrum) | Fiery Sneeze once under 85 % health (3-9 s) |
@@ -85,7 +85,7 @@ into the core instead of walking around it. A troop still on the bar after the d
 (its tap fell off the deploy zone) lands once more at the entry.
 
 An army with Power P.E.K.K.As is played as a P.E.K.K.A push: the Bombers land first and
-open the walls with their Bouncing Bomb (2 s after landing), the P.E.K.K.As go in right
+open the walls with their Bouncing Bomb (fired as they land), the P.E.K.K.As go in right
 behind them, the machine follows, then the rest. The attack comes from the side of the
 Multi Mortar, whose splash is what stops them: the scouting looks for its four tube
 openings (dark, round, a lighter rim each, close together in a fairly regular

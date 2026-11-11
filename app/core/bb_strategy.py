@@ -64,6 +64,7 @@ class TroopProfile:
     ability_hp: Optional[float] = None  # fire once its health falls under this share (the troop is engaged)
     ability_latest: Optional[float] = None  # fire by then whatever its health (None: at ability_at)
     ability_every: float = 0.0  # > 0: fire again, at least this long after the last tap (a recharging ability)
+    ability_on_landing: bool = False  # its card tapped again right after it lands
 
 
 PROFILES = {
@@ -78,7 +79,9 @@ PROFILES = {
     'barbarian': TroopProfile(FLANK, None),  # Rage (22 s, passive)
     'archer': TroopProfile(FLANK, None),  # Cloak (11 s, passive): picks off the outer buildings
     'minion': TroopProfile(FLANK, None),  # Power Shot (passive): the edge buildings
-    'bomber': TroopProfile(BREAKER, 2.0, ability_every = 2.0),  # walls: Bouncing Bomb as it reaches them, again once recharged
+    # walls: Bouncing Bomb as it lands (its next attack, the first wall), again once recharged;
+    # if that tap was lost, at once when ready, first of all under 50 % health (the player's play)
+    'bomber': TroopProfile(BREAKER, 0.0, ability_hp = 0.5, ability_every = 2.0, ability_on_landing = True),
     'witch': TroopProfile(SUPPORT, 4.0, ability_hp = 0.9, ability_latest = 10.0),  # Bat Swarm once she is hit
     'cannoncart': TroopProfile(SUPPORT, None),  # stays a mobile cart (Mortar Mode left off)
     'babydragon': TroopProfile(LONE, 3.0, ability_hp = 0.85, ability_latest = 9.0),  # Fiery Sneeze when hit
@@ -405,11 +408,18 @@ class Abilities:
     items: list = field(default_factory = list)
     last_by_troop: dict = field(default_factory = dict)
 
-    def add(self, step, landed):
+    def add(self, step, landed, fired = False):
+        '''Schedule ``step``'s ability; ``fired``: already tapped as it landed (checked again
+        :data:`_ABILITY_RECHECK` later, or once recharged).'''
         p = step.profile
         if p.ability_at is not None:
             latest = p.ability_latest if p.ability_latest is not None else p.ability_at
-            self.items.append(Ability(step.card, step.troop, p, landed + p.ability_at, landed + latest))
+            item = Ability(step.card, step.troop, p, landed + p.ability_at, landed + latest)
+            if fired:
+                item.tries = 1
+                item.earliest = item.latest = landed + max(p.ability_every, _ABILITY_RECHECK)
+                self.last_by_troop[step.troop] = landed
+            self.items.append(item)
 
     def forget(self, taps, near):
         '''Drop the abilities of the cards at ``taps`` (within ``near`` px across): their
@@ -419,8 +429,9 @@ class Abilities:
     def next_tap(self, now, frame):
         """The :class:`Ability` to tap now (its ``card``), or None. Among the ready ones (past
         their earliest time, card green, and engaged or past their latest), the most hurt
-        troop goes first; a troop kind that just used one waits :data:`_ABILITY_SPACING`; a dead
-        troop's, or a used one-time ability's, is dropped."""
+        troop goes first, a one-time ability before a recharging one at equal health; a troop
+        kind that just used one waits :data:`_ABILITY_SPACING`; a dead troop's, or a used
+        one-time ability's, is dropped."""
         ready = []
         for item in list(self.items):
             if now < item.earliest or now - self.last_by_troop.get(item.troop, -1e9) < _ABILITY_SPACING:
@@ -440,10 +451,12 @@ class Abilities:
                 hp = health(frame, item.card)
             engaged = hp is not None and hp < item.profile.ability_hp
             if engaged or item.profile.ability_hp is None or now >= item.latest:
-                ready.append((hp if hp is not None else 1.0, item.latest, item, hp))
+                ready.append((hp if hp is not None else 1.0, bool(item.profile.ability_every), item.latest, item, hp))
         if not ready:
             return None
-        (_rank, _latest, item, hp) = min(ready, key = lambda r: (r[0], r[1]))
+        # the most hurt first; at equal health a one-time ability before a recharging one,
+        # which comes back anyway (it must not starve the others), then the most overdue
+        (_hp, _recharges, _latest, item, hp) = min(ready, key = lambda r: (r[0], r[1], r[2]))
         self.last_by_troop[item.troop] = now
         item.tries += 1
         item.health = hp

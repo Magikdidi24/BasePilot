@@ -47,6 +47,8 @@ _BB_SPEED_MIN = 0.9
 _BB_SPEED_RETRY = 3  # s before another tap if it still reads 1x (a lost tap)
 _BB_LANDED_CHECK_AFTER = 0.6  # s after a deploy before the bar is read again (a landed troop's card is green by then)
 _BB_SIDES_TRIED = 3  # sides of the base the first troop tries before a map edge
+_NO_MASTER_BUILDER = 0.7  # mbuilder.png under this: not the Builder Base's home
+_VILLAGE_DETECT_RETRIES = 3
 _BB_CORE_WEIGHTS = {'core': 3.0, 'reach': 0.3}  # the scouting's core weight of these plans (best: its own, 1.2)
 _BB_STILL_TIMEOUT = 2.0  # s to wait for the view to stop moving
 _BB_STILL_DIFF = 1.5  # mean grey change (160x100) between two frames 0.25 s apart under which the view is still
@@ -1405,7 +1407,11 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                 self._check_stop()
             self.input.click(*step.card, pause = 0.25, rand = False)
             self.input.click(*step.point, pause = _EDRAG_DELAY, rand = False)
-            abilities.add(step, time.monotonic())
+            fired = step.profile.ability_on_landing
+            if fired:  # its card again: the ability as it lands (the Bomber's Bouncing Bomb for the first wall)
+                self.input.click(*step.card, pause = 0.2, rand = False)
+                logger.info('Builder Base: %s ability as it lands', step.troop)
+            abilities.add(step, time.monotonic(), fired = fired)
 
     def _bb_fronts(self, frame, cards):
         '''``(label, front)`` to attack from, best first: the sides of the base the scouting
@@ -2136,7 +2142,11 @@ Each iteration dismisses ``okay.png`` / ``exit.png`` if present, then village / 
 
     
     def _detect_village_type(self, frame = None):
-        '''Return ``"home"``, ``"builder"``, or ``None`` from the builder portraits (bottom right since Oct 2026).'''
+        '''Return ``"home"``, ``"builder"``, or ``None`` from the builder portraits (bottom right
+        since Oct 2026). The Home Village's chip shows the next free builder's face, the
+        goblin's when the others are busy (live: builder.png 0.59), so its home is also told,
+        like :meth:`_home_hud_visible` does, by the Battle and Build buttons with no trace of
+        the Builder Base's master builder (live: 0.6 on the Home Village, 0.9+ on its own).'''
         if frame is None:
             frame = self.window.screenshot()
         if frame is None or frame.size == 0:
@@ -2149,6 +2159,10 @@ Each iteration dismisses ``okay.png`` / ``exit.png`` if present, then village / 
         (hx, hy) = self._find_home_village_builder(frame, chip_roi)
         if hx:
             return 'home'
+        if self.vision.find_template(frame, 'attack.png', region = chip_roi)[0] and self.vision.find_template(frame, 'build.png', region = chip_roi)[0] \
+                and not self.vision.find_template(frame, 'mbuilder.png', threshold = _NO_MASTER_BUILDER, region = chip_roi)[0]:
+            return 'home'
+        return None
 
     
     def _go_to_builder_base_with_boat(self):
@@ -2185,6 +2199,10 @@ Each iteration dismisses ``okay.png`` / ``exit.png`` if present, then village / 
             return None
         self._zoom_out_max()
         village = self._detect_village_type()
+        for _ in range(_VILLAGE_DETECT_RETRIES):  # a popup or the zoom still settling
+            if village is not None or self.stop_event.wait(0.8):
+                break
+            village = self._detect_village_type()
         if builder_base:
             if village == 'builder':
                 return None

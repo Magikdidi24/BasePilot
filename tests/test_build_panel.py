@@ -162,11 +162,14 @@ class BotFlowTests(unittest.TestCase):
         bot.vision.find_template.side_effect = lambda f, name, **kw: (250, 1100) if name == 'battlemachine.png' else (None, None)
         schedule = bot._deploy_bb_army(np.zeros((1200, 1920, 3), np.uint8))
         lift = int(round(91 * 1200 / 1600))
-        cards = [c.args[:2] for c in bot.input.click.call_args_list][0::2]
-        # a P.E.K.K.A push: the Bomber opens the walls, the P.E.K.K.As go in, the machine card
-        # (its swap button beside it is not a troop) follows
+        taps = [c.args[:2] for c in bot.input.click.call_args_list]
+        # a P.E.K.K.A push: the Bomber opens the walls (its card again as it lands: the bomb),
+        # the P.E.K.K.As go in, the machine card (its swap button beside it is not a troop) follows
+        self.assertEqual(taps[2], taps[0])
+        del taps[2]
+        cards = taps[0::2]
         self.assertEqual(cards, [(430, 1150 - lift), (570, 1150 - lift), (710, 1150 - lift), (250, 1100)])
-        points = [c.args[:2] for c in bot.input.click.call_args_list][1::2]
+        points = taps[1::2]
         corner = corners['left'] if points[0][0] < 960 else corners['right']
         (ux, uy) = (960 - corner[0], -15 - corner[1])
         for (x, y) in points:  # on the edge from that corner to the top one, under the top HUD

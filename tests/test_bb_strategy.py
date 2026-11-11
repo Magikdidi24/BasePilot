@@ -149,7 +149,7 @@ class PlanTests(unittest.TestCase):
         for (got, want) in zip(along[1:6], (0.0, 0.025, -0.025, 0.05, -0.05)):
             self.assertAlmostEqual(got, want, delta=0.002)
         self.assertAlmostEqual(along[6], 0.0, delta=0.002)
-        self.assertEqual(bb_strategy.PROFILES['bomber'].ability_at, 2.0)  # the bomb as it reaches the walls
+        self.assertTrue(bb_strategy.PROFILES['bomber'].ability_on_landing)  # the bomb for the first wall (the player's play)
 
     def test_flankers_out_on_both_sides_then_breakers_support_and_lone_dragons(self):
         cards = ([bb_strategy.Card('barbarian', (100 + 10 * k, 688)) for k in range(6)]
@@ -498,6 +498,39 @@ class AbilityTests(unittest.TestCase):
                 patch('app.core.bb_strategy.health', return_value=0.95):
             self.assertIsNone(late.next_tap(29.0, 'frame'))
             self.assertIsNotNone(late.next_tap(30.0, 'frame'))
+
+    def test_the_bombers_bomb_goes_as_it_lands_then_once_recharged(self):
+        bombers = bb_strategy.Abilities()
+        step = bb_strategy.Step((709, 688), (0, 0), 0, bb_strategy.PROFILES['bomber'], 'bomber')
+        bombers.add(step, 0.0, fired=True)  # tapped as it landed
+        with patch('app.core.bb_strategy.alive', return_value=True), \
+                patch('app.core.bb_strategy.ability_state', return_value=bb_strategy.READY), \
+                patch('app.core.bb_strategy.health', return_value=0.9):
+            self.assertIsNone(bombers.next_tap(1.0, 'frame'))  # not twice at once
+            self.assertEqual(bombers.next_tap(2.5, 'frame').card, (709, 688))  # green again: again
+        lost = self.abilities('bomber', [(709, 688)])  # the landing tap lost: at once when ready
+        with patch('app.core.bb_strategy.alive', return_value=True), \
+                patch('app.core.bb_strategy.ability_state', return_value=bb_strategy.READY), \
+                patch('app.core.bb_strategy.health', return_value=0.4):
+            self.assertEqual(lost.next_tap(0.5, 'frame').health, 0.4)
+
+    def test_a_recharging_ability_does_not_starve_the_others(self):
+        # at equal health the P.E.K.K.A's one-time Overcharge goes before the Bomber's bomb,
+        # which comes back every time it recharges (it went first every poll before)
+        abilities = self.abilities('pekka', [(275, 688)])
+        abilities.add(bb_strategy.Step((709, 688), (0, 0), 0, bb_strategy.PROFILES['bomber'], 'bomber'), 0)
+        used = set()
+        state = lambda frame, card: bb_strategy.USED if card in used else bb_strategy.READY
+        taps = []
+        with patch('app.core.bb_strategy.alive', return_value=True), \
+                patch('app.core.bb_strategy.ability_state', side_effect=state), \
+                patch('app.core.bb_strategy.health', return_value=0.4):
+            for t in (6.0, 8.5, 11.0):
+                tap = abilities.next_tap(t, 'frame')
+                taps.append(tap.troop)
+                if tap.troop == 'pekka':
+                    used.add(tap.card)  # her card turns grey
+        self.assertEqual(taps, ['pekka', 'bomber', 'bomber'])
 
     def test_a_lost_tap_is_tried_again_while_the_card_stays_green(self):
         abilities = self.abilities('pekka', [(275, 688)])
