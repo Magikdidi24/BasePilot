@@ -69,7 +69,7 @@ at once, troops spread against splash):
 |---|---|---|---|
 | Battle Machine / Copter | tank, first | the entry point | at 20 s, then every 20 s (it charges) |
 | Boxer Giant | tank | around the entry, 0.025 screen heights apart | Boxer Block once under 75 % health (2-15 s) |
-| Power P.E.K.K.A | tank | around the entry, 0.025 screen heights apart | Overcharge once under 60 % health (4-16 s) |
+| Power P.E.K.K.A | tank | around the entry, 0.025 screen heights apart | Overcharge, a one-time blast around her (she lives on), once the defences have her under 70 % health (6-30 s) |
 | Drop Ship | tank (flies over the walls) | around the entry | Skeleton Bomb once under 85 % health (4-9 s) |
 | Raged Barbarian | flank | a pair per three, up to two pairs, far out on both sides at once (the funnel); the rest behind the tanks | Rage (passive, first 22 s) |
 | Sneaky Archer | flank | the same | Cloak (passive, first 11 s) |

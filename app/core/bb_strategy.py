@@ -70,7 +70,10 @@ PROFILES = {
     # no health bar on its card, and its ability charges (up to three levels): on time, then again
     MACHINE: TroopProfile(TANK, ability_at = 20.0, ability_every = 20.0),
     'boxer': TroopProfile(TANK, 2.0, ability_hp = 0.75, ability_latest = 15.0),  # Boxer Block shield under fire
-    'pekka': TroopProfile(TANK, 4.0, ability_hp = 0.6, ability_latest = 16.0),  # Overcharge in the thick of it
+    # Overcharge: a one-time blast around her; she lives on (her card stays in colour). Live, she
+    # is hit from ~8 s, under 70 % by ~25 s, dead by ~36-44 s: the blast goes in the thick of
+    # the defences, before she falls
+    'pekka': TroopProfile(TANK, 6.0, ability_hp = 0.7, ability_latest = 30.0),
     'dropship': TroopProfile(TANK, 4.0, ability_hp = 0.85, ability_latest = 9.0),  # flies over the walls; Skeleton Bomb once hit
     'barbarian': TroopProfile(FLANK, None),  # Rage (22 s, passive)
     'archer': TroopProfile(FLANK, None),  # Cloak (11 s, passive): picks off the outer buildings
@@ -115,9 +118,15 @@ _ALIVE_MIN_SATURATION = 30
 _PORTRAIT_OFFSET = (-0.018, -0.047)
 _PORTRAIT_HALF = (0.065, 0.045)
 # The health bar a card shows during the fight: the card's width (its tap sits right of the
-# centre) and the band above the portrait, in screen heights from the tap point.
+# centre), and where its dark bottom edge is looked for, in screen heights from the tap point
+# (a swap button's tap and a template's land a few px apart). The fill is read just above
+# that edge: under it, the green of a ready card (or the red of a recharging one) has the
+# bar's colours (live: a fixed band 3 px low read every bar full).
 _HEALTH_X = (-0.071, 0.032)
-_HEALTH_Y = (-0.036, -0.015)
+_HEALTH_SEARCH = (-0.05, -0.005)
+_HEALTH_FILL = (0.012, 0.003)  # screen heights above the edge
+_HEALTH_EDGE_DARK = 80  # V of the edge's pixels
+_HEALTH_EDGE_SHARE = 0.9  # of a row's pixels that dark: the edge, a full-width line (a dark portrait under it: ~0.65)
 _ABILITY_SPACING = 1.2  # s between two abilities of one troop kind
 _ABILITY_RECHECK = 1.5  # s after a one-time ability's tap before its card is checked (green still: the tap was lost)
 _ABILITY_TRIES = 3
@@ -210,11 +219,18 @@ def health(frame, tap):
     quarter empty.'''
     (h, w) = frame.shape[:2]
     (x0, x1) = (max(0, int(tap[0] + _HEALTH_X[0] * h) + 2), min(w, int(tap[0] + _HEALTH_X[1] * h) - 2))
-    (y0, y1) = (max(0, int(tap[1] + _HEALTH_Y[0] * h)), min(h, int(tap[1] + _HEALTH_Y[1] * h)))
+    (y0, y1) = (max(0, int(tap[1] + _HEALTH_SEARCH[0] * h)), min(h, int(tap[1] + _HEALTH_SEARCH[1] * h)))
     if x1 <= x0 or y1 <= y0:
         return None
     hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
-    (hue, sat, val) = (hsv[..., 0], hsv[..., 1], hsv[..., 2])
+    edges = np.nonzero((hsv[..., 2] < _HEALTH_EDGE_DARK).mean(axis = 1) >= _HEALTH_EDGE_SHARE)[0]
+    if not len(edges):
+        return None  # no bar: not deployed yet, or dead
+    edge = int(edges.max())  # the lowest dark row: below it the card, above it the bar
+    fill = hsv[max(0, edge - int(round(_HEALTH_FILL[0] * h))):max(1, edge - int(round(_HEALTH_FILL[1] * h)))]
+    if not fill.size:
+        return None
+    (hue, sat, val) = (fill[..., 0], fill[..., 1], fill[..., 2])
     life = ((hue <= 75) | (hue >= 170)) & (sat >= 110) & (val >= 110)  # red to green, bright
     share = float(life.mean(axis = 1).max())
     return share if share >= 0.03 else None
