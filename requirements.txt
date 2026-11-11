@@ -10,4 +10,4 @@ tesserocr>=2.12,<3
 
 # pytesseract still needs a Tesseract 5 install (tesseract.exe, its DLLs and tessdata/)
 # in tesseract_bundle/ — see README. tesserocr reads the same tessdata/.
-# Build the exe with: pyinstaller BasePilot.spec   (pip install pyinstaller)
+# Build the exe with: pyinstaller BasePilot.spec   (pip install pyinstaller pefile)

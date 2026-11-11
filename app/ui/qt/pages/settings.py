@@ -94,6 +94,7 @@ class SettingsPage(QWidget):
         layout.addWidget(self._build_loot_filter_card())
         layout.addWidget(self._build_clan_card())
         layout.addWidget(self._build_window_card())
+        layout.addWidget(self._build_app_card())
         layout.addStretch()
         scroll.setWidget(content)
         outer.addWidget(scroll)
@@ -156,6 +157,22 @@ class SettingsPage(QWidget):
         return card
 
     
+    def _build_app_card(self):
+        '''App-wide preferences, kept outside the profile (QSettings "BasePilot/App").'''
+        from PySide6.QtCore import QSettings
+        card = Card()
+        card.card_layout.addWidget(SectionTitle('App'))
+        self._app_settings = QSettings('BasePilot', 'App')
+        self._check_updates = ToggleSwitch('Check for a new version at launch', parent = card)
+        self._check_updates.setChecked(self._app_settings.value('checkUpdates', True, type = bool))
+        self._check_updates.toggled.connect(lambda on: self._app_settings.setValue('checkUpdates', bool(on)))
+        card.card_layout.addWidget(self._check_updates)
+        hint = QLabel('One request to GitHub for the latest release of BasePilot, nothing about you or your account.')
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
+        card.card_layout.addWidget(hint)
+        return card
+
     def _build_loot_filter_card(self):
         '''Minimum loot a base must hold before the bot spends an army on it.'''
         card = Card()

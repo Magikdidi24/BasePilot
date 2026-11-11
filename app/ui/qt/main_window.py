@@ -2,11 +2,12 @@
 from __future__ import annotations
 import platform
 import sys
-from PySide6.QtCore import QSettings, QTimer, Qt
+import threading
+from PySide6.QtCore import QObject, QSettings, QTimer, Qt, Signal
 from PySide6.QtGui import QCloseEvent
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow, QStackedWidget, QStatusBar, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow, QStackedWidget, QStatusBar, QSystemTrayIcon, QVBoxLayout, QWidget
 from app import __version__
-from app.ui.qt.branding import apply_app_icon, logo_pixmap
+from app.ui.qt.branding import app_icon, apply_app_icon, logo_pixmap
 from app.ui.qt.bot_controller import BotController
 from app.ui.qt.dialogs import show_error
 from app.ui.qt.pages.logs import LogsPage
@@ -16,6 +17,7 @@ from app.ui.qt.pages.settings import SettingsPage
 from app.ui.qt.pages.stats import StatsPage
 from app.ui.qt.taskbar_thumb_qt import QtTaskbarThumb
 from app.ui.qt.theme import SIDEBAR_WIDTH, TOKENS, WINDOW_DEFAULT, WINDOW_MIN
+from app.utils import update_check
 PAGE_KEYS = [
     'run',
     'stats',
@@ -28,6 +30,11 @@ PAGE_LABELS = [
     'Settings',
     'Players',
     'Logs']
+
+class _UpdateNotice(QObject):
+    '''Carries the update check's answer from its thread to the window.'''
+    found = Signal(str, str)
+
 
 class MainWindow(QMainWindow):
 
@@ -82,6 +89,14 @@ class MainWindow(QMainWindow):
             self._stack.addWidget(page)
         root.addWidget(self._stack, stretch = 1)
         self._build_status_bar()
+        self._tray = None
+        if QSystemTrayIcon.isSystemTrayAvailable():  # Windows notifications at the end of a run
+            self._tray = QSystemTrayIcon(app_icon(), self)
+            self._tray.setToolTip('BasePilot')
+            self._tray.show()
+        self._update_notice = _UpdateNotice(self)
+        self._update_notice.found.connect(self._on_update_found)
+        self._update_checked = False
         self._wire_signals()
         self._sidebar.currentRowChanged.connect(self._stack.setCurrentIndex)
         self._restore_geometry()
@@ -137,9 +152,34 @@ class MainWindow(QMainWindow):
 
     def showEvent(self, event):
         super().showEvent(event)
+        if not self._update_checked:
+            self._update_checked = True
+            QTimer.singleShot(3000, self._check_for_update)
         if not self._taskbar_setup_done:
             QTimer.singleShot(500, self._setup_taskbar_thumb)
             return None
+
+    def _check_for_update(self):
+        '''Ask GitHub, off the UI thread, whether a newer release is out (Settings → App).'''
+        if not QSettings('BasePilot', 'App').value('checkUpdates', True, type = bool):
+            return None
+
+        def ask():
+            found = update_check.newer_release(__version__)
+            if found:
+                self._update_notice.found.emit(*found)
+        threading.Thread(target = ask, daemon = True, name = 'UpdateCheck').start()
+
+    def _on_update_found(self, tag, url):
+        link = QLabel(f'''<a href="{url}" style="color:{TOKENS['primary']}">{tag} available</a>''')
+        link.setOpenExternalLinks(True)
+        self.statusBar().addPermanentWidget(link)
+        self._notify(f'BasePilot {tag} is out', 'Download it from the Releases page (link in the status bar).')
+
+    def _notify(self, title, text, error = False):
+        if self._tray is not None:
+            kind = QSystemTrayIcon.MessageIcon.Critical if error else QSystemTrayIcon.MessageIcon.Information
+            self._tray.showMessage(title, text, kind, 8000)
 
 
     def closeEvent(self, event):
@@ -147,6 +187,8 @@ class MainWindow(QMainWindow):
             self._controller.stop()
         if not self._taskbar is None:
             self._taskbar.teardown()
+        if self._tray is not None:
+            self._tray.hide()
         self._settings.setValue('geometry', self.saveGeometry())
         self._settings.setValue('windowState', self.saveState())
         event.accept()
@@ -191,8 +233,10 @@ class MainWindow(QMainWindow):
             preview = error_msg[:50] + '...' if len(error_msg) > 50 else error_msg
             self._status_label.setText(f'''Error: {preview}''')
             self._status_label.setStyleSheet(f'''color: {TOKENS['danger']};''')
+            self._notify('BasePilot stopped on an error', preview, error = True)
             show_error(self, 'Error', str(error_msg))
             return None
+        self._notify('BasePilot', 'The run is over.')
         self._status_label.setText('Stopped')
         self._status_label.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
         if sys.platform == 'win32':
