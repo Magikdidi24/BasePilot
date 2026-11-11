@@ -66,6 +66,12 @@ every builder busy, BasePilot **idles** instead of raiding for loot that would
 overflow, rechecking every few minutes and resuming the moment something frees up.
 It only stops when you tell it to.
 
+**Start at set times.** On the Run page (*Schedule*), list times of day (`08:00, 13:30,
+21:00`): while BasePilot is open it presses Start by itself at each one, every day, with
+the page as it is set (village, strategy, duration, modes), and says so in a Windows
+notification. A run still going at that time is left alone; the start goes once it ends,
+if that is within 10 minutes.
+
 **Wall upgrades.** Buys walls one at a time (up to five per pass) when loot passes a
 threshold you set, elixir first. The builder reserve in Settings only applies while this is
 on.

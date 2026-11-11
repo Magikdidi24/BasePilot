@@ -1,20 +1,33 @@
 '''Run page — attack, schedule, modes, live status, controls.'''
 from __future__ import annotations
 from dataclasses import replace
+from datetime import datetime
 from typing import Callable, List, Optional
-from PySide6.QtCore import QSettings, Qt, QTimer
-from PySide6.QtWidgets import QButtonGroup, QGridLayout, QHBoxLayout, QLabel, QScrollArea, QSpinBox, QVBoxLayout, QWidget
+from PySide6.QtCore import QSettings, Qt, QTimer, Signal
+from PySide6.QtWidgets import QButtonGroup, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QScrollArea, QSpinBox, QVBoxLayout, QWidget
 from app.config import check_game_window_aspect_for_start
-from app.core import bb_strategy
+from app.core import bb_strategy, schedule
 from app.ui.qt._constants import ATTACK_STRATEGIES, BUILDER_BASE_ATTACK_STRATEGIES, BUILDER_BASE_ATTACK_STRATEGIES_UNDER_DEV
 from app.ui.qt.bot_controller import BotController
 from app.ui.qt.dialogs import show_error, show_under_development
 from app.ui.qt.theme import SPACING, TOKENS
 from app.ui.qt.widgets import Card, SectionTitle, StepperButton, ToggleSwitch, chip_button, danger_button, neutral_button, primary_button, segment_button
 from app.utils.player_list_store import PlayerEntry, load_players
+from app.utils.logger import setup_logger
 from app.utils.profile_settings_store import ATTACK_MIN_DARK_K_MAX, ATTACK_MIN_LOOT_K_MAX, load_profile_settings, save_profile_settings
+logger = setup_logger('Schedule')
+_SCHEDULE_CHECK_MS = 15000  # how often the set start times are checked
+
+
+def _when(text):
+    try:
+        return datetime.fromisoformat(str(text)) if text else None
+    except ValueError:
+        return None
+
 
 class RunPage(QWidget):
+    scheduledStart = Signal(str)  # a set start time ("14:00") just started a run
     _STRATEGY_LABELS = [
         'Valkyries',
         'Sneaky Goblins',
@@ -61,6 +74,7 @@ class RunPage(QWidget):
         outer.addWidget(scroll)
         self._apply_village_ui()
         self._restore_choices()
+        self._restore_schedule()
         self._controller.botStarted.connect(self._on_bot_started)
         self._controller.botFinished.connect(self._on_bot_finished_ui)
         self._controller.runningChanged.connect(self._on_running_changed)
@@ -266,7 +280,72 @@ class RunPage(QWidget):
         preset_row.addStretch()
         card.card_layout.addLayout(preset_row)
         self._on_star_bonus_toggle(self._star_bonus.isChecked())
+        self._timed = ToggleSwitch('Start at set times (every day)', parent = card)
+        card.card_layout.addWidget(self._timed)
+        times_row = QHBoxLayout()
+        self._times_edit = QLineEdit(card)
+        self._times_edit.setPlaceholderText('08:00, 13:30, 21:00')
+        self._times_edit.setFixedWidth(220)
+        times_row.addWidget(self._times_edit)
+        times_row.addSpacing(SPACING['xs'])
+        self._times_note = self._muted('', card)
+        times_row.addWidget(self._times_note)
+        times_row.addStretch()
+        card.card_layout.addLayout(times_row)
+        timed_hint = self._muted('While BasePilot is open, it presses Start by itself at each time, with this page as it is set '
+                                 '(village, strategy, duration, modes). A run still going at that time is left alone: the start '
+                                 'goes once it ends, if that is within 10 minutes.', card)
+        timed_hint.setWordWrap(True)
+        card.card_layout.addWidget(timed_hint)
+        self._schedule_timer = QTimer(self)
+        self._schedule_timer.setInterval(_SCHEDULE_CHECK_MS)
+        self._schedule_timer.timeout.connect(self._check_schedule)
         return card
+
+    def _restore_schedule(self):
+        self._times_edit.setText(str(self._settings.value('schedule/times', '') or ''))
+        self._timed.setChecked(self._settings.value('schedule/enabled', False, type = bool))
+        self._schedule_last = _when(self._settings.value('schedule/last', ''))
+        self._timed.toggled.connect(self._on_schedule_changed)
+        self._times_edit.textChanged.connect(self._on_schedule_changed)
+        self._update_schedule_note()
+        self._schedule_timer.start()
+
+    def _on_schedule_changed(self, *_args):
+        self._settings.setValue('schedule/enabled', self._timed.isChecked())
+        self._settings.setValue('schedule/times', self._times_edit.text().strip())
+        self._update_schedule_note()
+
+    def _update_schedule_note(self, now = None):
+        (times, bad) = schedule.parse_times(self._times_edit.text())
+        now = now or datetime.now()
+        if bad:
+            text = 'Not a time: ' + ', '.join(bad)
+        elif not times:
+            text = 'Times as HH:MM'
+        elif not self._timed.isChecked():
+            text = 'Off'
+        else:
+            at = schedule.next_start(now, times)
+            text = f'''Next start: {'today' if at.date() == now.date() else 'tomorrow'} {at:%H:%M}'''
+        self._times_note.setText(text)
+
+    def _check_schedule(self, now = None):
+        '''Start the run a set time calls for (see :mod:`app.core.schedule`).'''
+        now = now or datetime.now()
+        self._update_schedule_note(now)
+        if not self._timed.isChecked():
+            return None
+        (times, _bad) = schedule.parse_times(self._times_edit.text())
+        at = schedule.due(now, times, getattr(self, '_schedule_last', None))
+        if at is None or self._controller.is_running():
+            return None  # a run going on: checked again until it ends, or the start is too late
+        self._schedule_last = at  # once, even when the start does not go (a setting to fix first)
+        self._settings.setValue('schedule/last', at.isoformat(timespec = 'minutes'))
+        logger.info('Scheduled start (%s)', f'{at:%H:%M}')
+        self.start_bot()
+        if self._controller.is_running():
+            self.scheduledStart.emit(f'{at:%H:%M}')
 
     
     def _build_modes_card(self):

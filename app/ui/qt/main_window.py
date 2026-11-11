@@ -81,6 +81,7 @@ class MainWindow(QMainWindow):
         root.addWidget(sidebar_panel)
         self._stack = QStackedWidget()
         self._run_page = RunPage(self._controller, self.navigate_to)
+        self._run_page.scheduledStart.connect(lambda at: self._notify('Scheduled run', f'The {at} run has started.'))
         self._stats_page = StatsPage()
         self._settings_page = SettingsPage()
         self._players_page = PlayersPage()
