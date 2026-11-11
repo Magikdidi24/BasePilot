@@ -20,7 +20,11 @@ notch of the base gives more) and by its distance to the base's centre (the core
 the Builder Hall usually is). The best spot of each side of the base is an entry; the
 attack takes one of the three best sides at random, so it does not always come from the
 same place, and the others are kept for when the first troop does not land.
+
+A P.E.K.K.A push goes for the Multi Mortar first (:func:`multi_mortar`, :func:`towards`):
+its splash is what stops them.
 '''
+import itertools
 import math
 import random
 from dataclasses import dataclass
@@ -48,6 +52,15 @@ _SECTORS = 12  # sides of the base, one entry each
 _APART = 0.15  # screen heights between two entries (a notch by the centre is the best spot of several sides)
 _PICK = (3, 2, 1)  # odds of the three best sides
 _JITTER = 0.006  # screen heights along the edge, so two troops do not stack on one pixel
+# The Multi Mortar: four tube openings close together, whatever its level (wood, stone,
+# silver, gold) or the map's light. Sizes in px of a 767 px high frame.
+_TUBE_DARK = 45  # V of an opening
+_TUBE_RIM = 30  # V its rim is lighter by, at least (a shadow has no lighter rim)
+_TUBE_AREA = (6, 80)
+_TUBE_SIDE = 11  # an opening's box side, at most
+_TUBES_RADIUS = 14  # the four openings around their centre
+_TUBES_APART = 4  # between two openings, at least
+_NEAR_TARGET = 0.02  # screen heights: landing spots this much farther than the nearest one to a target still count
 
 
 @dataclass
@@ -145,6 +158,72 @@ def scout(frame, rng = random):
     top = ranked[:len(_PICK)]
     chosen = rng.choices(top, weights = _PICK[:len(top)])[0]
     return Scouting((int(cx * _WORK), int(cy * _WORK)), [chosen] + [p for p in ranked if p != chosen], valid, distance, h)
+
+
+def _openings(frame, s):
+    '''Dark round openings with a lighter rim: (x, y, area), px.'''
+    val = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)[..., 2]
+    (n, labels, stats, centres) = cv2.connectedComponentsWithStats((val < _TUBE_DARK).astype(np.uint8), connectivity = 8)
+    found = []
+    for i in range(1, n):
+        (x0, y0, bw, bh, area) = (int(v) for v in stats[i])
+        if not (_TUBE_AREA[0] * s * s <= area <= _TUBE_AREA[1] * s * s and 2 <= min(bw, bh) and max(bw, bh) <= min(_TUBE_SIDE * s, 2 * min(bw, bh))
+                and area >= 0.45 * bw * bh):
+            continue
+        (X0, Y0) = (max(0, x0 - 3), max(0, y0 - 3))
+        inside = labels[Y0:y0 + bh + 3, X0:x0 + bw + 3] == i
+        ring = cv2.dilate(inside.astype(np.uint8), np.ones((5, 5), np.uint8)).astype(bool) & ~inside
+        patch = val[Y0:y0 + bh + 3, X0:x0 + bw + 3]
+        if ring.any() and float(patch[ring].mean()) - float(patch[inside].mean()) >= _TUBE_RIM:
+            found.append((float(centres[i][0]), float(centres[i][1]), float(area)))
+    return found
+
+
+def multi_mortar(frame, scouting):
+    '''Centre (px) of the base's Multi Mortar, or None: four tube openings (:func:`_openings`)
+    within :data:`_TUBES_RADIUS` of their centre, alike in size, at the corners of a fairly
+    regular quadrilateral. Live GPG: the six of twelve bases that have one, from the wooden
+    low level to the gold one, in both maps' lights, and nothing else.'''
+    s = frame.shape[0] / 767
+    on_base = scouting.distance <= _MERGE / 4  # in the base or at its very edge
+    holes = [p for p in _openings(frame, s) if on_base[min(on_base.shape[0] - 1, int(p[1]) // _WORK), min(on_base.shape[1] - 1, int(p[0]) // _WORK)]]
+    best = None
+    for (i, a) in enumerate(holes):
+        near = [b for b in holes[i + 1:] if math.hypot(b[0] - a[0], b[1] - a[1]) <= 2 * _TUBES_RADIUS * s]
+        for trio in itertools.combinations(near, 3):
+            quad = (a,) + trio
+            (mx, my) = (sum(p[0] for p in quad) / 4, sum(p[1] for p in quad) / 4)
+            if max(math.hypot(p[0] - mx, p[1] - my) for p in quad) > _TUBES_RADIUS * s:
+                continue
+            if min(math.hypot(p[0] - q[0], p[1] - q[1]) for (p, q) in itertools.combinations(quad, 2)) < _TUBES_APART * s:
+                continue
+            areas = [p[2] for p in quad]
+            if max(areas) > 3 * min(areas):
+                continue
+            hull = cv2.convexHull(np.array([(p[0], p[1]) for p in quad], np.float32)).reshape(-1, 2)
+            if len(hull) != 4:
+                continue
+            sides = [math.hypot(*(hull[k] - hull[(k + 1) % 4])) for k in range(4)]
+            diagonals = (math.hypot(*(hull[0] - hull[2])), math.hypot(*(hull[1] - hull[3])))
+            if max(sides) > 1.8 * min(sides) or min(diagonals) < 0.85 * sum(sides) / 4:
+                continue
+            regularity = max(sides) / min(sides) + max(areas) / min(areas)
+            if best is None or regularity < best[0]:
+                best = (regularity, (int(mx), int(my)))
+    return best[1] if best else None
+
+
+def towards(scouting, target, rng = random):
+    '''Entries for an attack on ``target`` (px): a landing spot about the nearest to it,
+    then the scouting's own entries (other sides) for when that one does not land.'''
+    (ys, xs) = np.nonzero(scouting.valid)
+    (px, py) = (xs * _WORK + _WORK // 2, ys * _WORK + _WORK // 2)
+    far = np.hypot(px - target[0], py - target[1])
+    close = np.nonzero(far <= far.min() + _NEAR_TARGET * scouting.frame_height)[0]
+    i = int(close[int(rng.uniform(0, len(close))) % len(close)])
+    first = (int(px[i]), int(py[i]))
+    h = scouting.frame_height
+    return [first] + [e for e in scouting.entries if math.hypot(e[0] - first[0], e[1] - first[1]) >= _APART * h]
 
 
 def side(scouting, entry):

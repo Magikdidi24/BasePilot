@@ -120,9 +120,9 @@ class PlanTests(unittest.TestCase):
         self.assertLess(x1, 614)
 
     def test_the_machine_and_tanks_open_a_little_apart_the_bomber_behind(self):
-        cards = [bb_strategy.Card('bomber', (724, 688))] + [bb_strategy.Card('pekka', (275 + 90 * k, 688)) for k in range(5)]
+        cards = [bb_strategy.Card('bomber', (724, 688))] + [bb_strategy.Card('boxer', (275 + 90 * k, 688)) for k in range(5)]
         steps = bb_strategy.plan(cards, (159, 705), bb_strategy.edge_front(self.EDGE, self.H, rng=self.STILL))
-        self.assertEqual([s.troop for s in steps], ['machine'] + ['pekka'] * 5 + ['bomber'])
+        self.assertEqual([s.troop for s in steps], ['machine'] + ['boxer'] * 5 + ['bomber'])
         self.assertEqual([s.card for s in steps[1:6]], [(275 + 90 * k, 688) for k in range(5)])  # left to right
         self.assertEqual([s.wait for s in steps], [0.0, 0.3, 0.0, 0.0, 0.0, 0.0, 1.0])  # the Bomber once the tanks draw fire
         (along, off) = self.offsets(steps)
@@ -131,6 +131,20 @@ class PlanTests(unittest.TestCase):
         for (got, want) in zip(along[1:6], (0.025, -0.025, 0.05, -0.05, 0.075)):  # the tanks around it, splash apart
             self.assertAlmostEqual(got, want, delta=0.002)
         self.assertAlmostEqual(along[6], 0.0, delta=0.002)  # the Bomber behind them
+
+    def test_a_pekka_push_bombers_open_the_walls_then_pekkas_then_the_machine(self):
+        # the player's play: the Bomber first (its Bouncing Bomb opens the walls), the P.E.K.K.As
+        # go in right behind it, the machine follows them
+        cards = [bb_strategy.Card('bomber', (724, 688))] + [bb_strategy.Card('pekka', (275 + 90 * k, 688)) for k in range(5)]
+        steps = bb_strategy.plan(cards, (159, 705), bb_strategy.edge_front(self.EDGE, self.H, rng=self.STILL))
+        self.assertEqual([s.troop for s in steps], ['bomber'] + ['pekka'] * 5 + ['machine'])
+        self.assertEqual([s.wait for s in steps], [0.0, 0.3, 0.0, 0.0, 0.0, 0.0, 0.0])
+        (along, _off) = self.offsets(steps)
+        self.assertAlmostEqual(along[0], 0.0, delta=0.002)  # the Bomber at the entry
+        for (got, want) in zip(along[1:6], (0.0, 0.025, -0.025, 0.05, -0.05)):
+            self.assertAlmostEqual(got, want, delta=0.002)
+        self.assertAlmostEqual(along[6], 0.0, delta=0.002)
+        self.assertEqual(bb_strategy.PROFILES['bomber'].ability_at, 2.0)  # the bomb as it reaches the walls
 
     def test_flankers_out_on_both_sides_then_breakers_support_and_lone_dragons(self):
         cards = ([bb_strategy.Card('barbarian', (100 + 10 * k, 688)) for k in range(6)]
@@ -214,6 +228,32 @@ class ScoutTests(unittest.TestCase):
     def test_no_base_on_a_blank_screen(self):
         self.assertIsNone(bb_scout.scout(np.zeros((767, 1227, 3), np.uint8)))
 
+    MORTARS = {'green_middle': (717, 415), 'green_bottom': (444, 346), 'green_left': (594, 394),  # gold, stone, wood
+               'blue_gold_mortar': (527, 349), 'green_silver_mortar': (539, 408),
+               'blue_middle': None, 'green_long_wall': None, 'blue_bottom_left': None, 'blue_spread': None}
+
+    def test_the_multi_mortar_whatever_its_level_and_light(self):
+        for (name, want) in self.MORTARS.items():
+            frame = self.battle(name)
+            got = bb_scout.multi_mortar(frame, bb_scout.scout(frame))
+            if want is None:
+                self.assertIsNone(got, name)
+            else:
+                self.assertIsNotNone(got, name)
+                self.assertLessEqual(math.dist(got, want), 8, (name, got))
+
+    def test_a_pekka_push_lands_by_the_multi_mortar(self):
+        for (name, mortar) in self.MORTARS.items():
+            if mortar is None:
+                continue
+            scouting = bb_scout.scout(self.battle(name))
+            entries = bb_scout.towards(scouting, mortar, rng=random.Random(4))
+            (ys, xs) = np.nonzero(scouting.valid)
+            nearest = float(np.hypot(xs * 4 + 2 - mortar[0], ys * 4 + 2 - mortar[1]).min())
+            self.assertTrue(scouting.valid[entries[0][1] // 4, entries[0][0] // 4], name)
+            self.assertLessEqual(math.dist(entries[0], mortar), nearest + 0.02 * 767 + 1, name)
+            self.assertGreaterEqual(len(entries), 2, name)  # other sides for when that spot does not land
+
 
 class FightTests(unittest.TestCase):
     def test_return_home_of_the_results_screen(self):
@@ -295,10 +335,10 @@ class FightTests(unittest.TestCase):
                 patch.object(bot, '_bb_landed', side_effect=[False, True]) as landed:
             abilities = bot._deploy_bb_army(np.zeros((767, 1227, 3), np.uint8))
         taps = [c.args[:2] for c in bot.input.click.call_args_list]
-        # the machine on side A (a no-deploy spot), again on side B, where everyone follows
-        self.assertEqual(taps, [(159, 705), (300, 200), (159, 705), (800, 300), (275, 688), (800, 300), (365, 688), (800, 300)])
+        # the first P.E.K.K.A on side A (a no-deploy spot), again on side B, where everyone follows
+        self.assertEqual(taps, [(275, 688), (300, 200), (275, 688), (800, 300), (365, 688), (800, 300), (159, 705), (800, 300)])
         self.assertEqual(landed.call_count, 2)
-        self.assertEqual([a.card for a in abilities.items], [(159, 705), (275, 688), (365, 688)])  # the machine's once
+        self.assertEqual([a.card for a in abilities.items], [(275, 688), (365, 688), (159, 705)])  # its ability once
 
 
 class LiveStatusTests(unittest.TestCase):
@@ -317,6 +357,43 @@ class LiveStatusTests(unittest.TestCase):
         states = [c.args[0] for c in bot._state_callback.call_args_list]
         self.assertEqual([s['state'] for s in states], ['Builder Base'] * 3)
         self.assertEqual([s['storages'] for s in states], ['652k / 1.4M', '660k / 1.4M', None])
+
+
+class CartTests(unittest.TestCase):
+    @staticmethod
+    def home(name):
+        """The Builder Base village, back from a battle (y 76-552 of a 1227x767 frame)."""
+        frame = np.zeros((767, 1227, 3), np.uint8)
+        frame[76:552] = cv2.imread(str(FIXTURES / f'gpg767_bb_home_cart_{name}.jpg'))
+        Config().set_target_size_from_frame(frame)
+        return frame
+
+    def test_the_full_cart_wherever_the_view_left_it(self):
+        bot = make_bot(VisionService)
+        for (name, want) in (('full', (842, 120)), ('panned', (848, 393)), ('not_full', None)):
+            with patch.object(bot, '_bb_still_frame', return_value=self.home(name)):
+                got = bot._find_bb_full_elixir_cart()
+            if want is None:
+                self.assertIsNone(got, name)
+            else:
+                self.assertLessEqual(math.dist(got, want), 10, (name, got))
+
+    def collect(self, finds):
+        bot = make_bot()
+        with patch.object(bot, '_find_bb_full_elixir_cart', side_effect=finds), \
+                patch.object(bot, '_bb_pan_down_left_from_center') as pan, \
+                patch.object(bot, '_wait_for_image', return_value=(613, 600)):
+            bot._bb_collect_elixir_cart_after_attack()
+        return ([c.args[:2] for c in bot.input.click.call_args_list], pan.call_count)
+
+    def test_a_cart_on_screen_is_collected_without_a_pan(self):
+        self.assertEqual(self.collect([(842, 120)]), ([(842, 120), (613, 600)], 0))
+
+    def test_a_cart_off_screen_is_looked_for_after_one_pan(self):
+        self.assertEqual(self.collect([None, (848, 393)]), ([(848, 393), (613, 600)], 1))
+
+    def test_no_tap_at_all_without_a_full_cart(self):
+        self.assertEqual(self.collect([None, None]), ([], 1))  # no "empty" taps on the walls
 
 
 class CardTests(unittest.TestCase):

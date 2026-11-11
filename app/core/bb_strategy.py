@@ -18,7 +18,10 @@ troop bar). The push enters at the front's entry, and
   no other air unit near).
 
 That is the play of BB 2.0 guides (tank first, Bombers behind it, flanks at once, troops
-spread against splash), for a base the bot does not read.
+spread against splash). A P.E.K.K.A push goes otherwise (the player's own play): the
+Bombers land first and open the walls with their Bouncing Bomb, the P.E.K.K.As go in
+right behind them, the machine follows, and the attack comes from the side of the Multi
+Mortar (:func:`app.core.bb_scout.towards`).
 
 A troop's profile also says when its ability fires, by tapping its card again (BB 2.0):
 Boxer Block, Overcharge, Bouncing Bomb (it recharges), Skeleton Bomb, Bat Swarm, Fiery
@@ -72,7 +75,7 @@ PROFILES = {
     'barbarian': TroopProfile(FLANK, None),  # Rage (22 s, passive)
     'archer': TroopProfile(FLANK, None),  # Cloak (11 s, passive): picks off the outer buildings
     'minion': TroopProfile(FLANK, None),  # Power Shot (passive): the edge buildings
-    'bomber': TroopProfile(BREAKER, 3.0, ability_every = 2.0),  # walls: Bouncing Bomb, again once recharged
+    'bomber': TroopProfile(BREAKER, 2.0, ability_every = 2.0),  # walls: Bouncing Bomb as it reaches them, again once recharged
     'witch': TroopProfile(SUPPORT, 4.0, ability_hp = 0.9, ability_latest = 10.0),  # Bat Swarm once she is hit
     'cannoncart': TroopProfile(SUPPORT, None),  # stays a mobile cart (Mortar Mode left off)
     'babydragon': TroopProfile(LONE, 3.0, ability_hp = 0.85, ability_latest = 9.0),  # Fiery Sneeze when hit
@@ -86,6 +89,7 @@ TROOP_NAMES = {MACHINE: 'Battle Machine / Copter', 'boxer': 'Boxer Giant', 'pekk
 # role: (s to wait before its first card, screen heights between two of its cards along the front)
 _ROLES = {TANK: (0.3, 0.025), FLANK: (0.0, 0.02), BREAKER: (1.0, 0.015), SUPPORT: (1.2, 0.025), LONE: (0.5, 0.08), OTHER: (0.3, 0.02)}
 _ROLE_ORDER = (TANK, FLANK, BREAKER, SUPPORT, LONE, OTHER)
+_PUSH_ORDER = (BREAKER, TANK, FLANK, SUPPORT, LONE, OTHER)  # a P.E.K.K.A push; the machine right after the tanks
 _FLANK = 0.17  # screen heights from the entry out to each flank (~10 tiles)
 _FLANK_PAIRS = 2  # flankers out on each side at most: one pair per three of them, the rest follow the tanks
 _LONE_FROM = 0.09  # screen heights from the entry to the first lone troop
@@ -331,32 +335,40 @@ def edge_front(edge, frame_height, rng = random):
     return at
 
 
+def pekka_push(cards):
+    return any(c.troop == 'pekka' for c in cards)
+
+
 def plan(cards, machine, front):
     '''Deploy steps, in order: the machine (``machine``: its card, or None), then the cards
-    role by role (see the module doc), each kind's cards left to right. ``front(offset)``
-    is the landing spot ``offset`` screen heights along the front from its entry
-    (:func:`edge_front`, :func:`app.core.bb_scout.front`).'''
+    role by role (see the module doc), each kind's cards left to right; for a P.E.K.K.A
+    push (:func:`pekka_push`), the Bombers, the P.E.K.K.As and the machine, then the rest.
+    ``front(offset)`` is the landing spot ``offset`` screen heights along the front from
+    its entry (:func:`edge_front`, :func:`app.core.bb_scout.front`).'''
     at = front
+    push = pekka_push(cards)
+    order = _PUSH_ORDER if push else _ROLE_ORDER
     kinds = list(PROFILES)
-    rank = lambda t: (_ROLE_ORDER.index(profile(t).role), kinds.index(t) if t in kinds else len(kinds), t)
+    rank = lambda t: (order.index(profile(t).role), kinds.index(t) if t in kinds else len(kinds), t)
     ordered = sorted(cards, key = lambda c: (rank(c.troop), c.tap[0]))
     steps = []
-    if machine is not None:
+    if machine is not None and not push:
         steps.append(Step(machine, at(0.0), 0.0, PROFILES[MACHINE], MACHINE))
-    for role in _ROLE_ORDER:
+    for role in order:
         group = [c for c in ordered if profile(c.troop).role == role]
-        if not group:
-            continue
-        (gap, spacing) = _ROLES[role]
-        if role == FLANK:
-            offsets = _flank_offsets(len(group), spacing)
-        elif role == LONE:
-            offsets = _lone_offsets(len(group), spacing)
-        else:  # the machine holds the tanks' middle slot
-            skip = 1 if role == TANK and machine is not None else 0
-            offsets = _centre_out(len(group) + skip, spacing)[skip:]
-        for (i, (card, offset)) in enumerate(zip(group, offsets)):
-            steps.append(Step(card.tap, at(offset), gap if i == 0 and steps else 0.0, profile(card.troop), card.troop))
+        if group:
+            (gap, spacing) = _ROLES[role]
+            if role == FLANK:
+                offsets = _flank_offsets(len(group), spacing)
+            elif role == LONE:
+                offsets = _lone_offsets(len(group), spacing)
+            else:  # the machine, landed first, holds the tanks' middle slot
+                skip = 1 if role == TANK and machine is not None and not push else 0
+                offsets = _centre_out(len(group) + skip, spacing)[skip:]
+            for (i, (card, offset)) in enumerate(zip(group, offsets)):
+                steps.append(Step(card.tap, at(offset), gap if i == 0 and steps else 0.0, profile(card.troop), card.troop))
+        if push and role == TANK and machine is not None:
+            steps.append(Step(machine, at(0.0), 0.0, PROFILES[MACHINE], MACHINE))
     return steps
 
 

@@ -84,6 +84,18 @@ The flanks land along the base's sides and clear the outer buildings, so the pus
 into the core instead of walking around it. A troop still on the bar after the deploy
 (its tap fell off the deploy zone) lands once more at the entry.
 
+An army with Power P.E.K.K.As is played as a P.E.K.K.A push: the Bombers land first and
+open the walls with their Bouncing Bomb (2 s after landing), the P.E.K.K.As go in right
+behind them, the machine follows, then the rest. The attack comes from the side of the
+Multi Mortar, whose splash is what stops them: the scouting looks for its four tube
+openings (dark, round, a lighter rim each, close together in a fairly regular
+quadrilateral), which every level has, from the wooden one to the gold one. With no
+Multi Mortar found, the side is picked as above.
+
+Back home after a battle, the elixir cart is collected when full: looked for on the view
+as it is, else after a pan once the view has stopped moving. Nothing else is tapped there
+(the home village's "empty" point lands on Builder Base walls and obstacles).
+
 Abilities go at the right moment, not all at once. During the fight each card shows its
 troop's health bar; an ability fires once its troop is engaged (health under the share
 above), never before the first time of its range and at the second at the latest. One tap

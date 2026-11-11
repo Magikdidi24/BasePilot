@@ -45,6 +45,8 @@ _BB_SPEED_MIN = 0.9
 _BB_SPEED_RETRY = 3  # s before another tap if it still reads 1x (a lost tap)
 _BB_LANDED_CHECK_AFTER = 0.6  # s after a deploy before the bar is read again (a landed troop's card is green by then)
 _BB_SIDES_TRIED = 3  # sides of the base the first troop tries before a map edge
+_BB_STILL_TIMEOUT = 2.0  # s to wait for the view to stop moving
+_BB_STILL_DIFF = 1.5  # mean grey change (160x100) between two frames 0.25 s apart under which the view is still
 _STAR_BONUS_THRESHOLD = 0.75
 _TROOP_FAILURE_LIMIT = 4
 _TROOP_RETRY_WAIT_SECONDS = 15  # training is instant since the Mar 2025 "Clash Anytime" update — this only lets the UI settle
@@ -1162,8 +1164,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         frame = self.window.screenshot()
         if not frame is None:
             self._update_config_size(frame)
-        empty_pt = self.config.get_point('empty')
-        self.input.click(pause = 0.2, *empty_pt)
+        # no tap on the home village's "empty" point here: it lands on Builder Base walls
         self.input.scroll(*self._scroll_point(), 20)
         if self.stop_event.wait(random.uniform(0.1, 0.3)):
             return None
@@ -1315,42 +1316,58 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             return None
 
     
-    def _find_bb_full_elixir_cart(self, attempts = 3):
-        '''Up to ``attempts`` screenshots; try fullecart templates in order (top-right quadrant).'''
-        empty_pt = self.config.get_point('empty')
-        for _ in range(attempts):
+    def _bb_still_frame(self):
+        '''A screenshot once the view has stopped moving (a pan glides on after the drag:
+        live, the cart moved 45 px more after the frame a tap was aimed with), or the last
+        one after :data:`_BB_STILL_TIMEOUT`.'''
+        (last, small) = (None, None)
+        deadline = time.monotonic() + _BB_STILL_TIMEOUT
+        while True:
             self._check_stop()
             frame = self.window.screenshot()
-            if not frame is None:  # [recovered: decompiler turned this `if` into a `while` and made the return unconditional]
+            if frame is not None:
                 self._update_config_size(frame)
-                roi = VisionService.top_right_quadrant_region(frame)
-                for template in _BB_FULL_ELIXIR_CART_TEMPLATES:
-                    (x, y) = self.vision.find_template(frame, template, threshold = 0.8, region = roi)
-                    if x:
-                        return (x, y)
-            self.input.click(pause = 0.15, *empty_pt)
-        return (None, None)
+                now = cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (160, 100), interpolation = cv2.INTER_AREA).astype(np.int16)
+                if small is not None and now.shape == small.shape and float(np.abs(now - small).mean()) < _BB_STILL_DIFF:
+                    return frame
+                (last, small) = (frame, now)
+            if time.monotonic() >= deadline or self.stop_event.wait(0.25):
+                return last
 
-    
+    def _find_bb_full_elixir_cart(self):
+        '''The full elixir cart on the still view, or None: anywhere between the top HUD and
+        the buttons (live, the cart showed at the top right before a pan, mid-right after).'''
+        frame = self._bb_still_frame()
+        if frame is None:
+            return None
+        (h, w) = frame.shape[:2]
+        region = (0, int(0.1 * h), w, int(0.62 * h))
+        for template in _BB_FULL_ELIXIR_CART_TEMPLATES:
+            (x, y) = self.vision.find_template(frame, template, threshold = 0.8, region = region)
+            if x:
+                return (x, y)
+        return None
+
     def _bb_collect_elixir_cart_after_attack(self):
-        '''After a BB raid: dismiss popups, pan to cart, collect full elixir cart if visible.'''
+        '''Back home after a battle: the elixir cart, when full, on the view as it is or else
+        after a pan, tapped, then its Collect. Nothing else is tapped: the home village's
+        "empty" point lands on Builder Base walls and obstacles.'''
         if self.stop_event.wait(0.35):
             return None
-        self.input.click(pause = 0.15, *self.config.get_point('empty'))
-        if self.stop_event.wait(0.15):
+        cart = self._find_bb_full_elixir_cart()
+        if cart is None:
+            self._bb_pan_down_left_from_center()
+            cart = self._find_bb_full_elixir_cart()
+        if cart is None:
+            logger.debug('Builder Base: elixir cart not full — nothing to collect')
             return None
-        self._bb_pan_down_left_from_center()
-        (cx, cy) = self._find_bb_full_elixir_cart(attempts = 3)
-        if cx:
-            self.input.click(cx, cy, pause = 0.2)
-            (coll_x, coll_y) = self._wait_for_image(_BB_COLLECT_TEMPLATE, timeout = 8, error = False)
-            if coll_x:
-                self.input.click(coll_x, coll_y, pause = 0.2)
-            else:
-                logger.warning('Builder Base: collect.png not found after elixir cart')
+        self.input.click(*cart, pause = 0.2)
+        (coll_x, coll_y) = self._wait_for_image(_BB_COLLECT_TEMPLATE, timeout = 8, error = False)
+        if coll_x:
+            self.input.click(coll_x, coll_y, pause = 0.2)
+            logger.info('Builder Base: elixir cart collected')
         else:
-            logger.debug('Builder Base: fullecart not visible — skipping cart collect')
-        self.input.click(pause = 0.15, *self.config.get_point('empty'))
+            logger.warning('Builder Base: collect.png not found after elixir cart')
 
     
     def _read_bb_bar(self, frame):
@@ -1374,18 +1391,24 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             self.input.click(*step.point, pause = _EDRAG_DELAY, rand = False)
             abilities.add(step, time.monotonic())
 
-    def _bb_fronts(self, frame):
+    def _bb_fronts(self, frame, cards):
         '''``(label, front)`` to attack from, best first: the sides of the base the scouting
-        found (:mod:`app.core.bb_scout`), then one top edge of the map as a last resort.'''
+        found (:mod:`app.core.bb_scout`) — for a P.E.K.K.A push, the side of the Multi
+        Mortar first — then one top edge of the map as a last resort.'''
         h = frame.shape[0]
         fronts = []
         try:
             scouting = bb_scout.scout(frame)
+            entries = scouting.entries if scouting is not None else []
+            mortar = bb_scout.multi_mortar(frame, scouting) if scouting is not None and bb_strategy.pekka_push(cards) else None
+            if mortar is not None:
+                logger.info('Builder Base: Multi Mortar at %s — the P.E.K.K.As go for it first', mortar)
+                entries = bb_scout.towards(scouting, mortar)
         except Exception:
             logger.warning('Builder Base: scouting failed', exc_info = True)
-            scouting = None
+            (scouting, entries) = (None, [])
         if scouting is not None:
-            for entry in scouting.entries[:_BB_SIDES_TRIED]:
+            for entry in entries[:_BB_SIDES_TRIED]:
                 fronts.append((f'at {entry}, {bb_scout.side(scouting, entry)} of the base centred at {scouting.centre}',
                                bb_scout.front(scouting, entry)))
         else:
@@ -1416,7 +1439,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         (cards, machine) = self._read_bb_bar(frame)
         if not cards and machine is None:
             return None
-        fronts = self._bb_fronts(frame)
+        fronts = self._bb_fronts(frame, cards)
         check = self._bb_swaps_shown(frame)  # before any troop lands, the swap buttons show
         abilities = bb_strategy.Abilities()
         for (k, (label, front)) in enumerate(fronts):
