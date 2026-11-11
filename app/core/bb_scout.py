@@ -80,9 +80,10 @@ def _hud(shape):
     return mask
 
 
-def scout(frame, rng = random):
+def scout(frame, rng = random, core_weight = _CORE_WEIGHT):
     ''':class:`Scouting` of the base on ``frame`` (the battle before the deploy), or None
-    when no floor or no base is found.'''
+    when no floor or no base is found. ``core_weight``: score lost per screen height to the
+    base's centre (higher: the side nearest the core; lower: the most buildings in reach).'''
     (h, w) = frame.shape[:2]
     small = cv2.resize(frame, (w // _WORK, h // _WORK), interpolation = cv2.INTER_AREA)
     (sh, sw) = small.shape[:2]
@@ -145,7 +146,7 @@ def scout(frame, rng = random):
     r = int(_REACH * sh)
     disk = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1)).astype(np.float32)
     in_reach = cv2.filter2D(buildings.astype(np.float32), -1, disk, borderType = cv2.BORDER_CONSTANT)[ys, xs]
-    score = in_reach / max(1.0, float(in_reach.max())) - _CORE_WEIGHT * np.hypot(xs - cx, ys - cy) * _WORK / h
+    score = in_reach / max(1.0, float(in_reach.max())) - core_weight * np.hypot(xs - cx, ys - cy) * _WORK / h
     sector = ((np.degrees(np.arctan2(ys - cy, xs - cx)) + 360) % 360 * _SECTORS // 360).astype(int)
     best = {}
     for i in np.argsort(-score, kind = 'stable'):

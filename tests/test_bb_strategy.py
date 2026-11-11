@@ -43,6 +43,10 @@ def make_bot(vision=None):
         vision.find_template_with_confidence.return_value = (None, None, 0.0)
     bot.vision = vision
     bot._update_config_size = Mock()
+    bot._bb_record_result = Mock(return_value=None)  # no results screen to read, no history written
+    bot._bb_plans = Mock()  # no history read
+    bot._bb_plans.summary.return_value = ''
+    bot._bb_plans.choose.side_effect = lambda army, available: available[0]
     return bot
 
 

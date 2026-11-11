@@ -9,7 +9,7 @@ from app.config import ASPECT_16_10, ASPECT_16_9, Config
 from app.core.clan import ClanAssistant, ClanOptions, missing_templates
 from app.core.loot_filter import TEMPLATE_NEXT_BASE, LootFilter, combine_reads, meets, read_enemy_loot
 from app.core.strategies import AttackStrategy, EdragStrategy, TroopSpamStrategy, _EDRAG_DELAY
-from app.core import bb_scout, bb_strategy
+from app.core import bb_learning, bb_results, bb_scout, bb_strategy
 from app.core.build_panel import BuildPanelUpgrader, find_close, gem_prompt_visible, wall_upgrade_button
 from app.core.upgrade_menu import RESOURCE_ELIXIR, RESOURCE_GOLD
 from app.core.upgrader import AUTO_UPGRADE_MODES, LIVE_UPGRADE_MODES, MODE_OFF, UpgradeAdvisor, is_october_build_panel_hud
@@ -17,6 +17,7 @@ from app.core.village_state import read_hud_triplet_stable, read_village_state, 
 from app.services.input import InputService
 from app.services.vision import BOTTOM_HALF_BOT_TEMPLATES, TOP_HALF_BOT_TEMPLATES, VisionService
 from app.services.window import WindowService
+from app.utils import battle_history
 from app.utils.common import get_template_path
 from app.utils.logger import setup_logger
 from app.utils.player_list_store import PlayerEntry
@@ -45,6 +46,7 @@ _BB_SPEED_MIN = 0.9
 _BB_SPEED_RETRY = 3  # s before another tap if it still reads 1x (a lost tap)
 _BB_LANDED_CHECK_AFTER = 0.6  # s after a deploy before the bar is read again (a landed troop's card is green by then)
 _BB_SIDES_TRIED = 3  # sides of the base the first troop tries before a map edge
+_BB_CORE_WEIGHTS = {'core': 3.0, 'reach': 0.3}  # the scouting's core weight of these plans (best: its own, 1.2)
 _BB_STILL_TIMEOUT = 2.0  # s to wait for the view to stop moving
 _BB_STILL_DIFF = 1.5  # mean grey change (160x100) between two frames 0.25 s apart under which the view is still
 _STAR_BONUS_THRESHOLD = 0.75
@@ -1226,6 +1228,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
     def _bb_attack_once(self, cb):
         '''One Builder Base battle: Battle → Find Now → deploy → play it to its end (never
         End Battle nor Surrender). False when no battle was played (a control never showed up).'''
+        self._bb_plan = None  # a new battle draws its attack plan
         self.input.scroll(*self._scroll_point(), 20)
         if self.stop_event.wait(random.uniform(0.1, 0.25)):
             self._check_stop()
@@ -1406,12 +1409,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         h = frame.shape[0]
         fronts = []
         try:
-            scouting = bb_scout.scout(frame)
-            entries = scouting.entries if scouting is not None else []
-            mortar = bb_scout.multi_mortar(frame, scouting) if scouting is not None and bb_strategy.pekka_push(cards) else None
-            if mortar is not None:
-                logger.info('Builder Base: Multi Mortar at %s — the P.E.K.K.As go for it first', mortar)
-                entries = bb_scout.towards(scouting, mortar)
+            (scouting, entries) = self._bb_plan_entries(frame, cards)
         except Exception:
             logger.warning('Builder Base: scouting failed', exc_info = True)
             (scouting, entries) = (None, [])
@@ -1425,6 +1423,54 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         edge = bb_strategy.front_edge(self.config.get_point(side), self.config.get_point('top'), h)
         fronts.append((f'from the {side} edge of the map', bb_strategy.edge_front(edge, h)))
         return fronts
+
+    def _bb_learner(self):
+        learner = getattr(self, '_bb_plans', None)
+        if learner is None:
+            learner = self._bb_plans = bb_learning.PlanLearner.from_history(battle_history.load())
+        return learner
+
+    def _bb_plan_entries(self, frame, cards):
+        '''``(scouting, entries)`` of the battle's attack plan (:mod:`app.core.bb_learning`):
+        drawn at the first stage among the plans that apply, kept for the second.'''
+        scouting = bb_scout.scout(frame)
+        if scouting is None:
+            return (None, [])
+        army = bb_learning.PEKKA if bb_strategy.pekka_push(cards) else bb_learning.OTHER
+        mortar = bb_scout.multi_mortar(frame, scouting) if army == bb_learning.PEKKA else None
+        available = ['best', 'core', 'reach'] + (['mortar'] if mortar is not None else [])
+        plan = getattr(self, '_bb_plan', None)
+        if plan is None or plan[1] not in available:
+            learner = self._bb_learner()
+            plan = self._bb_plan = (army, learner.choose(army, available))
+            logger.info('Builder Base: attack plan "%s" (expected damage: %s)', plan[1], learner.summary(army, available))
+        if plan[1] == 'mortar':
+            logger.info('Builder Base: Multi Mortar at %s — the P.E.K.K.As go for it first', mortar)
+            return (scouting, bb_scout.towards(scouting, mortar))
+        if plan[1] in _BB_CORE_WEIGHTS:
+            scouting = bb_scout.scout(frame, core_weight = _BB_CORE_WEIGHTS[plan[1]]) or scouting
+        return (scouting, scouting.entries)
+
+    def _bb_record_result(self, start):
+        '''Read the results screen once settled, log it, and score the battle's plan.'''
+        def capture():
+            frame = self.window.screenshot()
+            if frame is not None:
+                self._update_config_size(frame)
+            return frame
+        result = bb_results.settled_result(capture, self.stop_event.wait)
+        if result is None:
+            logger.info('Builder Base: results screen not read')
+            return None
+        plan = getattr(self, '_bb_plan', None)
+        logger.info('Builder Base: %d star(s), %d %% damage, %s gold, %s trophies (plan %s, %ds)', result.stars, result.damage,
+                    result.gold, result.trophies, plan[1] if plan else '-', int(time.monotonic() - start))
+        record = dict(result.as_dict(), village = 'builder', seconds = int(time.monotonic() - start))
+        if plan is not None:
+            record.update(army = plan[0], plan = plan[1])
+            self._bb_learner().record(plan[0], plan[1], result.damage)
+        battle_history.append(record)
+        return result
 
     def _bb_swaps_shown(self, frame):
         return bool(VisionService.find_all_template_centers(frame, _BB_CARD_SWAP_TEMPLATE, region = VisionService.bottom_half_region(frame), max_matches = 1))
@@ -1519,6 +1565,12 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                 next_ocr = now + _BB_RETURN_HOME_OCR_EVERY
             if point:
                 logger.info('Builder Base: battle over after %ds — returning home', int(now - start))
+                try:
+                    self._bb_record_result(start)  # lets the screen settle: its Return Home takes the tap then
+                except InterruptedError:
+                    raise
+                except Exception:
+                    logger.warning('Builder Base: could not record the result', exc_info = True)
                 self.input.click(*point, pause = 0.3)
                 return True
             ability = abilities.next_tap(now, frame)

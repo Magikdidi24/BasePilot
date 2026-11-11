@@ -92,6 +92,17 @@ openings (dark, round, a lighter rim each, close together in a fairly regular
 quadrilateral), which every level has, from the wooden one to the gold one. With no
 Multi Mortar found, the side is picked as above.
 
+The bot learns which way of picking the side wins (`app/core/bb_learning.py`). At the end
+of each battle it reads the results screen once its animation is over (stars, gold or
+silver; total damage; gold and trophies won) and writes the battle to `battles.jsonl` in
+`%LOCALAPPDATA%\BasePilot`. Four plans: **best** (the blend above), **core** (the side
+nearest the base's centre), **reach** (the most buildings in reach), **mortar** (the Multi
+Mortar's side, for a P.E.K.K.A push). Each battle's plan is drawn by Thompson sampling on
+the damage the plans did so far, per army: plans that win are played more, the others now
+and then. The P.E.K.K.A push starts with the Multi Mortar first (the player's play) leading,
+and yields only to a plan that does clearly better. The log gives each draw and the
+damage each plan is expected to do.
+
 Back home after a battle, the elixir cart is collected when full: looked for on the view
 as it is, else after a pan once the view has stopped moving. Nothing else is tapped there
 (the home village's "empty" point lands on Builder Base walls and obstacles).
