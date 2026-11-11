@@ -12,7 +12,7 @@ from app.ui.qt.template_capture import TemplateCaptureDialog
 from app.ui.qt.theme import SPACING, TOKENS
 from app.ui.qt.widgets import Card, PageTitle, SectionTitle, ToggleSwitch, neutral_button, primary_button
 from app.utils.logger import setup_logger
-from app.utils.profile_settings_store import ATTACK_MAX_SKIPS_MAX, ATTACK_MIN_LOOT_K_MAX, CLAN_MIN_ELIXIR_K_MAX, CLAN_DONATE_COUNT_MAX, CLAN_DONATE_INTERVAL_M_MAX, CLAN_DONATE_INTERVAL_M_MIN, CLAN_REQUEST_INTERVAL_M_MAX, CLAN_REQUEST_INTERVAL_M_MIN, EARTHQUAKE_METHOD_OPTIONS, RESERVE_BUILDERS_MAX, WALL_UPGRADE_THRESHOLD_M_MAX, ProfileSettings, load_profile_settings, save_profile_settings
+from app.utils.profile_settings_store import ATTACK_MAX_SKIPS_MAX, ATTACK_MIN_DARK_K_MAX, ATTACK_MIN_LOOT_K_MAX, CLAN_MIN_ELIXIR_K_MAX, CLAN_DONATE_COUNT_MAX, CLAN_DONATE_INTERVAL_M_MAX, CLAN_DONATE_INTERVAL_M_MIN, CLAN_REQUEST_INTERVAL_M_MAX, CLAN_REQUEST_INTERVAL_M_MIN, EARTHQUAKE_METHOD_OPTIONS, RESERVE_BUILDERS_MAX, WALL_UPGRADE_THRESHOLD_M_MAX, ProfileSettings, load_profile_settings, save_profile_settings
 from app.utils.window_settings_store import clear_window_selection, load_window_selection, save_window_selection
 logger = setup_logger('SettingsPage')
 # Display label -> the key stored in settings.json (see app.core.clan).
@@ -190,6 +190,19 @@ class SettingsPage(QWidget):
         elixir_row.addWidget(elixir_unit)
         elixir_row.addStretch()
         card.card_layout.addLayout(elixir_row)
+        dark_row = QHBoxLayout()
+        self._attack_min_dark = QSpinBox()
+        self._attack_min_dark.setRange(0, ATTACK_MIN_DARK_K_MAX)
+        self._attack_min_dark.setSingleStep(1)
+        self._attack_min_dark.setSuffix('k')
+        self._attack_min_dark.setSpecialValueText('any')
+        self._attack_min_dark.setFixedWidth(88)
+        dark_row.addWidget(self._attack_min_dark)
+        dark_unit = QLabel('dark elixir')
+        dark_unit.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
+        dark_row.addWidget(dark_unit)
+        dark_row.addStretch()
+        card.card_layout.addLayout(dark_row)
         skips_row = QHBoxLayout()
         self._attack_max_skips = QSpinBox()
         self._attack_max_skips.setRange(0, ATTACK_MAX_SKIPS_MAX)
@@ -463,6 +476,7 @@ class SettingsPage(QWidget):
         self._update_clan_templates_label()
         self._attack_min_gold.setValue(settings.attack_min_gold_k)
         self._attack_min_elixir.setValue(settings.attack_min_elixir_k)
+        self._attack_min_dark.setValue(settings.attack_min_dark_k)
         self._attack_max_skips.setValue(settings.attack_max_skips)
 
 
@@ -484,6 +498,7 @@ class SettingsPage(QWidget):
             clan_request_interval_m = self._clan_request_interval.value(),
             attack_min_gold_k = self._attack_min_gold.value(),
             attack_min_elixir_k = self._attack_min_elixir.value(),
+            attack_min_dark_k = self._attack_min_dark.value(),
             attack_max_skips = self._attack_max_skips.value()))
         self._flash_status_bar('Saved')
 

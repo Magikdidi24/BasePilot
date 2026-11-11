@@ -71,7 +71,7 @@ threshold you set, elixir first. The builder reserve in Settings only applies wh
 on.
 
 **Loot filter.** Home Village only. Reads the loot a matched base is holding and presses
-**Next** until one clears your minimums, so an army is never spent on a 40k base. Off until
+**Next** until one clears your minimums (gold, elixir, and dark elixir if you set one), so an army is never spent on a 40k base. Off until
 you set the minimums, on the Run page (*Minimum loot*, with the Home Village attack) or in
 *Settings -> Minimum loot to attack*, and bounded by a skip cap (Settings), because every
 Next costs another search fee; the Run page counts the bases it skipped. Both 16:9 and

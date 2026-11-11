@@ -30,6 +30,7 @@ def _loot_filter(profile):
     return LootFilter(
         min_gold = int(profile.attack_min_gold_k) * 1000,
         min_elixir = int(profile.attack_min_elixir_k) * 1000,
+        min_dark = int(getattr(profile, 'attack_min_dark_k', 0)) * 1000,
         max_skips = int(profile.attack_max_skips))
 
 

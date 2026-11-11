@@ -42,13 +42,15 @@ class LootFilter:
     min_gold: int = 0
     min_elixir: int = 0
     max_skips: int = 10  # Next presses per attack cycle; each one costs a search fee
+    min_dark: int = 0
 
     @property
     def enabled(self):
-        return self.max_skips > 0 and (self.min_gold > 0 or self.min_elixir > 0)
+        return self.max_skips > 0 and (self.min_gold > 0 or self.min_elixir > 0 or self.min_dark > 0)
 
     def summary(self):
-        return f'''gold >= {self.min_gold:,} and elixir >= {self.min_elixir:,}'''
+        text = f'''gold >= {self.min_gold:,} and elixir >= {self.min_elixir:,}'''
+        return text + (f''' and dark >= {self.min_dark:,}''' if self.min_dark else '')
 
 
 def loot_panel_region(frame):
@@ -134,5 +136,5 @@ def meets(loot, loot_filter):
     which is deliberate: an unreadable panel must not stop the bot from attacking.'''
     if loot is None or not loot_filter.enabled:
         return True
-    (gold, elixir, _dark) = loot
-    return gold >= loot_filter.min_gold and elixir >= loot_filter.min_elixir
+    (gold, elixir, dark) = loot
+    return gold >= loot_filter.min_gold and elixir >= loot_filter.min_elixir and (dark or 0) >= loot_filter.min_dark

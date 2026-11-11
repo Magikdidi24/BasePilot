@@ -12,7 +12,7 @@ from app.ui.qt.dialogs import show_error, show_under_development
 from app.ui.qt.theme import SPACING, TOKENS
 from app.ui.qt.widgets import Card, SectionTitle, StepperButton, ToggleSwitch, chip_button, danger_button, neutral_button, primary_button, segment_button
 from app.utils.player_list_store import PlayerEntry, load_players
-from app.utils.profile_settings_store import ATTACK_MIN_LOOT_K_MAX, load_profile_settings, save_profile_settings
+from app.utils.profile_settings_store import ATTACK_MIN_DARK_K_MAX, ATTACK_MIN_LOOT_K_MAX, load_profile_settings, save_profile_settings
 
 class RunPage(QWidget):
     _STRATEGY_LABELS = [
@@ -130,6 +130,10 @@ class RunPage(QWidget):
         self._min_elixir = self._min_loot_spin(card)
         loot_row.addWidget(self._min_elixir)
         loot_row.addWidget(self._muted('elixir', card))
+        loot_row.addSpacing(SPACING['md'])
+        self._min_dark = self._min_loot_spin(card, ATTACK_MIN_DARK_K_MAX, 1)
+        loot_row.addWidget(self._min_dark)
+        loot_row.addWidget(self._muted('dark', card))
         loot_row.addStretch()
         card.card_layout.addLayout(loot_row)
         loot_hint = self._muted('Home Village only. On the battle-prep screen a base holding less than this is skipped with Next '
@@ -140,13 +144,14 @@ class RunPage(QWidget):
         self._load_min_loot()
         self._min_gold.valueChanged.connect(self._save_min_loot)
         self._min_elixir.valueChanged.connect(self._save_min_loot)
+        self._min_dark.valueChanged.connect(self._save_min_loot)
         return card
 
     @staticmethod
-    def _min_loot_spin(parent):
+    def _min_loot_spin(parent, maximum = ATTACK_MIN_LOOT_K_MAX, step = 50):
         spin = QSpinBox(parent)
-        spin.setRange(0, ATTACK_MIN_LOOT_K_MAX)
-        spin.setSingleStep(50)
+        spin.setRange(0, maximum)
+        spin.setSingleStep(step)
         spin.setSuffix('k')
         spin.setSpecialValueText('any')
         spin.setFixedWidth(88)
@@ -161,14 +166,15 @@ class RunPage(QWidget):
     def _load_min_loot(self):
         '''The loot filter's minimums from the profile (Settings edits them too).'''
         settings = load_profile_settings()
-        for (spin, value) in ((self._min_gold, settings.attack_min_gold_k), (self._min_elixir, settings.attack_min_elixir_k)):
+        for (spin, value) in ((self._min_gold, settings.attack_min_gold_k), (self._min_elixir, settings.attack_min_elixir_k),
+                              (self._min_dark, settings.attack_min_dark_k)):
             spin.blockSignals(True)
             spin.setValue(value)
             spin.blockSignals(False)
 
     def _save_min_loot(self, _value = None):
         save_profile_settings(replace(load_profile_settings(), attack_min_gold_k = self._min_gold.value(),
-                                      attack_min_elixir_k = self._min_elixir.value()))
+                                      attack_min_elixir_k = self._min_elixir.value(), attack_min_dark_k = self._min_dark.value()))
 
     def showEvent(self, event):
         super().showEvent(event)

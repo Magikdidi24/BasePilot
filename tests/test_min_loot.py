@@ -36,6 +36,26 @@ def make_bot():
     return bot
 
 
+class DarkMinimumTests(unittest.TestCase):
+    def test_a_base_short_of_dark_elixir_is_skipped(self):
+        from app.core.loot_filter import meets
+        lf = LootFilter(min_gold=500000, min_elixir=500000, min_dark=5000)
+        self.assertTrue(lf.enabled)
+        self.assertTrue(meets((800000, 700000, 6000), lf))
+        self.assertFalse(meets((800000, 700000, 3000), lf))
+        self.assertTrue(meets((800000, 700000, 3000), LootFilter(min_gold=500000, min_elixir=500000)))  # off by default
+        self.assertTrue(LootFilter(min_dark=2000).enabled)
+        self.assertIn('dark >= 5,000', lf.summary())
+
+    def test_the_profile_keeps_the_dark_minimum(self):
+        import tempfile
+        from pathlib import Path
+        from app.utils import profile_settings_store as store
+        with tempfile.TemporaryDirectory() as d, patch.object(store, 'get_settings_path', return_value=Path(d) / 'settings.json'):
+            store.save_profile_settings(replace(store.load_profile_settings(), attack_min_dark_k=12))
+            self.assertEqual(store.load_profile_settings().attack_min_dark_k, 12)
+
+
 class NextButtonTests(unittest.TestCase):
     def test_the_16_10_next_button_at_its_scale_or_another(self):
         frame = np.zeros((767, 1227, 3), np.uint8)
@@ -84,10 +104,11 @@ class RunPageMinLootTests(unittest.TestCase):
         self.profile = profile
 
     def test_the_fields_show_and_save_the_profile_minimums(self):
-        self.assertEqual((self.page._min_gold.value(), self.page._min_elixir.value()), (400, 0))
+        self.assertEqual((self.page._min_gold.value(), self.page._min_elixir.value(), self.page._min_dark.value()), (400, 0, 0))
         self.assertEqual(self.page._min_elixir.text(), 'any')
         self.page._min_elixir.setValue(300)
-        self.assertEqual((self.profile.attack_min_gold_k, self.profile.attack_min_elixir_k), (400, 300))
+        self.page._min_dark.setValue(5)
+        self.assertEqual((self.profile.attack_min_gold_k, self.profile.attack_min_elixir_k, self.profile.attack_min_dark_k), (400, 300, 5))
         self.assertEqual(self.profile.attack_max_skips, 7)  # the rest of the profile kept
 
     def test_settings_edits_show_up_on_the_run_page(self):

@@ -39,6 +39,8 @@ CLAN_REQUEST_INTERVAL_M_MAX = 240
 ATTACK_MIN_GOLD_K_DEFAULT = 0
 ATTACK_MIN_ELIXIR_K_DEFAULT = 0
 ATTACK_MIN_LOOT_K_MAX = 5000
+ATTACK_MIN_DARK_K_DEFAULT = 0
+ATTACK_MIN_DARK_K_MAX = 200  # dark elixir, in thousands too: a base holds 1-30k
 ATTACK_MAX_SKIPS_DEFAULT = 10
 ATTACK_MAX_SKIPS_MAX = 50
 
@@ -58,6 +60,7 @@ class ProfileSettings:
     clan_request_interval_m: 'int' = CLAN_REQUEST_INTERVAL_M_DEFAULT
     attack_min_gold_k: 'int' = ATTACK_MIN_GOLD_K_DEFAULT
     attack_min_elixir_k: 'int' = ATTACK_MIN_ELIXIR_K_DEFAULT
+    attack_min_dark_k: 'int' = ATTACK_MIN_DARK_K_DEFAULT
     attack_max_skips: 'int' = ATTACK_MAX_SKIPS_DEFAULT  # Next presses per attack cycle; 0 = attack anything
 
 
@@ -163,6 +166,7 @@ def load_profile_settings():
             clan_request_interval_m = _normalize_int(raw.get('clan_request_interval_m'), CLAN_REQUEST_INTERVAL_M_DEFAULT, CLAN_REQUEST_INTERVAL_M_MIN, CLAN_REQUEST_INTERVAL_M_MAX),
             attack_min_gold_k = _normalize_int(raw.get('attack_min_gold_k'), ATTACK_MIN_GOLD_K_DEFAULT, 0, ATTACK_MIN_LOOT_K_MAX),
             attack_min_elixir_k = _normalize_int(raw.get('attack_min_elixir_k'), ATTACK_MIN_ELIXIR_K_DEFAULT, 0, ATTACK_MIN_LOOT_K_MAX),
+            attack_min_dark_k = _normalize_int(raw.get('attack_min_dark_k'), ATTACK_MIN_DARK_K_DEFAULT, 0, ATTACK_MIN_DARK_K_MAX),
             attack_max_skips = _normalize_int(raw.get('attack_max_skips'), ATTACK_MAX_SKIPS_DEFAULT, 0, ATTACK_MAX_SKIPS_MAX))
     except (json.JSONDecodeError, OSError):
         return ProfileSettings()  # [recovered: decompiler turned this into `return None`, crashing every caller on a corrupt settings.json]
@@ -187,6 +191,7 @@ def save_profile_settings(settings):
         clan_request_interval_m = _normalize_int(getattr(settings, 'clan_request_interval_m', CLAN_REQUEST_INTERVAL_M_DEFAULT), CLAN_REQUEST_INTERVAL_M_DEFAULT, CLAN_REQUEST_INTERVAL_M_MIN, CLAN_REQUEST_INTERVAL_M_MAX),
         attack_min_gold_k = _normalize_int(getattr(settings, 'attack_min_gold_k', ATTACK_MIN_GOLD_K_DEFAULT), ATTACK_MIN_GOLD_K_DEFAULT, 0, ATTACK_MIN_LOOT_K_MAX),
         attack_min_elixir_k = _normalize_int(getattr(settings, 'attack_min_elixir_k', ATTACK_MIN_ELIXIR_K_DEFAULT), ATTACK_MIN_ELIXIR_K_DEFAULT, 0, ATTACK_MIN_LOOT_K_MAX),
+        attack_min_dark_k = _normalize_int(getattr(settings, 'attack_min_dark_k', ATTACK_MIN_DARK_K_DEFAULT), ATTACK_MIN_DARK_K_DEFAULT, 0, ATTACK_MIN_DARK_K_MAX),
         attack_max_skips = _normalize_int(getattr(settings, 'attack_max_skips', ATTACK_MAX_SKIPS_DEFAULT), ATTACK_MAX_SKIPS_DEFAULT, 0, ATTACK_MAX_SKIPS_MAX))
     payload = asdict(normalized)
     path.write_text(json.dumps(payload, indent = 2), encoding = 'utf-8')
