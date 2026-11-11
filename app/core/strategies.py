@@ -478,7 +478,10 @@ slot nearest the top vertex is left empty (virtual troop at the apex).
         self._sync_frame_size(frame)
         roi = self.vision.bottom_half_region(frame)
         (bx, by) = self.vision.find_template(frame, 'earthquake.png', region = roi)
+        if not bx:
+            logger.info('Spells: no Earthquake in the bar — none cast')
         if bx:  # [recovered: decompiler turned `if` into `while`, causing endless earthquake spam after spells ran out]
+            logger.info('Spells: Earthquake on %d points (%s placement)', 11, 'random' if self.earthquake_method == EARTHQUAKE_METHOD_RANDOM else 'curve')
             self.input.click(bx, by, pause = 0.2)
             offset = int(self.config.get_scaled('earthquake', 400))
             ltr = self._earthquake_anchor_triplet(self._scaled_deployment_data(), offset)
