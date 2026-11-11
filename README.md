@@ -85,8 +85,9 @@ it holds off donating while your elixir is under a floor you set. It keeps doing
 through the long idle stretches of *Run until maxed*, when requests pile up unanswered.
 Every click is the game's own button, matched on screen rather than remembered as a
 coordinate, and the close button doubles as proof the menu opened and closed. The button and troop templates it
-matches ship with BasePilot for 16:9 clients; on 16:10, or to add a troop, *Settings →
-Clan assist → **Capture templates*** crops them from your own client at the right scale.
+matches ship with BasePilot for 16:9 and 16:10 clients (the 16:10 ones scaled from the
+16:9 art); to add a troop, or when one does not match your client, *Settings → Clan
+assist → **Capture templates*** crops them from your own client at the right scale.
 Leave it in **dry run** for a session first to see what it recognises. Full setup and
 mechanics: [docs/clan.md](docs/clan.md).
 

@@ -44,8 +44,12 @@ about where a click landed.
 
 ### 1. Capture the templates
 
-BasePilot clicks the game's own art, so it needs a crop of each button **from your
-client**. *Settings → Clan assist → **Capture templates*** does this properly: it
+BasePilot clicks the game's own art. It ships a set for both aspects: the 16:9 crops, and
+for 16:10 the same art scaled by 1600/1440 (the game's UI scales with the window height).
+On a live 1227×767 client, the scaled clan button matched at 0.83 and the menu's close
+tab at 0.93 (the threshold is 0.8); Donate, Send, Request and the troops could not be
+checked there (an account in no clan). When one does not match your client, capture it
+**from your client**: *Settings → Clan assist → **Capture templates*** does this properly: it
 screenshots the game, you drag a box around a button, pick what it is, and it saves the
 crop **scaled to the reference resolution** (2560×1440 for 16:9, 2560×1600 for 16:10) —
 which is what makes matching work at any window size. Cropping by hand from a 1920×1080
