@@ -10,7 +10,7 @@ from app.config import ASPECT_16_10, ASPECT_16_9, Config
 from app.core.clan import ClanAssistant, ClanOptions, missing_templates
 from app.core.loot_filter import TEMPLATE_NEXT_BASE, LootFilter, combine_reads, meets, read_enemy_loot
 from app.core.strategies import AttackStrategy, EdragStrategy, TroopSpamStrategy, _EDRAG_DELAY
-from app.core import bb_learning, bb_results, bb_scout, bb_strategy
+from app.core import bb_learning, bb_results, bb_scout, bb_strategy, hv_results
 from app.core.build_panel import BuildPanelUpgrader, find_close, gem_prompt_visible, wall_upgrade_button
 from app.core.upgrade_menu import RESOURCE_ELIXIR, RESOURCE_GOLD
 from app.core.upgrader import AUTO_UPGRADE_MODES, LIVE_UPGRADE_MODES, MODE_OFF, UpgradeAdvisor, is_october_build_panel_hud
@@ -22,7 +22,7 @@ from app.utils import battle_history
 from app.utils.common import get_template_path
 from app.utils.logger import setup_logger
 from app.utils.player_list_store import PlayerEntry
-from app.utils.profile_settings_store import EARTHQUAKE_METHOD_CURVE
+from app.utils.profile_settings_store import EARTHQUAKE_METHOD_CURVE, EARTHQUAKE_METHOD_LEARN, EARTHQUAKE_METHOD_RANDOM
 logger = setup_logger('BotCore')
 _HOME_VILLAGE_BUILDER_TEMPLATES = ('builder.png', 'gbuilder.png')
 _WALL_OCR_RETRY_DRAG_BASELINE: dict[str, tuple[tuple[int, int], tuple[int, int]]] = {
@@ -80,6 +80,7 @@ _LOOT_STALL = 12.0  # s with the base's available loot not dropping: the troops 
 _BATTLE_GIVE_UP = 60.0  # s with no star (Surrender only) and no loot coming before surrendering
 _BATTLE_LONGEST = 200.0  # s: past a battle's 3 minutes, end it whatever shows
 _LOOT_POLL = 1.0  # s between two reads of the available loot
+_HV_ARMIES = {1: 'sneaky', 2: 'superminion', 3: 'valkyrie', 4: 'edrag'}  # attack method -> army, for the learned Earthquakes
 _BATTLE_CARD_MAX_X = 0.28  # Battle menu: the Battle card ends here, the Ranked Battle card starts at ~0.29 W (16:10 live)
 _IDLE_RECHECK_SECONDS = 300  # while idling (storages full, nothing startable): wake, recover the screen, re-read state
 _CLAN_UNCALIBRATED_BACKOFF_SECONDS = 3600  # no chat button picked: say so once, not once per raid
@@ -338,7 +339,8 @@ wall upgrades for the first pre-Attack snapshot that would otherwise count as an
                 if dg <= _LOOT_DELTA_MAX_MAIN and d_el <= _LOOT_DELTA_MAX_MAIN and d_de <= _LOOT_DELTA_MAX_DARK:
                     (tg, te, td) = self._loot_totals
                     self._loot_totals = (tg + dg, te + d_el, td + d_de)
-                    if village == 'home' and (dg or d_el or d_de):
+                    if village == 'home' and (dg or d_el or d_de) and not getattr(self, '_hv_result_recorded', False):
+                        # the raid's results screen was not read: its loot from the HUD instead
                         battle_history.append({'village': 'home', 'session': getattr(self, '_session_id', None), 'gold': dg, 'elixir': d_el, 'dark': d_de})
                     logger.info('Loot tracker: +%s / +%s / +%s (G/E/DE) → session %s / %s / %s', dg, d_el, d_de, self._loot_totals[0], self._loot_totals[1], self._loot_totals[2])
                 else:
@@ -348,6 +350,8 @@ wall upgrades for the first pre-Attack snapshot that would otherwise count as an
                 skipped_due_to_negative_delta = True
                 logger.warning('Loot tracker: negative delta — previous gold/elixir/dark=%s/%s/%s current read=%s/%s/%s', lg, le, ld, cur_g, cur_el, cur_de)
         self._loot_prev_resources = triplet
+        if village == 'home':
+            self._hv_result_recorded = False  # this read took in the last raid's loot
         self._emit_loot_update()
         if skipped_due_to_negative_delta:
             if self._suppress_loot_negative_error_once:
@@ -1614,6 +1618,9 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         """One attack cycle. Returns ``'troop'`` (troops missing — retry later),
         ``'no_attack'`` (Battle / Find a Match / the battle screen never came up), or None."""
         battle_template = 'farmbattle.png'
+        self._hv_base_loot = None  # what the attacked base holds, when the loot filter read it
+        self._hv_loot_left = None  # what it still holds as the battle ends, read during the battle
+        self._hv_quake = None  # (army, Earthquake placement) of this raid
         # Only inside the Battle card: the Ranked Battle card to its right must never be tapped.
         battle_card = (0, 0, int(self.config.width * _BATTLE_CARD_MAX_X), int(self.config.height))
         (fx, fy) = self._find_template_once(battle_template, region = battle_card)
@@ -1686,7 +1693,10 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         self._update_config_size(frame)
         strategy = self._get_strategy(method_id)
         strategy.event_handler = self._battle_rewards
+        self._hv_battle_start = time.monotonic()
         result = strategy.execute(frame, self.stop_event)
+        if getattr(strategy, 'quakes_cast', None) is False:
+            self._hv_quake = None  # no Earthquake in the army: nothing to learn about their placement
         self._wait_for_battle_end(is_sneaky = method_id == 1)
         return 'troop' if result is False else None
 
@@ -1721,6 +1731,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             (gold, elixir, dark) = loot
             if meets(loot, lf):
                 logger.info('Loot filter: base holds %s gold / %s elixir / %s dark — attacking', gold, elixir, dark)
+                self._hv_base_loot = loot
                 return None
             # Skipping costs a search fee, so a "too poor" verdict is confirmed on a
             # second read before paying it. A read that changes its mind means the
@@ -1728,6 +1739,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             confirm = self._read_base_loot(polls = 2)
             if confirm is None or meets(confirm, lf):
                 logger.info('Loot filter: second read of this base disagreed (%s vs %s) — attacking it', loot, confirm)
+                self._hv_base_loot = confirm
                 return None
             frame = self.window.screenshot()
             if frame is None:
@@ -1813,9 +1825,30 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                 break
         return combine_reads(reads)
 
+    def _quake_learner(self):
+        learner = getattr(self, '_hv_quakes', None)
+        if learner is None:
+            learner = self._hv_quakes = bb_learning.QuakeLearner.from_history(battle_history.load())
+        return learner
+
+    def _quake_placement(self, method_id):
+        '''The raid's Earthquake placement (an ``EARTHQUAKE_METHOD_*``): the user's, or with
+        *Learn* the one drawn from the raids so far (:class:`~app.core.bb_learning.QuakeLearner`).
+        Kept with the army for the raid's result.'''
+        method = getattr(self, '_earthquake_method', EARTHQUAKE_METHOD_CURVE)
+        army = _HV_ARMIES.get(method_id, _HV_ARMIES[1])
+        if method == EARTHQUAKE_METHOD_LEARN:
+            learner = self._quake_learner()
+            quake = learner.choose(army, bb_learning.QUAKES)
+            logger.info('Earthquakes: %s placement, drawn (%s: %s)', quake, army, learner.summary(army, bb_learning.QUAKES))
+        else:
+            quake = 'random' if method == EARTHQUAKE_METHOD_RANDOM else 'curve'
+        self._hv_quake = (army, quake)
+        return EARTHQUAKE_METHOD_RANDOM if quake == 'random' else EARTHQUAKE_METHOD_CURVE
+
     def _get_strategy(self, method_id):
         cb = getattr(self, '_status_callback', None)
-        eq = getattr(self, '_earthquake_method', EARTHQUAKE_METHOD_CURVE)
+        eq = self._quake_placement(method_id)
         if method_id == 1:
             return TroopSpamStrategy(self.input, self.vision, self.config, self.stop_event, 'sneaky', 15, status_callback = cb, earthquake_method = eq)
         if method_id == 2:
@@ -1852,6 +1885,9 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         start = time.monotonic()
         last_drop = start
         best = None  # the lowest plausible available loot read so far
+        first = None  # a first read, kept until the next agrees: a misread can come first
+        self._hv_loot_left = None
+        plausible = lambda new, old: all(o * 0.5 <= n <= o for (n, o) in zip(new, old))
         while time.monotonic() - start < _BATTLE_LONGEST:
             self._check_stop()
             frame = self.window.screenshot()
@@ -1867,10 +1903,15 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             if any(self.vision.find_template(frame, t)[0] for t in ('returnhome.png', 'chestclaim.png')):
                 return None  # over by itself
             loot = read_enemy_loot(frame)
-            if loot is not None and (best is None or (loot != best and all(b * 0.5 <= v <= b for (v, b) in zip(loot, best)))):
-                if best is not None:
-                    last_drop = now  # a drop, not a misread (live: 735196 read 7093790 once)
+            if loot is not None and best is None:
+                if first is not None and plausible(loot, first):
+                    best = loot
+                else:
+                    first = loot  # live: 709379 read 7093790 once
+            elif loot is not None and loot != best and plausible(loot, best):
+                last_drop = now  # a drop, not a misread (live: 735196 read 7093790 once)
                 best = loot
+            self._hv_loot_left = best
             bottom = VisionService.bottom_half_region(frame)
             stalled = now - last_drop >= _LOOT_STALL
             (ex, ey) = self.vision.find_template(frame, 'endbattle.png', region = bottom)
@@ -1900,6 +1941,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         ended without a confirm dialog no longer waits out a 10 s Okay timeout first.'''
         (kind, hx, hy) = self._wait_for_return_home_or_chest_claim(timeout = 20, dismiss_okay = True)
         if kind == 'return' and hx:
+            self._hv_record_result()
             self.input.click(hx, hy, pause = 0.1)
         elif kind == 'chest' and hx:
             logger.info('Post-battle UI: chestclaim.png (replacing return home); running chest flow')
@@ -1909,6 +1951,45 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             self._tap_empty_until_chest_continue()
 
     
+    def _hv_record_result(self):
+        '''Read the raid's results screen once settled, log it, write the battle to the
+        history, and score its Earthquake placement by the share of the base's loot taken.'''
+        def capture():
+            frame = self.window.screenshot()
+            if frame is not None:
+                self._update_config_size(frame)
+            return frame
+        for look in range(2):  # Return Home shows: the damage paints with it, or a moment after
+            frame = capture()
+            if frame is not None and hv_results.read_result(frame) is not None:
+                break
+            if look or self.stop_event.wait(0.5):
+                logger.info('Battle: results screen not read')
+                return None
+        result = bb_results.settled_result(capture, self.stop_event.wait, read = hv_results.read_result)
+        if result is None:
+            logger.info('Battle: results screen not read')
+            return None
+        (army, quake) = getattr(self, '_hv_quake', None) or (None, None)
+        share = hv_results.loot_share(result, left = getattr(self, '_hv_loot_left', None), held = getattr(self, '_hv_base_loot', None))
+        start = getattr(self, '_hv_battle_start', None)
+        seconds = int(time.monotonic() - start) if start is not None else None
+        logger.info("Battle: %d star(s), %d %% damage, +%s gold / +%s elixir / +%s dark (%s of the base's loot; Earthquakes: %s)",
+                    result.stars, result.damage, result.gold, result.elixir, result.dark,
+                    f'{share:.0%}' if share is not None else 'unknown share', quake or 'none')
+        record = dict(result.as_dict(), village = 'home', session = getattr(self, '_session_id', None), seconds = seconds)
+        if army:
+            record['army'] = army
+        if quake:
+            record['plan'] = quake
+        if share is not None:
+            record['loot'] = round(100 * share)
+            if army and quake:
+                self._quake_learner().record(army, quake, 100 * share)
+        battle_history.append(record)
+        self._hv_result_recorded = True
+        return result
+
     def _wait_for_return_home_or_chest_claim(self, timeout = 10, dismiss_okay = False):
         '''
 Poll one frame for ``returnhome.png`` (+ ``returnhome2.png`` on 16:10 only) then ``chestclaim.png`` (only one should match),

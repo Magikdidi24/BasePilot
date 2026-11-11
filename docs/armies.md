@@ -33,6 +33,20 @@ BasePilot clicks **11 earthquake points** per raid, in one of two patterns
   ±100px of jitter per point.
 - **Random placement** — random points inside the region between that arc and a horizontal line
   40% up the frame. Falls back to curve placement if that region comes out degenerate.
+- **Learn (the one that loots more)** — each raid plays one of the two, drawn by Thompson
+  sampling (`QuakeLearner` in `app/core/bb_learning.py`) on the share of the base's loot the
+  raids took with it so far, per army: the placement that loots more gets played more, the
+  other now and then. Both start believed at 50 %, so the first raids try both. The log
+  gives each draw and the share each placement is expected to take.
+
+The share is the gold and elixir won (the results screen) over what the base held: the won
+plus what it still held as the battle ended (its available loot, read every second during
+the battle; the first read counts once the next one agrees with it). For a raid that ends
+at once (Sneaky Goblins), the base's loot as the loot filter read it before the battle,
+when it is on. On a live raid: 631,119 won, 1,232,794 left, 34 % (35 % against the read
+before the battle). Every raid's placement is written down, whichever is picked, so
+*Learn* starts from the raids already played. A raid with no Earthquake in the army does
+not count.
 
 It clicks all 11 points regardless of how many Earthquakes you're carrying; once you're out, the
 remaining clicks land harmlessly.
@@ -56,6 +70,12 @@ battle goes on.
 
 Sneaky Goblins (method 1) still leave as soon as they can: they take the outer storages in
 seconds.
+
+Before Return Home, the results screen is read once its count is over (stars; total damage;
+the gold, elixir and dark elixir won) and the raid goes to `battles.jsonl` in
+`%LOCALAPPDATA%\BasePilot` with its army, its Earthquake placement and the share of the
+base's loot it took. A raid whose results screen does not read is written from the HUD
+instead (its loot only), as before.
 
 ## Builder Base
 

@@ -15,6 +15,8 @@ plan that starts badly still gets its chance. A plan never played starts believe
 Mortar first) at 140 % (eight battles at 150 %): it leads the draws at first (58 %), and
 yields to a plan that does clearly better (175 % against its 70 %, 15 battles each: the
 other leads 80 % of the draws). Beliefs are kept per army (a P.E.K.K.A push, or any other).
+
+The Home Village's Earthquake placement is learned the same way (:class:`QuakeLearner`).
 '''
 import random
 
@@ -26,6 +28,12 @@ _PRIORS = {(PEKKA, 'mortar'): (7.0, 3.0)}
 
 
 class PlanLearner:
+    village = 'builder'  # the history records it learns from
+    plans = PLANS
+    score = 'damage'  # the record's score of the plan
+    full = 200.0  # the best score: the whole share
+    priors = _PRIORS
+
     def __init__(self):
         self._beliefs = {}  # (army, plan) -> [alpha, beta, battles]
 
@@ -33,18 +41,18 @@ class PlanLearner:
     def from_history(cls, records):
         learner = cls()
         for r in records:
-            if r.get('village') == 'builder' and r.get('plan') in PLANS and isinstance(r.get('damage'), (int, float)):
-                learner.record(r.get('army', OTHER), r['plan'], r['damage'])
+            if r.get('village') == cls.village and r.get('plan') in cls.plans and isinstance(r.get(cls.score), (int, float)):
+                learner.record(r.get('army', OTHER), r['plan'], r[cls.score])
         return learner
 
     def _belief(self, army, plan):
         if (army, plan) not in self._beliefs:
-            (a, b) = _PRIORS.get((army, plan), _PRIOR)
+            (a, b) = self.priors.get((army, plan), _PRIOR)
             self._beliefs[(army, plan)] = [a, b, 0]
         return self._beliefs[(army, plan)]
 
     def record(self, army, plan, damage):
-        share = min(1.0, max(0.0, float(damage) / 200.0))
+        share = min(1.0, max(0.0, float(damage) / self.full))
         belief = self._belief(army, plan)
         belief[0] += share
         belief[1] += 1.0 - share
@@ -61,5 +69,20 @@ class PlanLearner:
         parts = []
         for p in available:
             (a, b, n) = self._belief(army, p)
-            parts.append(f'{p} {200 * a / (a + b):.0f} % ({n})')
+            parts.append(f'{p} {self.full * a / (a + b):.0f} % ({n})')
         return ', '.join(parts)
+
+
+QUAKES = ('curve', 'random')
+
+
+class QuakeLearner(PlanLearner):
+    '''Which Earthquake placement takes the most of a Home Village base's loot, per army
+    (the attack method): the same draws, scored by the raid's ``loot`` (the % of the base's
+    gold and elixir it took, :func:`app.core.hv_results.loot_share`). Both placements start
+    believed at 50 % (six raids' worth), so the first draws try both.'''
+    village = 'home'
+    plans = QUAKES
+    score = 'loot'
+    full = 100.0
+    priors = {}

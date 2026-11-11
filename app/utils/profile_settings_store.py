@@ -7,7 +7,8 @@ from typing import Any, List, Optional
 from app.utils.common import ensure_dir, get_user_app_data_dir
 EARTHQUAKE_METHOD_CURVE = 'Curve Placement'
 EARTHQUAKE_METHOD_RANDOM = 'Random Placement'
-EARTHQUAKE_METHOD_OPTIONS = (EARTHQUAKE_METHOD_CURVE, EARTHQUAKE_METHOD_RANDOM)
+EARTHQUAKE_METHOD_LEARN = 'Learn (the one that loots more)'  # drawn each raid: app.core.bb_learning.QuakeLearner
+EARTHQUAKE_METHOD_OPTIONS = (EARTHQUAKE_METHOD_CURVE, EARTHQUAKE_METHOD_RANDOM, EARTHQUAKE_METHOD_LEARN)
 SETTINGS_FILENAME = 'settings.json'
 WALL_UPGRADE_THRESHOLD_M_DEFAULT = 3
 WALL_UPGRADE_THRESHOLD_M_MAX = 20
@@ -71,7 +72,7 @@ def get_settings_path():
 
 
 def _normalize_earthquake_method(raw):
-    if raw == EARTHQUAKE_METHOD_RANDOM or raw == EARTHQUAKE_METHOD_CURVE:
+    if raw in EARTHQUAKE_METHOD_OPTIONS:
         return str(raw)
     if isinstance(raw, str):
         s = raw.strip().lower()
@@ -79,6 +80,8 @@ def _normalize_earthquake_method(raw):
             return EARTHQUAKE_METHOD_RANDOM
         if s == 'curve placement':
             return EARTHQUAKE_METHOD_CURVE
+        if s.startswith('learn'):
+            return EARTHQUAKE_METHOD_LEARN
     return EARTHQUAKE_METHOD_CURVE
 
 

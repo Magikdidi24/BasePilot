@@ -79,16 +79,18 @@ def read_result(frame):
     return BattleResult(stars(frame), damage, _number(frame, _GOLD), _number(frame, _TROPHIES))
 
 
-def settled_result(capture, wait, monotonic = time.monotonic):
+def settled_result(capture, wait, monotonic = time.monotonic, read = None):
     '''The results screen once its animation is over: read every :data:`_SETTLE_EVERY` s
     until two reads agree (after :data:`_SETTLE_MIN`), or the last read after
     :data:`_SETTLE_TIMEOUT`. ``capture()`` gives a frame, ``wait(s)`` is true when the run
-    stops.'''
+    stops; ``read(frame)`` reads one (default :func:`read_result`; the Home Village's is
+    :func:`app.core.hv_results.read_result`).'''
+    read = read or read_result
     start = monotonic()
     (last, result) = (None, None)
     while True:
         frame = capture()
-        result = read_result(frame) if frame is not None else None
+        result = read(frame) if frame is not None else None
         if result is not None and result == last and monotonic() - start >= _SETTLE_MIN:
             return result
         last = result if result is not None else last

@@ -2,15 +2,17 @@
 Stats page shows, and its CSV export.
 
 A session is one Start: its records carry the same ``session`` (the start time, ISO).
-Home Village records are the loot of a raid (``gold``, ``elixir``, ``dark``); Builder Base
-ones its result (``stars``, ``damage``, ``gold``, ``trophies``, the attack ``plan``).
+Home Village records are a raid's result (``stars``, ``damage``, the ``gold``, ``elixir`` and
+``dark`` won, ``loot``: the % of the base's gold and elixir taken, the Earthquakes' ``plan``),
+or only its loot when its results screen was not read (from the HUD); Builder Base ones its
+result (``stars``, ``damage``, ``gold``, ``trophies``, the attack ``plan``).
 '''
 import csv
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
-CSV_COLUMNS = ('t', 'session', 'village', 'stars', 'damage', 'gold', 'elixir', 'dark', 'trophies', 'plan', 'army', 'seconds')
+CSV_COLUMNS = ('t', 'session', 'village', 'stars', 'damage', 'gold', 'elixir', 'dark', 'trophies', 'loot', 'plan', 'army', 'seconds')
 
 
 @dataclass

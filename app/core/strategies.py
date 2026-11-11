@@ -25,6 +25,7 @@ class AttackStrategy:
         self.config = config
         self.stop_event = stop_event
         self.earthquake_method = earthquake_method
+        self.quakes_cast = False  # set once the Earthquakes go: only then does their placement count
         self.event_handler = None
         self.CORNER_ORDER = [
             'left',
@@ -482,6 +483,7 @@ slot nearest the top vertex is left empty (virtual troop at the apex).
             logger.info('Spells: no Earthquake in the bar — none cast')
         if bx:  # [recovered: decompiler turned `if` into `while`, causing endless earthquake spam after spells ran out]
             logger.info('Spells: Earthquake on %d points (%s placement)', 11, 'random' if self.earthquake_method == EARTHQUAKE_METHOD_RANDOM else 'curve')
+            self.quakes_cast = True
             self.input.click(bx, by, pause = 0.2)
             offset = int(self.config.get_scaled('earthquake', 400))
             ltr = self._earthquake_anchor_triplet(self._scaled_deployment_data(), offset)
