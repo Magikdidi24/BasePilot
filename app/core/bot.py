@@ -1057,6 +1057,28 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         return True
 
     
+    def _dismiss_star_bonus(self, frame):
+        '''The Star Bonus dialog ("Star Bonus received": the loot is already given), whose
+        Okay only closes it. Found by its title, read only when an Okay-like button shows
+        (okay.png is drawn at 0.9 there: 0.75 at the bot's scale); its Okay by that art or
+        its label. True when tapped.'''
+        if frame is None:
+            return False
+        (h, w) = frame.shape[:2]
+        dialog = (w // 4, h // 2, w // 2, h // 2)
+
+        def okay(scale):
+            (x, y, _score) = VisionService.find_template_with_confidence(frame, 'okay.png', threshold = 0.8, region = dialog, scale = scale)
+            return (x, y) if x is not None else None
+        point = VisionService.with_scale_fallback(okay)
+        if not point:
+            return False
+        if self.vision.find_label(frame, 'Star Bonus', region = (w // 4, 0, w // 2, h // 3))[0] is None:
+            return False
+        logger.info('Star Bonus dialog: tapping its Okay')
+        self.input.click(*point, pause = 0.6)
+        return True
+
     def _dismiss_okay_or_exit_on_frame(self, frame, allow_okay = True):
         '''If ``okay.png``, ``exit.png``, or a known dialog-specific control is visible,
         click it. Returns True if dismissed. The Daily Reward popup (blocked the bot a
@@ -1068,6 +1090,8 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         if allow_okay and gem_prompt_visible(self.vision, frame):
             logger.warning('Popup with a gem icon: closing it, not pressing its Okay')
             allow_okay = False
+        if self._dismiss_star_bonus(frame):
+            return True
         names = ['okay.png', 'exit.png', 'closex.png'] if allow_okay else ['exit.png', 'closex.png']
         for extra in ('claim_btn.png', 'dailyreward_x.png', 'needgold_x.png'):
             if get_template_path(extra).exists():
@@ -1312,6 +1336,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         self.input.scroll(*self._scroll_point(), 20)
         if self.stop_event.wait(random.uniform(0.1, 0.25)):
             self._check_stop()
+        self._dismiss_star_bonus(self.window.screenshot())  # Battle shows dimmed under it and would match
         (ax, ay) = self._wait_for_image('attack.png', timeout = 10)
         if not ax:
             logger.warning('Builder Base: attack.png not found')
@@ -1319,8 +1344,9 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         self.input.click(ax, ay, pause = 0.15)
         (fx, fy) = self._wait_for_image('findnow.png', timeout = _TAP_EATEN_AFTER, error = False)
         if not fx:
+            self._dismiss_star_bonus(self.window.screenshot())
             (ax, ay) = self._find_template_once('attack.png')
-            if ax:  # still home: a selection (a wall just bought) took the tap
+            if ax:  # still home: a selection (a wall just bought) or a dialog took the tap
                 logger.info('Builder Base: Battle tap eaten (a selection on screen) — tapping it again')
                 self.input.click(ax, ay, pause = 0.15)
             (fx, fy) = self._wait_for_image('findnow.png', timeout = 10)
