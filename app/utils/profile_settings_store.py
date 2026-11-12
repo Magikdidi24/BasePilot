@@ -9,11 +9,11 @@ EARTHQUAKE_METHOD_RANDOM = 'Random Placement'
 EARTHQUAKE_METHOD_LEARN = 'Learn (the one that loots more)'  # drawn each raid: app.core.bb_learning.QuakeLearner
 EARTHQUAKE_METHOD_OPTIONS = (EARTHQUAKE_METHOD_CURVE, EARTHQUAKE_METHOD_RANDOM, EARTHQUAKE_METHOD_LEARN)
 SETTINGS_FILENAME = 'settings.json'
-WALL_UPGRADE_THRESHOLD_M_DEFAULT = 3
+WALL_UPGRADE_THRESHOLD_M_DEFAULT = 3  # millions of gold/elixir that trigger wall upgrades; 0 = only when storages are full
 WALL_UPGRADE_THRESHOLD_M_MAX = 20
 BB_WALL_THRESHOLD_K_DEFAULT = 0  # Builder Base walls: 0 = only when a storage is full
 BB_WALL_THRESHOLD_K_MAX = 20000  # thousands of Builder Base gold or elixir
-RESERVE_BUILDERS_DEFAULT = 1
+RESERVE_BUILDERS_DEFAULT = 1  # builders the auto-upgrader leaves free for the wall flow; 0 = use them all (walls maxed)
 RESERVE_BUILDERS_MAX = 5
 UPGRADE_ORDER_PRICIEST = 'priciest'
 UPGRADE_ORDER_CHEAPEST = 'cheapest'
@@ -87,29 +87,10 @@ def _normalize_earthquake_method(raw):
     return EARTHQUAKE_METHOD_CURVE
 
 
-def _normalize_wall_threshold_m(raw):
-    '''Millions of gold/elixir that trigger wall upgrades; 0 = only when storages are full.'''
-    try:
-        value = int(raw)
-    except (TypeError, ValueError, OverflowError):  # OverflowError: int(inf)
-        return WALL_UPGRADE_THRESHOLD_M_DEFAULT
-    return max(0, min(WALL_UPGRADE_THRESHOLD_M_MAX, value))
-
-
 def _normalize_upgrade_order(raw):
     if isinstance(raw, str) and raw.strip().lower() in UPGRADE_ORDER_OPTIONS:
         return raw.strip().lower()
     return UPGRADE_ORDER_PRICIEST
-
-
-def _normalize_reserve_builders(raw):
-    '''Builders the auto-upgrader must leave free (the wall flow spends through them).
-    0 = every free builder may be used; walls-maxed accounts want 0.'''
-    try:
-        value = int(raw)
-    except (TypeError, ValueError, OverflowError):  # OverflowError: int(inf)
-        return RESERVE_BUILDERS_DEFAULT
-    return max(0, min(RESERVE_BUILDERS_MAX, value))
 
 
 def _normalize_clan_chat_point(raw):
@@ -152,8 +133,8 @@ def _settings_from(get):
     range, for load (the file) and save alike.'''
     return ProfileSettings(
         earthquake_method = _normalize_earthquake_method(get('earthquake_method', None)),
-        wall_upgrade_threshold_m = _normalize_wall_threshold_m(get('wall_upgrade_threshold_m', WALL_UPGRADE_THRESHOLD_M_DEFAULT)),
-        reserve_builders = _normalize_reserve_builders(get('reserve_builders', RESERVE_BUILDERS_DEFAULT)),
+        wall_upgrade_threshold_m = _normalize_int(get('wall_upgrade_threshold_m', None), WALL_UPGRADE_THRESHOLD_M_DEFAULT, 0, WALL_UPGRADE_THRESHOLD_M_MAX),
+        reserve_builders = _normalize_int(get('reserve_builders', None), RESERVE_BUILDERS_DEFAULT, 0, RESERVE_BUILDERS_MAX),
         upgrade_order = _normalize_upgrade_order(get('upgrade_order', UPGRADE_ORDER_PRICIEST)),
         clan_dry_run = bool(get('clan_dry_run', True)),  # the one default get must supply: bool(None) is False
         clan_chat_point = _normalize_clan_chat_point(get('clan_chat_point', None)),
