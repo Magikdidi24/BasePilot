@@ -71,8 +71,8 @@ _ELIXIR_BAR_Y = (0.0967, 0.1067)
 
 
 def is_october_hud(frame):
-    (h, w) = frame.shape[:2]
-    return VisionService.find_template(frame, 'build.png', region = (w // 2, h // 2, w - w // 2, h - h // 2))[0] is not None
+    from app.core.build_panel import find_build_button  # build_panel imports this module
+    return find_build_button(VisionService, frame)[0] is not None
 
 
 def storages_full(frame):

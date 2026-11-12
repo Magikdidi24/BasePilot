@@ -103,10 +103,15 @@ def _anchored(frame, config, bx, by, box):
     return _region(frame, bx + s(dx), by + s(dy), bx + s(dx + w), by + s(dy + h))
 
 
+def find_build_button(vision, frame):
+    '''The Build button of the home screen (bottom right quarter): ``(x, y)`` or ``(None, None)``.'''
+    (h, w) = frame.shape[:2]
+    return vision.find_template(frame, 'build.png', region = _region(frame, w // 2, h // 2, w, h))
+
+
 def read_chips(vision, config, frame):
     '''``(builders, lab)`` :class:`Chip` from the home screen, each None when unreadable.'''
-    (h, w) = frame.shape[:2]
-    (bx, by) = vision.find_template(frame, 'build.png', region = _region(frame, w // 2, h // 2, w, h))
+    (bx, by) = find_build_button(vision, frame)
     if not bx:
         return (None, None)
     chips = []
@@ -494,8 +499,7 @@ class BuildPanelUpgrader:
         frame = self._frame()
         if frame is None:
             return False
-        (h, w) = frame.shape[:2]
-        (bx, by) = self.vision.find_template(frame, 'build.png', region = _region(frame, w // 2, h // 2, w, h))
+        (bx, by) = find_build_button(self.vision, frame)
         if not bx:
             logger.info('Build panel: Build button not found')
             return False
@@ -569,7 +573,6 @@ class BuildPanelUpgrader:
             frame = self._frame()
             if frame is None:
                 return
-            (h, w) = frame.shape[:2]
-            if self.vision.find_template(frame, 'build.png', region = _region(frame, w // 2, h // 2, w, h))[0]:
+            if find_build_button(self.vision, frame)[0]:
                 return
             self.input.click(*(find_close(self.vision, frame) or self.config.get_point('empty')), pause = 0.4, rand = False)
