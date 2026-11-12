@@ -417,8 +417,6 @@ Outer window size in pixels (``GetWindowRect``), same basis as :meth:`screenshot
         except Exception as e:
             logger.error(f'''Screenshot failed: {e}''')
             return None
-            e = None
-            del e
 
 
 

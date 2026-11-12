@@ -2167,8 +2167,6 @@ Returns (``"return"`` | ``"chest"``, x, y) or (None, None, None) on timeout.
                     return ('chest', cx, cy)
             if self.stop_event.wait(0.5):
                 return (None, None, None)
-            if time.time() - start < timeout:
-                continue
         logger.warning('Timeout waiting for returnhome.png / returnhome2.png (16:10) or chestclaim.png')
         return (None, None, None)
 
@@ -2306,8 +2304,7 @@ Returns (``"return"`` | ``"chest"``, x, y) or (None, None, None) on timeout.
                 if self.stop_event.wait(0.5):
                     return None
                 continue
-            if not self.stop_event.wait(1):
-                continue
+            self.stop_event.wait(1)
         return None
 
     
@@ -2755,8 +2752,6 @@ OCR is limited to the right half of the window unless ``region`` is passed expli
                     return (x, y)
             if self.stop_event.wait(0.5):
                 return (None, None)
-            if time.time() - start < timeout:
-                continue
         if error:
             logger.warning(f'''Timeout waiting for any of {templates}''')
         return (None, None)

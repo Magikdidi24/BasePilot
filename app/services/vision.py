@@ -299,11 +299,6 @@ Returns (None, None, confidence) if not found above threshold.
         '''All non-overlapping template hits as ``(center_x, center_y)`` centers.'''
         matches = VisionService._find_template_matches(screen_img, template_name, threshold, region, max_matches = max_matches, suppress_pad_frac = suppress_pad_frac, scale = scale)
         return [ (int(left) + int(tw) // 2, int(top) + int(th) // 2) for left, top, tw, th, _score in matches ]
-        _score = None
-        th = None
-        tw = None
-        top = None
-        left = None
 
     
     @staticmethod
@@ -395,7 +390,6 @@ with saturation and value at least ``sat_floor`` / ``val_floor``.
                 (_, max_val, _, max_loc) = cv2.minMaxLoc(work)
                 score = float(max_val)
                 if score < threshold:
-                    range(max(1, int(max_matches)))
                     return matches
                 left = offset_x + int(max_loc[0])
                 top = offset_y + int(max_loc[1])
@@ -477,11 +471,6 @@ the aspect baseline by **width** (``1000`` @ 2560 for both 16:10 and 16:9).
             if aq and ar and ar in aq and len(ar) >= max(4, int(0.55 * len(aq))):
                 return True
         if not fuzzy_min_ratio is None:
-            if match_alnum_only:
-                pass
-            elif case_sensitive:
-                pass
-            
             cr = r.lower()
             cq = re.sub('[^a-z0-9]', '', query_norm.lower()) if match_alnum_only else query_norm
             if len(cq) < 3:
@@ -698,7 +687,6 @@ differ by at most ``y_tolerance`` px.
                 if not abs(cy[i] - cy[j]) <= tol:
                     continue
                 union(i, j)
-        range(n)
         groups = { }
         for i in range(n):
             r = find(i)
@@ -708,7 +696,6 @@ differ by at most ``y_tolerance`` px.
             cl.sort(key = (lambda b: b.left))
         out.sort(key = (lambda cl: VisionService._ocr_word_y_center(cl[0])))
         return out
-        i = None
 
     
     @staticmethod
@@ -756,7 +743,6 @@ Sort left-to-right and union bounding boxes into one :class:`GroupedNumber`.
         confs = [ float(p.confidence) for p in parts if not math.isnan(float(p.confidence)) ]  # [recovered: decompiler dropped the `not`, keeping only NaN confidences]
         conf = float(sum(confs) / len(confs)) if confs else float('nan')
         return GroupedNumber(text = text, left = left, top = top, width = max(1, right - left), height = max(1, bottom - top), confidence = conf)
-        p = None
 
     
     @staticmethod

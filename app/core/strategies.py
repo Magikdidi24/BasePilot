@@ -78,7 +78,6 @@ class AttackStrategy:
     
     def _scaled_deployment_data(self):
         return { key: self._point(key) for key in self.CORNER_ORDER }
-        key = None
 
     
     def deploy_heroes(self, frame):
@@ -347,8 +346,6 @@ If L,T,R are collinear, uses a quadratic Bezier with control point chosen so t=0
             points.reverse()
         jitter_px = self.config.scale_scalar(100)
         return [ (cx + random.randint(-jitter_px, jitter_px), cy + random.randint(-jitter_px, jitter_px)) for cx, cy in points ]
-        cy = None
-        cx = None
 
     
     def _random_diamond_perimeter_point(self, frame):
@@ -382,7 +379,6 @@ If L,T,R are collinear, uses a quadratic Bezier with control point chosen so t=0
             return True
         for _ in range(count):
             if ev and ev.is_set():
-                range(count)
                 return True
             fresh, handled = self._reward_checkpoint(selected=template_name)
             if handled and fresh is None:

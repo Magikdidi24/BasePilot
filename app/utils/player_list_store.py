@@ -71,5 +71,4 @@ def save_players(players):
     data = [ asdict(p) for p in players ]
     path.write_text(json.dumps(data, indent = 2), encoding = 'utf-8')
     return None
-    p = None
 

@@ -275,11 +275,6 @@ class TaskbarThumb:
         
         return None
 
-
-        self._taskbar_ptr = None
-        self._original_wndproc = None
-
-
     
     def update_buttons(self, running):
         '''Enable/disable Start and Stop buttons based on bot state.'''
