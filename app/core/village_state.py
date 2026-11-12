@@ -77,9 +77,10 @@ def is_october_hud(frame):
 
 
 def storages_full(frame):
-    '''``(gold_full, elixir_full)`` on the home screen: a storage is full when the left end
-    of its bar is coloured (~96%+). The old full-storage icons matched any filled stretch
-    of the October 2026 bars, so they read "full" at 10M of 14M.'''
+    '''``(gold_full, elixir_full)`` on the home screen of either village (the Builder Base's
+    bars sit at the same place): a storage is full when the left end of its bar is coloured
+    (~96%+). The old full-storage icons matched any filled stretch of the October 2026 bars,
+    so they read "full" at 10M of 14M.'''
     if not is_october_hud(frame):
         # Not the home screen (a panel moves the bars, a dialog covers them): unknown, and
         # "full" is the claim that triggers spending, so it is not made blind. The old HUD's
@@ -90,8 +91,12 @@ def storages_full(frame):
     gold = frame[int(_GOLD_BAR_Y[0] * h):int(_GOLD_BAR_Y[1] * h), x0:x1]
     elixir = frame[int(_ELIXIR_BAR_Y[0] * h):int(_ELIXIR_BAR_Y[1] * h), x0:x1]
     # The empty stretch of a bar is translucent: grass behind it passes the default yellow
-    # test (H 34-36). The real fill is H 22-27 and bright.
-    return (VisionService.yellow_fraction(gold, hue_hi = 30, val_floor = 200) >= 0.6, VisionService.pink_fraction(elixir) >= 0.6)
+    # test (H 34-36). The real fill is H 22-27 and bright. Elixir is magenta in the Home
+    # Village (H ~150) and violet in the Builder Base (H 132-135, live GPG), close to the
+    # default floor of 130: 126 leaves it room, and the empty end showed no pixel from 126
+    # up on any of 444 saved home frames of either village.
+    return (VisionService.yellow_fraction(gold, hue_hi = 30, val_floor = 200) >= 0.6,
+            VisionService.pink_fraction(elixir, hue_lo = 126) >= 0.6)
 
 
 def read_village_state(frame, config = None):

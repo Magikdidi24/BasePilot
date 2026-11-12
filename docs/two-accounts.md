@@ -102,7 +102,7 @@ Two smaller things to know if you get there:
 ```
 --profile NAME     run under a named profile (its own settings, window pin, log)
 --autostart        start a run on launch
---minutes N        session length; 0 = run until maxed
+--minutes N        session length; 0 = endless
 --walls            wall upgrades
 --upgrades MODE    off | dry | maxer | rusher
 --donate           clan donations

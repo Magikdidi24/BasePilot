@@ -89,6 +89,8 @@ _LOOT_POLL = 1.0  # s between two reads of the available loot
 _HV_ARMIES = {1: 'sneaky', 2: 'superminion', 3: 'valkyrie', 4: 'edrag'}  # attack method -> army, for the learned Earthquakes
 _BATTLE_CARD_MAX_X = 0.28  # Battle menu: the Battle card ends here, the Ranked Battle card starts at ~0.29 W (16:10 live)
 _IDLE_RECHECK_SECONDS = 300  # while idling (storages full, nothing startable): wake, recover the screen, re-read state
+_FULL_STOP_FRAMES = 2  # "Stop when storages are full": both bars full on this many frames in a row
+_FULL_STOP_GAP = 0.5  # s between those frames
 _CLAN_UNCALIBRATED_BACKOFF_SECONDS = 3600  # no chat button picked: say so once, not once per raid
 # "never done" for the clan clocks. They are compared against time.monotonic(), which
 # restarts at boot, so a plain 0 means "done at boot" — on a machine up for less than the
@@ -182,16 +184,20 @@ class Bot:
         self._loot_session_start_mono = 0
         self._loot_callback = None
         self._suppress_loot_negative_error_once = False
+        self.finish_reason = None  # why the last run ended on its own ("storages full"), for the UI
 
-    
-    def start(self, method, run_time_minutes, star_bonus = False, status_callback = None, loot_callback = None, multi_run_players = None, upgrade_walls = False, earthquake_method = EARTHQUAKE_METHOD_CURVE, builder_base = False, loot_prioritise = 'both', wall_upgrade_threshold = 0, auto_upgrade = MODE_OFF, reserve_builders = 1, state_callback = None, upgrade_order = None, clan_options = None, loot_filter = None, bb_wall_threshold = 0):
+
+    def start(self, method, run_time_minutes, star_bonus = False, status_callback = None, loot_callback = None, multi_run_players = None, upgrade_walls = False, earthquake_method = EARTHQUAKE_METHOD_CURVE, builder_base = False, loot_prioritise = 'both', wall_upgrade_threshold = 0, auto_upgrade = MODE_OFF, reserve_builders = 1, state_callback = None, upgrade_order = None, clan_options = None, loot_filter = None, bb_wall_threshold = 0, stop_when_full = False):
         '''Starts the bot loop. With ``multi_run_players``, runs a full session per enabled player.
-        ``run_time_minutes <= 0`` (single Home Village runs only) means UNLIMITED — farm,
-        upgrade and idle until the user stops the bot ("run until maxed").'''
+        ``run_time_minutes <= 0`` (single runs, either village) means ENDLESS: battles go on
+        until the user stops the bot (with Maxer or Rusher, full storages with nothing to
+        start pause them, see :meth:`_maybe_idle`). ``stop_when_full`` ends the run once gold
+        and elixir are both full (a Multi-run moves on to the next account).'''
         self._status_callback = status_callback
         self._loot_callback = loot_callback
         self._state_callback = state_callback
         self._earthquake_method = earthquake_method
+        self.finish_reason = None
         if not self.window.find_window():
             raise RuntimeError('Clash of Clans window not found. Please ensure the game is open.')
         self._reset_loot_session()
@@ -199,9 +205,11 @@ class Bot:
         self._emit_loot_update()
         self.running = True
         self.stop_event.clear()
-        unlimited = not star_bonus and multi_run_players is None and not builder_base and int(run_time_minutes or 0) <= 0
+        unlimited = not star_bonus and multi_run_players is None and int(run_time_minutes or 0) <= 0
         duration = 900 if star_bonus else (0 if unlimited else max(1, int(run_time_minutes)) * 60)
         mr = multi_run_players is not None
+        self._multi_run = mr
+        self._stop_when_full = bool(stop_when_full)
         self._builder_base = builder_base
         self._loot_prioritise = loot_prioritise
         self._wall_upgrade_threshold = max(0, int(wall_upgrade_threshold or 0))
@@ -223,7 +231,7 @@ class Bot:
         # Donate/request on the FIRST home visit of the session, then on their intervals.
         self._clan_last_donate = _CLAN_CLOCK_NEVER
         self._clan_last_request = _CLAN_CLOCK_NEVER
-        logger.info(f'''Bot started. Method: {method}, Time: {'unlimited' if unlimited else f'{run_time_minutes}m'}, StarBonus: {star_bonus}, MultiRun: {mr}, UpgradeWalls: {upgrade_walls}, WallThreshold: {self._wall_upgrade_threshold}, AutoUpgrade: {self._auto_upgrade_mode}, ReserveBuilders: {self._reserve_builders}, Earthquake: {earthquake_method}, BuilderBase: {builder_base}, LootPrioritise: {loot_prioritise}, ClanDonate: {self._clan_options.donate}, ClanRequest: {self._clan_options.request}, ClanDryRun: {self._clan_options.dry_run}, LootFilter: {self._loot_filter.summary() if self._loot_filter.enabled else 'off'}''')
+        logger.info(f'''Bot started. Method: {method}, Time: {'endless' if unlimited else f'{duration // 60}m'}, StopWhenFull: {self._stop_when_full}, StarBonus: {star_bonus}, MultiRun: {mr}, UpgradeWalls: {upgrade_walls}, WallThreshold: {self._wall_upgrade_threshold}, AutoUpgrade: {self._auto_upgrade_mode}, ReserveBuilders: {self._reserve_builders}, Earthquake: {earthquake_method}, BuilderBase: {builder_base}, LootPrioritise: {loot_prioritise}, ClanDonate: {self._clan_options.donate}, ClanRequest: {self._clan_options.request}, ClanDryRun: {self._clan_options.dry_run}, LootFilter: {self._loot_filter.summary() if self._loot_filter.enabled else 'off'}''')
 
         try:
 
@@ -906,6 +914,8 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         state = self._read_state_stable()
         if state is None or not state.storages_full:
             return None
+        if getattr(self, '_stop_when_full', False):
+            return None  # the run ends right after (_stop_if_storages_full) instead of waiting here
         if not (getattr(self, '_gold_pinned', False) and getattr(self, '_elixir_pinned', False)):
             # Icons say ~full but the values are still moving — real headroom remains
             # (live: idled at 18M/21M gold, wasting ~3M of farmable gold). Keep
@@ -957,6 +967,37 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         if cb:
             cb('Resuming — ' + state.summary())
         self._emit_village_state(state, 'farming')
+
+    def _storages_full_now(self):
+        '''Gold and elixir both full on the home screen of either village (:func:`storages_full`:
+        the left end of both bars coloured), on two frames in a row: a run is not ended on one
+        frame that something passing over the bars may have coloured.'''
+        for i in range(_FULL_STOP_FRAMES):
+            if i and self.stop_event.wait(_FULL_STOP_GAP):
+                return False
+            frame = self.window.screenshot()
+            if frame is None:
+                return False
+            self._update_config_size(frame)
+            if not all(storages_full(frame)):
+                return False
+        return True
+
+    def _stop_if_storages_full(self):
+        '''*Stop when storages are full*, between battles once the walls and upgrades had their
+        turn: True when gold and elixir are both full. A single run ends there; in a Multi-run
+        only the account in play is done, and the next one starts.'''
+        if not getattr(self, '_stop_when_full', False) or not self._storages_full_now():
+            return False
+        multi = getattr(self, '_multi_run', False)
+        msg = f'''Storages full (gold and elixir) — {'this account is done' if multi else 'stopping the run'}.'''
+        logger.info(msg)
+        cb = getattr(self, '_status_callback', None)
+        if cb:
+            cb(msg)
+        if not multi:
+            self.finish_reason = 'storages full'
+        return True
 
 
     def _upgrade_walls(self, resources = (RESOURCE_ELIXIR, RESOURCE_GOLD)):
@@ -1152,13 +1193,16 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         if star_bonus and self._is_star_bonus_claimed():
             logger.info('Star bonus mode: no star bonus template matched on home — nothing to collect. Finishing without attacks.')
             return None
-        # duration_seconds == 0 → unlimited ("run until maxed"): only the user's Stop
-        # ends the session; full storages park the loop in _maybe_idle instead.
+        # duration_seconds == 0 → endless: only the user's Stop ends the session (or full
+        # storages with "Stop when storages are full"); with Maxer or Rusher, full storages
+        # park the loop in _maybe_idle instead.
         deadline = start_time + duration_seconds if duration_seconds else None
         self._maybe_clan_assist()
         self._safely('Wall pass', self._maybe_upgrade_walls, upgrade_walls)
         self._maybe_auto_upgrade()
         self._safely('Idle gate', self._maybe_idle, deadline)
+        if self._safely('Full storages', self._stop_if_storages_full):
+            return None
         cb = getattr(self, '_status_callback', None)
         troop_failures = 0
         while deadline is None or time.time() < deadline:
@@ -1180,10 +1224,10 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                 troop_failures += 1
                 if troop_failures >= _TROOP_FAILURE_LIMIT:
                     if deadline is None:
-                        # Run-until-maxed must never stop on its own: long back-off
+                        # An endless run must never stop on its own: long back-off
                         # instead (a stuck popup / event screen usually clears, and
                         # recovery runs again on the next attempt).
-                        msg = f'''{what} {troop_failures} times in a row — backing off {_IDLE_RECHECK_SECONDS // 60}m, then retrying (run until maxed).'''
+                        msg = f'''{what} {troop_failures} times in a row — backing off {_IDLE_RECHECK_SECONDS // 60}m, then retrying (endless run).'''
                         logger.warning(msg)
                         if cb:
                             cb(msg)
@@ -1212,6 +1256,8 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             self._safely('Wall pass', self._maybe_upgrade_walls, upgrade_walls)
             self._maybe_auto_upgrade()
             self._safely('Idle gate', self._maybe_idle, deadline)
+            if self._safely('Full storages', self._stop_if_storages_full):
+                return None
             self.input.scroll(*self._scroll_point(), 5)
             if self.stop_event.wait(random.uniform(0.15, 0.25)):
                 return None
@@ -1222,7 +1268,9 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
 
     
     def _run_builder_base_loop(self, duration_seconds, star_bonus = False):
-        '''Builder Base farming: Attack → Find Now → Baby Dragon deploy → end battle or surrender → Return Home.'''
+        '''Builder Base farming: Battle → Find Now → deploy → the battle to its end → Return
+        Home. ``duration_seconds == 0``: endless, until the user's Stop (or full storages with
+        "Stop when storages are full"); a stuck screen backs off instead of ending the run.'''
         start_time = time.time()
         cb = getattr(self, '_status_callback', None)
         if self.stop_event.wait(1):
@@ -1243,8 +1291,10 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         self._maybe_auto_upgrade()
         self._safely('Walls', self._bb_maybe_upgrade_walls)
         self._safely('Live status', self._bb_live_status)
+        if self._safely('Full storages', self._stop_if_storages_full):
+            return None
         failures = 0
-        while time.time() - start_time < duration_seconds:
+        while not duration_seconds or time.time() - start_time < duration_seconds:
             self._check_stop()
             try:
                 attacked = self._bb_attack_once(cb)
@@ -1259,6 +1309,18 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             if not attacked:
                 failures += 1
                 if failures >= _TROOP_FAILURE_LIMIT:
+                    if not duration_seconds:
+                        # An endless run never stops on its own: a popup or an event screen in
+                        # the way usually clears, and recovery runs again after the back-off.
+                        msg = f'''Builder Base: {failures} cycles in a row without a battle — backing off {_IDLE_RECHECK_SECONDS // 60}m, then retrying (endless run).'''
+                        logger.warning(msg)
+                        if cb:
+                            cb(msg)
+                        failures = 0
+                        if self.stop_event.wait(_IDLE_RECHECK_SECONDS):
+                            return None
+                        self._recover_safely()
+                        continue
                     msg = f'''Builder Base: {failures} cycles in a row without a battle — stopping. Check that the Builder Base is on screen.'''
                     logger.warning(msg)
                     if cb:
@@ -1272,6 +1334,8 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             self._safely('Live status', self._bb_live_status)
             self._maybe_auto_upgrade()
             self._safely('Walls', self._bb_maybe_upgrade_walls)
+            if self._safely('Full storages', self._stop_if_storages_full):
+                return None
             if star_bonus and self._is_bb_star_bonus_finished():
                 logger.info('Builder Base star bonus finished (bstar.png no longer visible). Stopping.')
                 return None

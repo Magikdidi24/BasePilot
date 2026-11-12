@@ -10,7 +10,7 @@ from app.ui.qt.theme import apply_theme
 def _parse_autostart(argv):
     '''``--autostart [--minutes N] [--walls] [--upgrades off|dry|maxer|rusher]
     [--donate] [--request]`` → (minutes, walls, upgrades, donate, request) or None.
-    ``--minutes 0`` = run until maxed (no limit).'''
+    ``--minutes 0`` = endless (no time limit).'''
     if '--autostart' not in argv:
         return None
     minutes = 15

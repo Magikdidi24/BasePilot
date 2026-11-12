@@ -237,8 +237,9 @@ class MainWindow(QMainWindow):
             self._notify('BasePilot stopped on an error', preview, error = True)
             show_error(self, 'Error', str(error_msg))
             return None
-        self._notify('BasePilot', 'The run is over.')
-        self._status_label.setText('Stopped')
+        reason = self._controller.finish_reason()
+        self._notify('BasePilot', f'The run is over: {reason}.' if reason else 'The run is over.')
+        self._status_label.setText(f'Stopped: {reason}' if reason else 'Stopped')
         self._status_label.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
         if sys.platform == 'win32':
 

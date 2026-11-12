@@ -61,10 +61,18 @@ page and uses the same mode:
 - **Rusher** — takes the Town Hall as soon as it's affordable.
 - **Dry run** — logs what it *would* start and clicks nothing. Good first setting.
 
-**Run until maxed.** No time limit. Farm → spend → and when storages are full with
-every builder busy, BasePilot **idles** instead of raiding for loot that would
-overflow, rechecking every few minutes and resuming the moment something frees up.
-It only stops when you tell it to.
+**Endless.** No time limit, in either village: the battles go on until you press Stop,
+and a screen the bot cannot get past makes it back off five minutes and retry rather than
+end the run. With **Maxer** or **Rusher** in the Home Village, when storages are full with
+every builder busy, BasePilot **idles** instead of raiding for loot that would overflow,
+rechecking every few minutes and resuming the moment something frees up. (This switch was
+called *Run until maxed*.) A Multi-run keeps its duration, for each account.
+
+**Stop when storages are full.** Ends the run once the gold and elixir bars are both
+full, in either village. It is checked between battles, after the walls and upgrades had
+their turn, so what they spend keeps the run going. With a duration or Endless; in a
+Multi-run, that account is done and the next one starts. The Windows notification at the
+end says why the run stopped.
 
 **Start at set times.** On the Run page (*Schedule*), list times of day (`08:00, 13:30,
 21:00`): while BasePilot is open it presses Start by itself at each one, every day, with
@@ -91,7 +99,7 @@ request — longest-waiting first, following the game's own "!" badge for the on
 screen isn't showing, and giving each troop until the game greys it out — then asks for
 reinforcements of its own. It only leaves once no Donate button and no badge remain, and
 it holds off donating while your elixir is under a floor you set. It keeps doing that
-through the long idle stretches of *Run until maxed*, when requests pile up unanswered.
+through the long idle stretches of an *Endless* run, when requests pile up unanswered.
 Every click is the game's own button, matched on screen rather than remembered as a
 coordinate, and the close button doubles as proof the menu opened and closed. The button and troop templates it
 matches ship with BasePilot for 16:9 and 16:10 clients (the 16:10 ones scaled from the
@@ -152,7 +160,7 @@ reopen Clash, then *Restore my display* — the running game keeps 16:9.
 3. On the Run page, choose your army ([what to bring](#army-setup)), set
    **Auto upgrade → Dry run** for the first session, and press **Start**. Watch the Logs page
    to see what it would do.
-4. Happy with its choices? Switch to **Maxer** and enable **Run until maxed**.
+4. Happy with its choices? Switch to **Maxer** and enable **Endless**.
    *Settings → Reserve builders* keeps builders free for walls, so it only applies with
    **Upgrade walls** on.
 
@@ -162,7 +170,8 @@ Command line, for scheduled or overnight runs:
 BasePilot.exe --autostart --minutes 0 --walls --upgrades maxer --donate --request
 ```
 
-`--minutes 0` means run until maxed. `--upgrades off|dry|maxer|rusher`. `--donate`
+`--minutes 0` means Endless (*Stop when storages are full* stays as last set on the Run
+page). `--upgrades off|dry|maxer|rusher`. `--donate`
 and `--request` arm clan assist (capture its templates first — see
 [docs/clan.md](docs/clan.md)).
 

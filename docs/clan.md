@@ -113,7 +113,7 @@ From the home screen, between raids, on two independent clocks (*Settings → Cl
 → How often*): donations **after every raid** by default (the interval shows as "every
 raid" at 0), requests every 30 minutes. A visit due on
 either clock opens the menu once and does both errands that are due. It also runs while
-the bot idles under *Run until maxed* — those stretches last hours, and clanmates keep
+the bot idles in an *Endless* run — those stretches last hours, and clanmates keep
 asking for troops through them. Multi-run gives each account its own visit. The Builder
 Base flow skips it.
 

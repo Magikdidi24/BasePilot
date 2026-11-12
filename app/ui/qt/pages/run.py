@@ -115,10 +115,7 @@ class RunPage(QWidget):
         self._modes_card.setVisible(not builder_base)
         self._bb_attack_card.setVisible(builder_base)
         self._bb_modes_card.setVisible(builder_base)
-        # Until-maxed (and the auto-upgrader behind it) is Home Village only.
-        self._until_maxed.setVisible(not builder_base)
-        if builder_base and self._until_maxed.isChecked():
-            self._until_maxed.setChecked(False)
+        self._update_duration_enabled()  # a Home Village Multi-run keeps its duration under Endless
 
     
     def _build_attack_card(self):
@@ -229,13 +226,22 @@ class RunPage(QWidget):
         self._star_bonus = ToggleSwitch('Star Bonus', parent = card)
         self._star_bonus.toggled.connect(self._on_star_bonus_toggle)
         card.card_layout.addWidget(self._star_bonus)
-        self._until_maxed = ToggleSwitch('Run until maxed (no time limit)', parent = card)
-        self._until_maxed.toggled.connect(self._on_until_maxed_toggle)
-        card.card_layout.addWidget(self._until_maxed)
-        until_hint = QLabel('Farms, upgrades, and idles in a loop until you press Stop. When storages are full and nothing can be started, the bot waits and rechecks every 5 minutes instead of attacking for nothing.')
-        until_hint.setWordWrap(True)
-        until_hint.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
-        card.card_layout.addWidget(until_hint)
+        self._endless = ToggleSwitch('Endless (until you press Stop)', parent = card)
+        self._endless.toggled.connect(self._on_endless_toggle)
+        card.card_layout.addWidget(self._endless)
+        endless_hint = self._muted('Battles go on with no time limit, in either village, until you press Stop. A screen the bot '
+                                   'cannot get past makes it back off 5 minutes and retry instead of ending the run. Home Village '
+                                   'with Maxer or Rusher: when storages are full and nothing can be started, the attacks pause '
+                                   'and the bot rechecks every 5 minutes. A Multi-run keeps the duration, for each account.', card)
+        endless_hint.setWordWrap(True)
+        card.card_layout.addWidget(endless_hint)
+        self._stop_when_full = ToggleSwitch('Stop when storages are full', parent = card)
+        card.card_layout.addWidget(self._stop_when_full)
+        full_hint = self._muted('Ends the run once the gold and elixir bars are both full, in either village. Checked between '
+                                'battles, after the walls and upgrades had their turn: what they spend keeps the run going. With '
+                                'a duration or Endless; in a Multi-run, that account is done and the next one starts.', card)
+        full_hint.setWordWrap(True)
+        card.card_layout.addWidget(full_hint)
         dur_row = QHBoxLayout()
         self._duration_label = SectionTitle('Duration')
         dur_row.addWidget(self._duration_label)
@@ -380,6 +386,7 @@ class RunPage(QWidget):
         card.card_layout.addWidget(clan_hint)
         mr_row = QHBoxLayout()
         self._multi_run = ToggleSwitch('Multi-run', parent = card)
+        self._multi_run.toggled.connect(lambda _checked: self._update_duration_enabled())
         mr_row.addWidget(self._multi_run)
         mr_row.addStretch()
         edit_players = neutral_button('Edit player list', parent = card)
@@ -531,8 +538,15 @@ class RunPage(QWidget):
             return None
 
     
+    def _endless_applies(self):
+        '''Endless takes the duration's place, except in a Home Village Multi-run (a duration
+        for each account).'''
+        multi_run = getattr(self, '_multi_run', None)  # the Modes card is built after this one
+        multi = multi_run is not None and multi_run.isChecked() and not self._is_builder_base()
+        return self._endless.isChecked() and not multi
+
     def _duration_locked(self):
-        return self._star_bonus.isChecked() or self._until_maxed.isChecked()
+        return self._star_bonus.isChecked() or self._endless_applies()
 
     def _step_minutes(self, delta):
         if self._duration_locked():
@@ -563,11 +577,11 @@ class RunPage(QWidget):
         self._minutes_unit.setStyleSheet('color: #4a5568;')
 
     def _on_star_bonus_toggle(self, checked):
-        if checked and getattr(self, '_until_maxed', None) is not None and self._until_maxed.isChecked():
-            self._until_maxed.setChecked(False)
+        if checked and getattr(self, '_endless', None) is not None and self._endless.isChecked():
+            self._endless.setChecked(False)
         self._update_duration_enabled()
 
-    def _on_until_maxed_toggle(self, checked):
+    def _on_endless_toggle(self, checked):
         if checked and self._star_bonus.isChecked():
             self._star_bonus.setChecked(False)
         self._update_duration_enabled()
@@ -608,7 +622,9 @@ class RunPage(QWidget):
         self._bb_upgrade_walls.setChecked(self._settings.value('run/bbUpgradeWalls', False, type = bool))
         self._auto_donate.setChecked(self._settings.value('run/autoDonate', False, type = bool))
         self._auto_request.setChecked(self._settings.value('run/autoRequest', False, type = bool))
-        self._until_maxed.setChecked(self._settings.value('run/untilMaxed', False, type = bool))
+        # Endless keeps the key of its old name, "Run until maxed": a saved choice carries over.
+        self._endless.setChecked(self._settings.value('run/untilMaxed', False, type = bool))
+        self._stop_when_full.setChecked(self._settings.value('run/stopWhenFull', False, type = bool))
         minutes = self._settings.value('run/minutes', 15, type = int)
         if 1 <= minutes <= 999:
             self._minutes_spin.setValue(minutes)
@@ -620,7 +636,8 @@ class RunPage(QWidget):
         self._settings.setValue('run/bbUpgradeWalls', self._bb_upgrade_walls.isChecked())
         self._settings.setValue('run/autoDonate', self._auto_donate.isChecked())
         self._settings.setValue('run/autoRequest', self._auto_request.isChecked())
-        self._settings.setValue('run/untilMaxed', self._until_maxed.isChecked())
+        self._settings.setValue('run/untilMaxed', self._endless.isChecked())
+        self._settings.setValue('run/stopWhenFull', self._stop_when_full.isChecked())
         self._settings.setValue('run/minutes', self._minutes_spin.value())
 
     
@@ -649,12 +666,11 @@ class RunPage(QWidget):
             show_error(self.window(), 'Multi-run', 'Enable at least one player with Run and a non-empty name.\nOpen Player list… to edit.')
             return None
         star_bonus = self._star_bonus.isChecked()
-        # "Run until maxed" = unlimited duration; single Home Village runs only.
-        until_maxed = (not builder_base and not star_bonus and multi_arg is None
-                       and self._until_maxed.isChecked())
+        # Endless = no time limit, in either village; a Multi-run keeps its duration per account.
+        endless = not star_bonus and self._endless_applies()
         if star_bonus:
             mins = 5
-        elif until_maxed:
+        elif endless:
             mins = 0
         else:
             mins = self._get_minutes()
@@ -664,7 +680,7 @@ class RunPage(QWidget):
         self._save_choices()
         # Clan assist rides the Home Village flow (the chat button is calibrated on it,
         # and the Builder Base has no clan chat).
-        self._controller.start(method = method, minutes = mins, star_bonus = star_bonus, upgrade_walls = self._bb_upgrade_walls.isChecked() if builder_base else self._upgrade_walls.isChecked(), multi_run_players = multi_arg, builder_base = builder_base, auto_upgrade = (self._get_auto_upgrade_mode() if self._bb_auto_upgrade.isChecked() else 'off') if builder_base else self._get_auto_upgrade_mode(), auto_donate = False if builder_base else self._auto_donate.isChecked(), auto_request = False if builder_base else self._auto_request.isChecked())
+        self._controller.start(method = method, minutes = mins, star_bonus = star_bonus, upgrade_walls = self._bb_upgrade_walls.isChecked() if builder_base else self._upgrade_walls.isChecked(), multi_run_players = multi_arg, builder_base = builder_base, auto_upgrade = (self._get_auto_upgrade_mode() if self._bb_auto_upgrade.isChecked() else 'off') if builder_base else self._get_auto_upgrade_mode(), auto_donate = False if builder_base else self._auto_donate.isChecked(), auto_request = False if builder_base else self._auto_request.isChecked(), stop_when_full = self._stop_when_full.isChecked())
 
     
     def is_star_bonus_enabled(self):
@@ -679,12 +695,12 @@ class RunPage(QWidget):
 
     def apply_autostart(self, minutes, upgrade_walls, auto_upgrade = 'off', auto_donate = False, auto_request = False):
         '''CLI ``--autostart``: Home Village run with the given duration (``0`` =
-        run until maxed), wall toggle, auto-upgrade mode (off|dry|maxer|rusher), and
+        endless), wall toggle, auto-upgrade mode (off|dry|maxer|rusher), and
         the clan-assist toggles.'''
         if self._controller.is_running():
             return None
         self._star_bonus.setChecked(False)
-        self._until_maxed.setChecked(minutes <= 0)
+        self._endless.setChecked(minutes <= 0)
         if minutes > 0:
             self._minutes_spin.setValue(minutes)
         self._upgrade_walls.setChecked(bool(upgrade_walls))
