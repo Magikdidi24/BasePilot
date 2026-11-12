@@ -12,15 +12,13 @@ try:
     from app.ui.qt.pages import logs as logs_page
 except ImportError:  # the CI test job installs no Qt
     QApplication = None
+from tests.helpers import QtTestCase
 
 
 @unittest.skipIf(QApplication is None, 'needs PySide6')
-class LogsPageTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.app = QApplication.instance() or QApplication([])
-
+class LogsPageTests(QtTestCase):
     def setUp(self):
+        super().setUp()
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
         self.log = Path(folder.name) / 'basepilot.log'

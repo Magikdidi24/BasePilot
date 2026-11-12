@@ -1,16 +1,15 @@
 """Start at set times: the times written on the Run page, when each is due, and the page
 pressing Start by itself at that time (settings in a temporary file, not the user's)."""
 import os
-import tempfile
 import unittest
 from datetime import datetime, time
 from unittest.mock import Mock, patch
 
 from app.core import schedule
+from tests.helpers import QtTestCase
 
 try:
     os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-    from PySide6.QtCore import QSettings
     from PySide6.QtWidgets import QApplication
     from app.ui.qt.pages.run import RunPage
 except ImportError:  # no PySide6
@@ -48,17 +47,12 @@ class DueTests(unittest.TestCase):
 
 
 @unittest.skipIf(QApplication is None, 'needs PySide6')
-class RunPageScheduleTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.app = QApplication.instance() or QApplication([])
-
+class RunPageScheduleTests(QtTestCase):
     def setUp(self):
+        super().setUp()
         self.controller = Mock()
         self.controller.is_running.return_value = False
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        self.settings = QSettings(os.path.join(tmp.name, 'ui.ini'), QSettings.Format.IniFormat)
+        self.settings = self.temp_settings()
         self.page = self.make_page()
         self.started = []
         self.page.scheduledStart.connect(self.started.append)

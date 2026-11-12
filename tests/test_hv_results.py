@@ -11,11 +11,11 @@ import cv2
 import numpy as np
 
 from app.core import bb_learning, hv_results
-from app.core.bot import Bot
 from app.core.results_screen import settled_result
 from app.services import ppocr
 from app.utils.profile_settings_store import (EARTHQUAKE_METHOD_CURVE, EARTHQUAKE_METHOD_LEARN, EARTHQUAKE_METHOD_RANDOM,
                                               _normalize_earthquake_method)
+from tests.helpers import bare_bot
 
 FIXTURES = Path(__file__).parent / 'fixtures'
 
@@ -108,13 +108,7 @@ class SettingTests(unittest.TestCase):
 
 
 def make_bot():
-    bot = Bot.__new__(Bot)
-    bot.stop_event = Mock()
-    bot.stop_event.is_set.return_value = False
-    bot.stop_event.wait.return_value = False
-    bot.window = Mock()
-    bot.window.screenshot.return_value = np.zeros((767, 1227, 3), np.uint8)
-    bot.input = Mock()
+    bot = bare_bot(np.zeros((767, 1227, 3), np.uint8))
     bot.vision = Mock()
     bot._update_config_size = Mock()
     bot._session_id = '2026-11-11T20:00:00'

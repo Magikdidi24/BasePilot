@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import patch
 
 from app.utils.player_list_store import PlayerEntry
+from tests.helpers import QtTestCase
 
 try:
     os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
@@ -13,12 +14,9 @@ except ImportError:  # the CI test job installs no Qt
 
 
 @unittest.skipIf(QApplication is None, 'needs PySide6')
-class PlayerOrderTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.app = QApplication.instance() or QApplication([])
-
+class PlayerOrderTests(QtTestCase):
     def setUp(self):
+        super().setUp()
         load = patch('app.ui.qt.pages.players.load_players', return_value=[])
         save = patch('app.ui.qt.pages.players.save_players')
         load.start()

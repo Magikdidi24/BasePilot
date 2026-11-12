@@ -9,18 +9,13 @@ import numpy as np
 
 from app.core.bot import Bot
 from app.services.window import WindowService, bgra_dib_to_bgr
+from tests.helpers import bare_bot
 
 FRAME = np.zeros((731, 1299, 3), dtype=np.uint8)
 
 
 def make_bot():
-    bot = Bot.__new__(Bot)
-    bot.stop_event = Mock()
-    bot.stop_event.is_set.return_value = False
-    bot.stop_event.wait.return_value = False
-    bot.window = Mock()
-    bot.window.screenshot.return_value = FRAME
-    bot.input = Mock()
+    bot = bare_bot(FRAME)
     bot.vision = Mock()
     bot.vision.find_template.return_value = (None, None)
     bot.vision.find_control.return_value = (None, None)

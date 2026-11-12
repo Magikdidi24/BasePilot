@@ -1,6 +1,5 @@
 """Endless runs in either village, and "Stop when storages are full"."""
 import os
-import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,12 +10,12 @@ import numpy as np
 
 from app.config import Config
 from app.core import village_state
-from app.core.bot import _IDLE_RECHECK_SECONDS, Bot
+from app.core.bot import _IDLE_RECHECK_SECONDS
 from app.core.village_state import storages_full
+from tests.helpers import QtTestCase, bare_bot
 
 try:
     os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-    from PySide6.QtCore import QSettings
     from PySide6.QtWidgets import QApplication
     from app.ui.qt.pages.run import RunPage
 except ImportError:  # no PySide6: the page tests are skipped
@@ -26,13 +25,7 @@ FIXTURES = Path(__file__).parent / 'fixtures'
 
 
 def make_bot():
-    bot = Bot.__new__(Bot)
-    bot.stop_event = Mock()
-    bot.stop_event.is_set.return_value = False
-    bot.stop_event.wait.return_value = False
-    bot.window = Mock()
-    bot.window.screenshot.return_value = np.zeros((767, 1227, 3), np.uint8)
-    bot.input = Mock()
+    bot = bare_bot(np.zeros((767, 1227, 3), np.uint8))
     bot.vision = Mock()
     bot.vision.find_template.return_value = (None, None)
     bot.config = SimpleNamespace(aspect_key='16_10', width=1227, height=767, get_point=lambda k: (640, 750),
@@ -191,17 +184,12 @@ class EndlessTests(unittest.TestCase):
 
 
 @unittest.skipIf(QApplication is None, 'needs PySide6')
-class RunPageTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.app = QApplication.instance() or QApplication([])
-
+class RunPageTests(QtTestCase):
     def setUp(self):
+        super().setUp()
         self.controller = Mock()
         self.controller.is_running.return_value = False
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        self.settings = QSettings(os.path.join(tmp.name, 'ui.ini'), QSettings.Format.IniFormat)
+        self.settings = self.temp_settings()
 
     def make_page(self):
         with patch('app.ui.qt.pages.run.QSettings', return_value=self.settings):

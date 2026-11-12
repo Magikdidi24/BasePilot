@@ -12,14 +12,11 @@ try:
     from app.ui.qt.template_capture import TemplateCaptureDialog
 except ImportError:  # the CI test job installs no Qt
     QApplication = None
+from tests.helpers import QtTestCase
 
 
 @unittest.skipIf(QApplication is None, 'needs PySide6')
-class CaptureNamingTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.app = QApplication.instance() or QApplication([])
-
+class CaptureNamingTests(QtTestCase):
     def save_as(self, typed=None, pick=None):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)

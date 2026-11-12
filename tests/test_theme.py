@@ -8,13 +8,14 @@ try:
     from app.ui.qt.theme import apply_theme
 except ImportError:  # the CI test job installs no Qt
     QApplication = None
+from tests.helpers import QtTestCase
 
 
 @unittest.skipIf(QApplication is None, 'needs PySide6')
-class DurationBoxTests(unittest.TestCase):
+class DurationBoxTests(QtTestCase):
     @classmethod
     def setUpClass(cls):
-        cls.app = QApplication.instance() or QApplication([])
+        super().setUpClass()
         apply_theme(cls.app)
 
     def test_the_duration_shows_its_minutes(self):

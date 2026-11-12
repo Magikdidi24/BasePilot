@@ -11,12 +11,11 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from app.config import Config
-from app.core.bot import Bot
 from app.services import ppocr
 from app.core.upgrade_menu import RESOURCE_ELIXIR, RESOURCE_GOLD
 from app.services.vision import VisionService
 from app.utils import profile_settings_store as store
-from tests.helpers import canvas
+from tests.helpers import QtTestCase, bare_bot, canvas
 
 
 HOME = canvas(('gpg767_builder_base_home_bottom.jpg', 0, 383))
@@ -24,14 +23,9 @@ PANEL = canvas(('gpg767_panel_bb_buildings.png', 824, 0))
 
 
 def make_bot(frames=()):
-    bot = Bot.__new__(Bot)
-    bot.stop_event = Mock()
-    bot.stop_event.is_set.return_value = False
-    bot.stop_event.wait.return_value = False
-    bot.window = Mock()
+    bot = bare_bot()
     shots = list(frames)
     bot.window.screenshot.side_effect = lambda: shots.pop(0) if len(shots) > 1 else shots[0]
-    bot.input = Mock()
     bot.vision = VisionService()
     bot.config = Config()
     bot._update_config_size = Mock()
@@ -130,7 +124,6 @@ class SettingsTests(unittest.TestCase):
 
 try:
     os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-    from PySide6.QtCore import QSettings
     from PySide6.QtWidgets import QApplication
     from app.ui.qt.pages.run import RunPage
 except ImportError:  # no PySide6
@@ -138,15 +131,9 @@ except ImportError:  # no PySide6
 
 
 @unittest.skipIf(QApplication is None, 'needs PySide6')
-class RunPageTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.app = QApplication.instance() or QApplication([])
-
+class RunPageTests(QtTestCase):
     def test_the_builder_base_switch_upgrades_walls(self):
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        settings = QSettings(os.path.join(tmp.name, 'ui.ini'), QSettings.Format.IniFormat)
+        settings = self.temp_settings()
         controller = Mock()
         controller.is_running.return_value = False
         with patch('app.ui.qt.pages.run.QSettings', return_value=settings):
@@ -161,15 +148,10 @@ class RunPageTests(unittest.TestCase):
         self.assertTrue(settings.value('run/bbUpgradeWalls', type=bool))
 
     def test_the_run_page_keeps_its_choices_per_profile(self):
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        settings = QSettings(os.path.join(tmp.name, 'ui.ini'), QSettings.Format.IniFormat)
+        settings = self.temp_settings()
         controller = Mock(**{'is_running.return_value': False})
         for (profile, ui_store) in (('', 'UI'), ('alt', 'UI-alt')):  # the main window's store names
-            # the page reads the profile's settings.json: keep the data dir in the temp folder
-            # (LOCALAPPDATA on Windows, HOME on the Linux CI), never the user's
-            env = {'BASEPILOT_PROFILE': profile, 'LOCALAPPDATA': tmp.name, 'HOME': tmp.name}
-            with (self.subTest(profile=profile), patch.dict(os.environ, env),
+            with (self.subTest(profile=profile), patch.dict(os.environ, {'BASEPILOT_PROFILE': profile}),
                   patch('app.ui.qt.pages.run.QSettings', return_value=settings) as opened):
                 RunPage(controller, lambda name: None)
                 opened.assert_called_once_with('BasePilot', ui_store)

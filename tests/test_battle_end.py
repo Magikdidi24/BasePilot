@@ -10,9 +10,9 @@ import cv2
 import numpy as np
 
 from app.config import Config
-from app.core.bot import Bot
 from app.services import ppocr
 from app.core.loot_filter import read_enemy_loot
+from tests.helpers import bare_bot
 
 FIXTURES = Path(__file__).parent / 'fixtures'
 FRAME = np.zeros((767, 1227, 3), np.uint8)
@@ -20,13 +20,7 @@ FRAME = np.zeros((767, 1227, 3), np.uint8)
 
 def make_bot(buttons):
     """``buttons(poll)``: the set of templates showing at that poll."""
-    bot = Bot.__new__(Bot)
-    bot.stop_event = Mock()
-    bot.stop_event.is_set.return_value = False
-    bot.stop_event.wait.return_value = False
-    bot.window = Mock()
-    bot.window.screenshot.return_value = FRAME
-    bot.input = Mock()
+    bot = bare_bot(FRAME)
     bot._update_config_size = Mock()
     bot.vision = Mock()
     polls = itertools.count()

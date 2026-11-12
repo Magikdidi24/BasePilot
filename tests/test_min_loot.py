@@ -9,11 +9,11 @@ import cv2
 import numpy as np
 
 from app.config import Config
-from app.core.bot import Bot
 from app.core.loot_filter import LootFilter
 from app.services.vision import VisionService
 from app.utils.common import get_template_path
 from app.utils.profile_settings_store import ProfileSettings
+from tests.helpers import QtTestCase, bare_bot
 
 try:
     os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
@@ -24,13 +24,7 @@ except ImportError:  # the CI test job installs no Qt
 
 
 def make_bot():
-    bot = Bot.__new__(Bot)
-    bot.stop_event = Mock()
-    bot.stop_event.is_set.return_value = False
-    bot.stop_event.wait.return_value = False
-    bot.window = Mock()
-    bot.window.screenshot.return_value = np.zeros((767, 1227, 3), np.uint8)
-    bot.input = Mock()
+    bot = bare_bot(np.zeros((767, 1227, 3), np.uint8))
     bot.vision = VisionService
     bot._update_config_size = Mock()
     return bot
@@ -85,12 +79,9 @@ class NextButtonTests(unittest.TestCase):
 
 
 @unittest.skipIf(QApplication is None, 'needs PySide6')
-class RunPageMinLootTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.app = QApplication.instance() or QApplication([])
-
+class RunPageMinLootTests(QtTestCase):
     def setUp(self):
+        super().setUp()
         self.profile = ProfileSettings(attack_min_gold_k=400, attack_min_elixir_k=0, attack_max_skips=7)
         load = patch('app.ui.qt.pages.run.load_profile_settings', side_effect=lambda: self.profile)
         save = patch('app.ui.qt.pages.run.save_profile_settings', side_effect=self.saved)
@@ -98,7 +89,8 @@ class RunPageMinLootTests(unittest.TestCase):
         self.save = save.start()
         self.addCleanup(load.stop)
         self.addCleanup(save.stop)
-        self.page = RunPage(Mock(), lambda page: None)
+        with patch('app.ui.qt.pages.run.QSettings', return_value=self.temp_settings()):  # not the user's UI store
+            self.page = RunPage(Mock(), lambda page: None)
 
     def saved(self, profile):
         self.profile = profile

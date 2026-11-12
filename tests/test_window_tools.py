@@ -8,19 +8,20 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from app.services.window import WindowCandidate
+from tests.helpers import QtTestCase
 
 HAVE_QT = importlib.util.find_spec('PySide6') is not None  # the CI test job installs no Qt
 GAME = WindowCandidate(top_hwnd=1, title='Clash of Clans', top_class='CROSVM_1', child_hwnd=11, child_class='CROSVM_1')
 
 
 @unittest.skipUnless(HAVE_QT, 'needs PySide6')
-class WindowToolTests(unittest.TestCase):
+class WindowToolTests(QtTestCase):
     @classmethod
     def setUpClass(cls):
         os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-        from PySide6.QtWidgets import QApplication, QLabel, QWidget
+        super().setUpClass()
+        from PySide6.QtWidgets import QLabel, QWidget
         from app.ui.qt.pages import settings
-        cls.app = QApplication.instance() or QApplication([])
         (cls.settings, cls.QLabel, cls.QWidget) = (settings, QLabel, QWidget)
 
     def page(self):

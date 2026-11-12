@@ -10,7 +10,7 @@ import numpy as np
 
 from app.config import Config
 from app.core.bot import Bot
-from tests.helpers import canvas
+from tests.helpers import bare_bot, canvas
 
 
 def home():
@@ -18,13 +18,7 @@ def home():
 
 
 def make_bot(frame):
-    bot = Bot.__new__(Bot)
-    bot.stop_event = Mock()
-    bot.stop_event.is_set.return_value = False
-    bot.stop_event.wait.return_value = False
-    bot.window = Mock()
-    bot.window.screenshot.return_value = frame
-    bot.input = Mock()
+    bot = bare_bot(frame)
     bot.vision = Mock()
     bot.vision.find_label.return_value = (None, None)
     bot.config = Config()

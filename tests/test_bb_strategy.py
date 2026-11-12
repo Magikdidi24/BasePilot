@@ -12,22 +12,15 @@ import numpy as np
 
 from app.config import Config
 from app.core import bb_scout, bb_strategy
-from app.core.bot import Bot
 from app.core.build_panel import find_close
 from app.services.vision import VisionService
-from tests.helpers import FIXTURES, canvas
+from tests.helpers import FIXTURES, bare_bot, canvas
 
 LIFT = 44  # px from a swap button up to its card's tap at 767p
 
 
 def make_bot(vision=None):
-    bot = Bot.__new__(Bot)
-    bot.stop_event = Mock()
-    bot.stop_event.is_set.return_value = False
-    bot.stop_event.wait.return_value = False
-    bot.window = Mock()
-    bot.window.screenshot.return_value = np.zeros((767, 1227, 3), np.uint8)
-    bot.input = Mock()
+    bot = bare_bot(np.zeros((767, 1227, 3), np.uint8))
     if vision is None:
         vision = Mock()
         vision.find_template_with_confidence.return_value = (None, None, 0.0)

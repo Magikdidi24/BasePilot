@@ -16,17 +16,11 @@ from app.core.bot import Bot, reconnect_button
 from app.core.upgrade_menu import UpgradeRow, is_town_hall_row
 from app.core.village_state import storages_full
 from app.services.vision import VisionService
-from tests.helpers import FIXTURES, WAYDROID, canvas
+from tests.helpers import FIXTURES, WAYDROID, bare_bot, canvas
 
 
 def make_bot():
-    bot = Bot.__new__(Bot)
-    bot.stop_event = Mock()
-    bot.stop_event.is_set.return_value = False
-    bot.stop_event.wait.return_value = False
-    bot.window = Mock()
-    bot.window.screenshot.return_value = np.zeros((1200, 1920, 3), np.uint8)
-    bot.input = Mock()
+    bot = bare_bot(np.zeros((1200, 1920, 3), np.uint8))
     bot.vision = Mock()
     bot.vision.find_template.return_value = (None, None)
     bot.config = SimpleNamespace(aspect_key='16_10', width=1920, height=1200, scale_scalar=lambda v: int(v * 0.75),

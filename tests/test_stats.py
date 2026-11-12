@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from app.core import stats
 from app.core.bot import Bot
+from tests.helpers import QtTestCase
 
 try:
     os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
@@ -64,11 +65,7 @@ class HistoryRecordTests(unittest.TestCase):
 
 
 @unittest.skipIf(QApplication is None, 'needs PySide6')
-class StatsPageTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.app = QApplication.instance() or QApplication([])
-
+class StatsPageTests(QtTestCase):
     def test_the_page_lists_the_sessions_and_charts_the_battles(self):
         with patch('app.ui.qt.pages.stats.battle_history.load', return_value=RECORDS):
             page = StatsPage()

@@ -12,10 +12,10 @@ import numpy as np
 
 from app.config import Config
 from app.core import bb_learning, bb_results, bb_scout
-from app.core.bot import Bot
 from app.core.results_screen import settled_result
 from app.services import ppocr
 from app.utils import battle_history
+from tests.helpers import bare_bot
 
 FIXTURES = Path(__file__).parent / 'fixtures'
 
@@ -104,12 +104,7 @@ class PlanLearnerTests(unittest.TestCase):
 
 
 def make_bot():
-    bot = Bot.__new__(Bot)
-    bot.stop_event = Mock()
-    bot.stop_event.wait.return_value = False
-    bot.stop_event.is_set.return_value = False
-    bot.window = Mock()
-    bot.input = Mock()
+    bot = bare_bot()
     bot._update_config_size = Mock()
     return bot
 
