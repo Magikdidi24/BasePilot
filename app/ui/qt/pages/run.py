@@ -9,7 +9,7 @@ from app.core import bb_strategy, schedule
 from app.ui.qt._constants import ATTACK_STRATEGIES, BUILDER_BASE_ATTACK_STRATEGIES
 from app.ui.qt.dialogs import show_error, show_under_development
 from app.ui.qt.theme import SPACING, TOKENS
-from app.ui.qt.widgets import Card, SectionTitle, StepperButton, ToggleSwitch, chip_button, danger_button, neutral_button, primary_button, segment_button
+from app.ui.qt.widgets import Card, SectionTitle, StepperButton, ToggleSwitch, chip_button, danger_button, neutral_button, primary_button, segment_button, spin_box
 from app.utils.common import ui_settings_name
 from app.utils.player_list_store import load_players
 from app.utils.logger import setup_logger
@@ -159,13 +159,7 @@ class RunPage(QWidget):
 
     @staticmethod
     def _min_loot_spin(parent, maximum = ATTACK_MIN_LOOT_K_MAX, step = 50):
-        spin = QSpinBox(parent)
-        spin.setRange(0, maximum)
-        spin.setSingleStep(step)
-        spin.setSuffix('k')
-        spin.setSpecialValueText('any')
-        spin.setFixedWidth(88)
-        return spin
+        return spin_box(0, maximum, step = step, suffix = 'k', special = 'any', parent = parent)
 
     @staticmethod
     def _muted(text, parent):

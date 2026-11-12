@@ -1,7 +1,7 @@
 '''Settings page — profile preferences and manual game-window selection.'''
 from __future__ import annotations
 from PySide6.QtGui import QColor, QFont
-from PySide6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow, QSpinBox, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow, QVBoxLayout, QWidget
 from app.config import resolve_aspect_key
 from app.services.display import DisplayService
 from app.services.window import WindowService
@@ -9,9 +9,9 @@ from app.core.clan import donate_troop_template_names, missing_templates
 from app.ui.qt.point_picker import PointPickerDialog
 from app.ui.qt.template_capture import TemplateCaptureDialog
 from app.ui.qt.theme import SPACING, TOKENS
-from app.ui.qt.widgets import Card, PageTitle, SectionTitle, ToggleSwitch, neutral_button, primary_button
+from app.ui.qt.widgets import Card, PageTitle, SectionTitle, ToggleSwitch, neutral_button, primary_button, spin_box
 from app.utils.logger import setup_logger
-from app.utils.profile_settings_store import BB_WALL_THRESHOLD_K_MAX, ATTACK_MAX_SKIPS_MAX, ATTACK_MIN_DARK_K_MAX, ATTACK_MIN_LOOT_K_MAX, CLAN_MIN_ELIXIR_K_MAX, CLAN_DONATE_COUNT_MAX, CLAN_DONATE_INTERVAL_M_MAX, CLAN_DONATE_INTERVAL_M_MIN, CLAN_REQUEST_INTERVAL_M_MAX, CLAN_REQUEST_INTERVAL_M_MIN, EARTHQUAKE_METHOD_OPTIONS, RESERVE_BUILDERS_MAX, WALL_UPGRADE_THRESHOLD_M_MAX, ProfileSettings, load_profile_settings, save_profile_settings
+from app.utils.profile_settings_store import BB_WALL_THRESHOLD_K_MAX, ATTACK_MAX_SKIPS_MAX, ATTACK_MIN_DARK_K_MAX, ATTACK_MIN_LOOT_K_MAX, CLAN_MIN_ELIXIR_K_MAX, CLAN_DONATE_COUNT_MAX, CLAN_DONATE_INTERVAL_M_MAX, CLAN_DONATE_INTERVAL_M_MIN, CLAN_REQUEST_INTERVAL_M_MAX, CLAN_REQUEST_INTERVAL_M_MIN, EARTHQUAKE_METHOD_OPTIONS, RESERVE_BUILDERS_MAX, WALL_UPGRADE_THRESHOLD_M_MAX, ProfileSettings, load_profile_settings, save_profile_settings, UPGRADE_ORDER_CHEAPEST, UPGRADE_ORDER_PRICIEST
 from app.utils.window_settings_store import clear_window_selection, load_window_selection, save_window_selection
 logger = setup_logger('SettingsPage')
 # Display label -> the key stored in settings.json (see app.core.clan).
@@ -123,10 +123,7 @@ class SettingsPage(QWidget):
         wall_hint.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
         card.card_layout.addWidget(wall_hint)
         wall_row = QHBoxLayout()
-        self._wall_threshold = QSpinBox()
-        self._wall_threshold.setRange(0, WALL_UPGRADE_THRESHOLD_M_MAX)
-        self._wall_threshold.setSuffix('M')
-        self._wall_threshold.setFixedWidth(88)
+        self._wall_threshold = spin_box(0, WALL_UPGRADE_THRESHOLD_M_MAX, suffix = 'M')
         wall_row.addWidget(self._wall_threshold)
         wall_unit = QLabel('gold or elixir')
         wall_unit.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
@@ -134,13 +131,7 @@ class SettingsPage(QWidget):
         wall_row.addSpacing(SPACING['md'])
         bb_label = QLabel('Builder Base')
         wall_row.addWidget(bb_label)
-        self._bb_wall_threshold = QSpinBox()
-        self._bb_wall_threshold.setRange(0, BB_WALL_THRESHOLD_K_MAX)
-        self._bb_wall_threshold.setSingleStep(100)
-        self._bb_wall_threshold.setSuffix('k')
-        self._bb_wall_threshold.setSpecialValueText('full')
-        self._bb_wall_threshold.setFixedWidth(96)
-        self._bb_wall_threshold.setToolTip('Builder Base walls (Run page, Builder Base, Upgrade walls): from this much gold or elixir; "full" = only when a storage is full.')
+        self._bb_wall_threshold = spin_box(0, BB_WALL_THRESHOLD_K_MAX, step = 100, suffix = 'k', special = 'full', width = 96, tip = 'Builder Base walls (Run page, Builder Base, Upgrade walls): from this much gold or elixir; "full" = only when a storage is full.')
         wall_row.addWidget(self._bb_wall_threshold)
         wall_row.addStretch()
         card.card_layout.addLayout(wall_row)
@@ -158,27 +149,30 @@ class SettingsPage(QWidget):
         reserve_hint.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
         card.card_layout.addWidget(reserve_hint)
         reserve_row = QHBoxLayout()
-        self._reserve_builders = QSpinBox()
-        self._reserve_builders.setRange(0, RESERVE_BUILDERS_MAX)
-        self._reserve_builders.setFixedWidth(88)
+        self._reserve_builders = spin_box(0, RESERVE_BUILDERS_MAX)
         reserve_row.addWidget(self._reserve_builders)
         reserve_unit = QLabel('builders kept free')
         reserve_unit.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
         reserve_row.addWidget(reserve_unit)
         reserve_row.addStretch()
         card.card_layout.addLayout(reserve_row)
-        btn_row = QHBoxLayout()
-        self._btn_save = primary_button('Save', parent = card)
-        self._btn_save.clicked.connect(self._on_save)
-        btn_row.addWidget(self._btn_save)
-        self._btn_reset = neutral_button('Reset', parent = card)
-        self._btn_reset.clicked.connect(self._reload_earthquake)
-        btn_row.addWidget(self._btn_reset)
-        btn_row.addStretch()
-        card.card_layout.addLayout(btn_row)
+        self._add_save_row(card)
         return card
 
     
+    def _add_save_row(self, card):
+        '''Save and Reset under a card: Save writes every card's fields (one profile file),
+        Reset reloads the whole page from it.'''
+        btn_row = QHBoxLayout()
+        btn_save = primary_button('Save', parent = card)
+        btn_save.clicked.connect(self._on_save)
+        btn_row.addWidget(btn_save)
+        btn_reset = neutral_button('Reset', parent = card)
+        btn_reset.clicked.connect(self._reload)
+        btn_row.addWidget(btn_reset)
+        btn_row.addStretch()
+        card.card_layout.addLayout(btn_row)
+
     def _build_app_card(self):
         '''App-wide preferences, kept outside the profile (QSettings "BasePilot/App").'''
         from PySide6.QtCore import QSettings
@@ -204,12 +198,7 @@ class SettingsPage(QWidget):
         hint.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
         card.card_layout.addWidget(hint)
         gold_row = QHBoxLayout()
-        self._attack_min_gold = QSpinBox()
-        self._attack_min_gold.setRange(0, ATTACK_MIN_LOOT_K_MAX)
-        self._attack_min_gold.setSingleStep(50)
-        self._attack_min_gold.setSuffix('k')
-        self._attack_min_gold.setSpecialValueText('any')
-        self._attack_min_gold.setFixedWidth(88)
+        self._attack_min_gold = spin_box(0, ATTACK_MIN_LOOT_K_MAX, step = 50, suffix = 'k', special = 'any')
         gold_row.addWidget(self._attack_min_gold)
         gold_unit = QLabel('gold')
         gold_unit.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
@@ -217,12 +206,7 @@ class SettingsPage(QWidget):
         gold_row.addStretch()
         card.card_layout.addLayout(gold_row)
         elixir_row = QHBoxLayout()
-        self._attack_min_elixir = QSpinBox()
-        self._attack_min_elixir.setRange(0, ATTACK_MIN_LOOT_K_MAX)
-        self._attack_min_elixir.setSingleStep(50)
-        self._attack_min_elixir.setSuffix('k')
-        self._attack_min_elixir.setSpecialValueText('any')
-        self._attack_min_elixir.setFixedWidth(88)
+        self._attack_min_elixir = spin_box(0, ATTACK_MIN_LOOT_K_MAX, step = 50, suffix = 'k', special = 'any')
         elixir_row.addWidget(self._attack_min_elixir)
         elixir_unit = QLabel('elixir')
         elixir_unit.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
@@ -230,12 +214,7 @@ class SettingsPage(QWidget):
         elixir_row.addStretch()
         card.card_layout.addLayout(elixir_row)
         dark_row = QHBoxLayout()
-        self._attack_min_dark = QSpinBox()
-        self._attack_min_dark.setRange(0, ATTACK_MIN_DARK_K_MAX)
-        self._attack_min_dark.setSingleStep(1)
-        self._attack_min_dark.setSuffix('k')
-        self._attack_min_dark.setSpecialValueText('any')
-        self._attack_min_dark.setFixedWidth(88)
+        self._attack_min_dark = spin_box(0, ATTACK_MIN_DARK_K_MAX, suffix = 'k', special = 'any')
         dark_row.addWidget(self._attack_min_dark)
         dark_unit = QLabel('dark elixir')
         dark_unit.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
@@ -243,9 +222,7 @@ class SettingsPage(QWidget):
         dark_row.addStretch()
         card.card_layout.addLayout(dark_row)
         skips_row = QHBoxLayout()
-        self._attack_max_skips = QSpinBox()
-        self._attack_max_skips.setRange(0, ATTACK_MAX_SKIPS_MAX)
-        self._attack_max_skips.setFixedWidth(88)
+        self._attack_max_skips = spin_box(0, ATTACK_MAX_SKIPS_MAX)
         skips_row.addWidget(self._attack_max_skips)
         skips_unit = QLabel('bases skipped per raid at most — every Next costs another search fee')
         skips_unit.setWordWrap(True)
@@ -253,15 +230,7 @@ class SettingsPage(QWidget):
         skips_row.addWidget(skips_unit)
         skips_row.addStretch()
         card.card_layout.addLayout(skips_row)
-        btn_row = QHBoxLayout()
-        btn_save = primary_button('Save', parent = card)
-        btn_save.clicked.connect(self._on_save)
-        btn_row.addWidget(btn_save)
-        btn_reset = neutral_button('Reset', parent = card)
-        btn_reset.clicked.connect(self._reload_earthquake)
-        btn_row.addWidget(btn_reset)
-        btn_row.addStretch()
-        card.card_layout.addLayout(btn_row)
+        self._add_save_row(card)
         return card
 
 
@@ -322,10 +291,7 @@ class SettingsPage(QWidget):
         self._clan_troop.currentIndexChanged.connect((lambda _idx: self._update_clan_templates_label()))
         card.card_layout.addWidget(self._clan_troop)
         count_row = QHBoxLayout()
-        self._clan_donate_count = QSpinBox()
-        self._clan_donate_count.setRange(0, CLAN_DONATE_COUNT_MAX)
-        self._clan_donate_count.setSpecialValueText('until grey')
-        self._clan_donate_count.setFixedWidth(88)
+        self._clan_donate_count = spin_box(0, CLAN_DONATE_COUNT_MAX, special = 'until grey')
         count_row.addWidget(self._clan_donate_count)
         count_unit = QLabel('troops per request — "until grey" gives until the game greys the troop out (it is full)')
         count_unit.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
@@ -338,12 +304,7 @@ class SettingsPage(QWidget):
         elixir_hint.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
         card.card_layout.addWidget(elixir_hint)
         elixir_row = QHBoxLayout()
-        self._clan_min_elixir = QSpinBox()
-        self._clan_min_elixir.setRange(0, CLAN_MIN_ELIXIR_K_MAX)
-        self._clan_min_elixir.setSingleStep(50)
-        self._clan_min_elixir.setSuffix('k')
-        self._clan_min_elixir.setSpecialValueText('off')
-        self._clan_min_elixir.setFixedWidth(88)
+        self._clan_min_elixir = spin_box(0, CLAN_MIN_ELIXIR_K_MAX, step = 50, suffix = 'k', special = 'off')
         elixir_row.addWidget(self._clan_min_elixir)
         elixir_unit = QLabel('elixir needed before donating')
         elixir_unit.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
@@ -356,11 +317,7 @@ class SettingsPage(QWidget):
         interval_hint.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
         card.card_layout.addWidget(interval_hint)
         donate_row = QHBoxLayout()
-        self._clan_donate_interval = QSpinBox()
-        self._clan_donate_interval.setRange(CLAN_DONATE_INTERVAL_M_MIN, CLAN_DONATE_INTERVAL_M_MAX)
-        self._clan_donate_interval.setSuffix('m')
-        self._clan_donate_interval.setSpecialValueText('every raid')
-        self._clan_donate_interval.setFixedWidth(88)
+        self._clan_donate_interval = spin_box(CLAN_DONATE_INTERVAL_M_MIN, CLAN_DONATE_INTERVAL_M_MAX, suffix = 'm', special = 'every raid')
         donate_row.addWidget(self._clan_donate_interval)
         donate_unit = QLabel('between donation visits — "every raid" donates on every trip home')
         donate_unit.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
@@ -368,25 +325,14 @@ class SettingsPage(QWidget):
         donate_row.addStretch()
         card.card_layout.addLayout(donate_row)
         request_row = QHBoxLayout()
-        self._clan_request_interval = QSpinBox()
-        self._clan_request_interval.setRange(CLAN_REQUEST_INTERVAL_M_MIN, CLAN_REQUEST_INTERVAL_M_MAX)
-        self._clan_request_interval.setSuffix('m')
-        self._clan_request_interval.setFixedWidth(88)
+        self._clan_request_interval = spin_box(CLAN_REQUEST_INTERVAL_M_MIN, CLAN_REQUEST_INTERVAL_M_MAX, suffix = 'm')
         request_row.addWidget(self._clan_request_interval)
         request_unit = QLabel('between reinforcement requests')
         request_unit.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
         request_row.addWidget(request_unit)
         request_row.addStretch()
         card.card_layout.addLayout(request_row)
-        btn_row = QHBoxLayout()
-        btn_save = primary_button('Save', parent = card)
-        btn_save.clicked.connect(self._on_save)
-        btn_row.addWidget(btn_save)
-        btn_reset = neutral_button('Reset', parent = card)
-        btn_reset.clicked.connect(self._reload_earthquake)
-        btn_row.addWidget(btn_reset)
-        btn_row.addStretch()
-        card.card_layout.addLayout(btn_row)
+        self._add_save_row(card)
         return card
 
 
@@ -490,11 +436,12 @@ class SettingsPage(QWidget):
     
     def showEvent(self, event):
         super().showEvent(event)
-        self._reload_earthquake()
+        self._reload()
         self._refresh_windows()
 
     
-    def _reload_earthquake(self):
+    def _reload(self):
+        '''Every field of the page from the profile's settings.json.'''
         settings = load_profile_settings()
         idx = self._earthquake.findText(settings.earthquake_method)
         if idx >= 0:
@@ -502,7 +449,7 @@ class SettingsPage(QWidget):
         self._wall_threshold.setValue(settings.wall_upgrade_threshold_m)
         self._bb_wall_threshold.setValue(settings.bb_wall_threshold_k)
         self._reserve_builders.setValue(settings.reserve_builders)
-        self._upgrade_order.setCurrentIndex(1 if settings.upgrade_order == 'cheapest' else 0)
+        self._upgrade_order.setCurrentIndex(1 if settings.upgrade_order == UPGRADE_ORDER_CHEAPEST else 0)
         self._clan_chat_point = list(settings.clan_chat_point) if settings.clan_chat_point else None
         self._clan_chat_point_aspect = settings.clan_chat_point_aspect
         self._update_chat_point_label()
@@ -528,7 +475,7 @@ class SettingsPage(QWidget):
             wall_upgrade_threshold_m = self._wall_threshold.value(),
             bb_wall_threshold_k = self._bb_wall_threshold.value(),
             reserve_builders = self._reserve_builders.value(),
-            upgrade_order = 'cheapest' if self._upgrade_order.currentIndex() == 1 else 'priciest',
+            upgrade_order = UPGRADE_ORDER_CHEAPEST if self._upgrade_order.currentIndex() == 1 else UPGRADE_ORDER_PRICIEST,
             clan_dry_run = self._clan_dry_run.isChecked(),
             clan_chat_point = self._clan_chat_point,
             clan_chat_point_aspect = self._clan_chat_point_aspect,

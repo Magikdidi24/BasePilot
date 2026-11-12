@@ -2,7 +2,7 @@
 from __future__ import annotations
 from PySide6.QtCore import Qt, QRectF, QSize, QPointF
 from PySide6.QtGui import QColor, QPainter, QPolygonF
-from PySide6.QtWidgets import QCheckBox, QFrame, QLabel, QPushButton, QVBoxLayout
+from PySide6.QtWidgets import QCheckBox, QFrame, QLabel, QPushButton, QSpinBox, QVBoxLayout
 from app.ui.qt.theme import SPACING, TOKENS
 
 class Card(QFrame):
@@ -174,3 +174,16 @@ class StepperButton(QPushButton):
                 QPointF(cx - 4, cy - 2),
                 QPointF(cx + 4, cy - 2)]
         painter.drawPolygon(QPolygonF(points))
+
+
+def spin_box(low, high, *, step = 1, suffix = '', special = '', width = 88, tip = '', parent = None):
+    '''A QSpinBox of ``low``..``high`` at the settings' fixed width; ``special`` is shown for
+    the lowest value ("any", "off"…).'''
+    spin = QSpinBox(parent)
+    spin.setRange(low, high)
+    spin.setSingleStep(step)
+    spin.setSuffix(suffix)
+    spin.setSpecialValueText(special)
+    spin.setFixedWidth(width)
+    spin.setToolTip(tip)
+    return spin
