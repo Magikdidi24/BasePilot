@@ -121,7 +121,8 @@ def _seed_profile(base_dir, profile_dir):
     A second session is only useful pointed at a second client, so copying window.json
     would hand it the first client and leave the two fighting over one window. Everything
     else (bot settings, the player list) is a sensible starting point. Runs once per
-    process, and only while the profile has no settings of its own.
+    process, only while the profile has no settings of its own, and never over a file
+    the profile holds (while neither has a settings.json, it runs at every launch).
     '''
     key = str(profile_dir)
     if key in _seeded_profiles:
@@ -133,7 +134,7 @@ def _seed_profile(base_dir, profile_dir):
     ensure_dir(profile_dir)
     for name in ('settings.json', 'player_list.json'):
         src = base_dir / name
-        if src.is_file():
+        if src.is_file() and not (profile_dir / name).exists():
             try:
                 shutil.copy2(src, profile_dir / name)
             except OSError:
