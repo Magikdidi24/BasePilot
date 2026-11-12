@@ -8,7 +8,7 @@ from PySide6.QtGui import QFont, QTextCursor
 from PySide6.QtWidgets import QHBoxLayout, QPlainTextEdit, QVBoxLayout, QWidget
 from app.ui.qt.theme import SPACING
 from app.ui.qt.widgets import PageTitle, neutral_button
-from app.utils.common import get_autoloot_log_path
+from app.utils.common import get_log_path
 
 class LogsPage(QWidget):
     
@@ -52,7 +52,7 @@ class LogsPage(QWidget):
 
     
     def _tail_log(self):
-        path = get_autoloot_log_path()
+        path = get_log_path()
         
         try:
             path.parent.mkdir(parents = True, exist_ok = True)
@@ -81,7 +81,7 @@ class LogsPage(QWidget):
 
     
     def _open_in_explorer(self):
-        path = get_autoloot_log_path()
+        path = get_log_path()
         
         try:
             path.parent.mkdir(parents = True, exist_ok = True)

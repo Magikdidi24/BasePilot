@@ -146,10 +146,6 @@ def get_log_path():
     return get_user_app_data_dir() / 'basepilot.log'
 
 
-# Back-compat alias (old name used across the decompiled tree).
-get_autoloot_log_path = get_log_path
-
-
 def get_template_path(template_name):
     '''
 Return ``templates/<16_10|16_9>/…`` for the active aspect (see :class:`app.config.Config`).

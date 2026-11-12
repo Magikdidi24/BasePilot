@@ -39,8 +39,8 @@ def setup_logger(name = 'BasePilot', log_file = None, level = logging.INFO):
         return logger
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt = '%Y-%m-%d %H:%M:%S')
     if log_file is None:
-        from app.utils.common import get_autoloot_log_path
-        log_file = str(get_autoloot_log_path())
+        from app.utils.common import get_log_path
+        log_file = str(get_log_path())
     for handler in _handlers_for(log_file, formatter):
         logger.addHandler(handler)
     return logger

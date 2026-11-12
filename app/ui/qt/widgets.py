@@ -1,7 +1,7 @@
 '''Reusable Qt widgets for the BasePilot UI.'''
 from __future__ import annotations
 from PySide6.QtCore import Qt, QRectF, QSize, QPointF
-from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
+from PySide6.QtGui import QColor, QPainter, QPolygonF
 from PySide6.QtWidgets import QCheckBox, QFrame, QLabel, QPushButton, QVBoxLayout
 from app.ui.qt.theme import SPACING, TOKENS
 
@@ -131,13 +131,9 @@ def chip_button(text, *, parent = None):
     return _styled_button(text, 'chip', parent)
 
 
-def segment_button(text, *, parent = None, under_development = False):
+def segment_button(text, *, parent = None):
     btn = _styled_button(text, 'segment', parent)
-    if under_development:
-        btn.setCheckable(False)
-        btn.setProperty('underDevelopment', True)
-    else:
-        btn.setCheckable(True)
+    btn.setCheckable(True)
     btn.style().unpolish(btn)
     btn.style().polish(btn)
     btn.setMinimumWidth(int(btn.sizeHint().width() * 1.1))
@@ -178,56 +174,3 @@ class StepperButton(QPushButton):
                 QPointF(cx - 4, cy - 2),
                 QPointF(cx + 4, cy - 2)]
         painter.drawPolygon(QPolygonF(points))
-
-
-
-class HelpButton(QPushButton):
-    '''Compact ? button that opens a help popup when clicked.'''
-    
-    def __init__(self, on_click, *, parent = None):
-        super().__init__('?', parent)
-        self.setProperty('role', 'help')
-        self.setFixedSize(18, 18)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setToolTip('What does each option do?')
-        self.style().unpolish(self)
-        self.style().polish(self)
-        self.clicked.connect(on_click)
-
-
-
-class VisibilityToggleButton(QPushButton):
-    '''Minimal line-art eye toggle for password fields.'''
-    
-    def __init__(self, parent = None):
-        super().__init__(parent)
-        self.setProperty('role', 'icon')
-        self.setCheckable(True)
-        self.setFixedSize(34, 34)
-        self.setToolTip('Show password')
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.style().unpolish(self)
-        self.style().polish(self)
-        self.toggled.connect((lambda _: self.update()))
-
-    
-    def paintEvent(self, event):
-        super().paintEvent(event)
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        color = QColor(TOKENS['text'])
-        pen = QPen(color, 1.6)
-        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-        painter.setPen(pen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        cx = self.width() / 2
-        cy = self.height() / 2
-        painter.drawEllipse(QRectF(cx - 9, cy - 6, 18, 12))
-        if self.isChecked():
-            painter.drawLine(int(cx - 8), int(cy + 6), int(cx + 8), int(cy - 6))
-            return None
-        painter.setBrush(color)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawEllipse(QRectF(cx - 2.5, cy - 2.5, 5, 5))
-
-

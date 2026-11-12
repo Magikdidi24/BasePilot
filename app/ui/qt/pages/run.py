@@ -6,7 +6,7 @@ from PySide6.QtCore import QSettings, Qt, QTimer, Signal
 from PySide6.QtWidgets import QButtonGroup, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QScrollArea, QSpinBox, QVBoxLayout, QWidget
 from app.config import check_game_window_aspect_for_start
 from app.core import bb_strategy, schedule
-from app.ui.qt._constants import ATTACK_STRATEGIES, BUILDER_BASE_ATTACK_STRATEGIES, BUILDER_BASE_ATTACK_STRATEGIES_UNDER_DEV
+from app.ui.qt._constants import ATTACK_STRATEGIES, BUILDER_BASE_ATTACK_STRATEGIES
 from app.ui.qt.dialogs import show_error, show_under_development
 from app.ui.qt.theme import SPACING, TOKENS
 from app.ui.qt.widgets import Card, SectionTitle, StepperButton, ToggleSwitch, chip_button, danger_button, neutral_button, primary_button, segment_button
@@ -201,10 +201,6 @@ class RunPage(QWidget):
             if i == 0:
                 btn.setChecked(True)
             self._bb_strategy_group.addButton(btn, i)
-            row.addWidget(btn)
-        for label in BUILDER_BASE_ATTACK_STRATEGIES_UNDER_DEV:
-            btn = segment_button(label, parent = card, under_development = True)
-            btn.clicked.connect((lambda _checked = False: show_under_development(self.window())))
             row.addWidget(btn)
         row.addStretch()
         card.card_layout.addLayout(row)

@@ -44,9 +44,8 @@ class BotController(QObject):
     # Session loot totals: gold, elixir, dark elixir, elapsed seconds.
     lootChanged = Signal(int, int, int, float)
 
-    def __init__(self, bot_version):
+    def __init__(self):
         super().__init__()
-        self._bot_version = bot_version
         self._bot = Bot()
         self._bot_thread = None
 

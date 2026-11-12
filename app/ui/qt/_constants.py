@@ -8,5 +8,3 @@ ATTACK_STRATEGIES: dict[str, int] = {
 # (app.core.bb_strategy): one strategy, whatever the army.
 BUILDER_BASE_ATTACK_STRATEGIES: dict[str, int] = {
     'Your army (auto)': 5 }
-BUILDER_BASE_ATTACK_STRATEGIES_UNDER_DEV = ()
-

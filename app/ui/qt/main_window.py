@@ -49,9 +49,8 @@ class MainWindow(QMainWindow):
         # Window geometry, the last open tab and other UI state are per profile too.
         self._settings = QSettings('BasePilot', f'''UI-{profile}''' if profile else 'UI')
         self._migrate_legacy_ui_settings()
-        self._controller = BotController(bot_version = __version__)
+        self._controller = BotController()
         self._taskbar = None
-        self._taskbar_setup_attempts = 0
         self._taskbar_setup_done = False
         central = QWidget()
         self.setCentralWidget(central)

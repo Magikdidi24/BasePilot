@@ -189,10 +189,6 @@ QPushButton[role="segment"]:checked {{
     border-color: {t['primary']};
     font-weight: bold;
 }}
-QPushButton[role="segment"][underDevelopment="true"] {{
-    color: {t['text_faint']};
-    border-color: {t['border']};
-}}
 QLineEdit, QSpinBox, QComboBox, QTextEdit, QPlainTextEdit {{
     background-color: {t['sidebar']};
     border: 1px solid {t['border_hi']};
@@ -244,39 +240,6 @@ QPushButton[role="stepper"]:pressed {{
 }}
 QPushButton[role="stepper"]:disabled {{
     background-color: {t['surface_hi']};
-}}
-QPushButton[role="help"] {{
-    background-color: transparent;
-    color: {t['text_muted']};
-    padding: 0;
-    min-height: 18px;
-    min-width: 18px;
-    max-height: 18px;
-    max-width: 18px;
-    border-radius: 9px;
-    border: 1px solid {t['text_muted']};
-    font-size: 11px;
-    font-weight: bold;
-}}
-QPushButton[role="help"]:hover {{
-    color: {t['text']};
-    border-color: {t['text']};
-}}
-QPushButton[role="icon"] {{
-    background-color: {t['neutral_dark']};
-    color: {t['text']};
-    padding: 0;
-    min-height: 34px;
-    min-width: 34px;
-    max-height: 34px;
-    max-width: 34px;
-    border-radius: 6px;
-}}
-QPushButton[role="icon"]:hover {{
-    background-color: {t['neutral_dark_hov']};
-}}
-QPushButton[role="icon"]:checked {{
-    background-color: {t['neutral']};
 }}
 QListWidget#Sidebar {{
     background-color: {t['sidebar']};
@@ -354,7 +317,3 @@ def apply_theme(app):
     pal.setColor(QPalette.HighlightedText, QColor('#ffffff'))
     app.setPalette(pal)
     app.setStyleSheet(build_stylesheet())
-
-
-# Back-compat: some call sites import STYLESHEET directly.
-STYLESHEET = build_stylesheet()
