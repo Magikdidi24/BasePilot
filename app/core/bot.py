@@ -5,7 +5,7 @@ import random
 import threading
 import cv2
 import numpy as np
-from app.config import ASPECT_16_10, ASPECT_16_9, Config
+from app.config import ASPECT_16_10, Config
 from app.core.clan import ClanAssistant, ClanOptions, missing_templates
 from app.core.loot_filter import TEMPLATE_NEXT_BASE, LootFilter, combine_reads, meets, read_enemy_loot
 from app.core.strategies import EdragStrategy, TroopSpamStrategy, _EDRAG_DELAY
@@ -23,9 +23,6 @@ from app.utils.logger import setup_logger
 from app.utils.profile_settings_store import EARTHQUAKE_METHOD_CURVE, EARTHQUAKE_METHOD_LEARN, EARTHQUAKE_METHOD_RANDOM
 logger = setup_logger('BotCore')
 _HOME_VILLAGE_BUILDER_TEMPLATES = ('builder.png', 'gbuilder.png')
-_WALL_OCR_RETRY_DRAG_BASELINE: dict[str, tuple[tuple[int, int], tuple[int, int]]] = {
-    ASPECT_16_9: ((1300, 280), (1300, 830)),
-    ASPECT_16_10: ((1300, 280), (1300, 980)) }
 _BB_CARD_SWAP_TEMPLATE = 'bbswap.png'  # green swap button under every troop card before the first deploy
 _BB_CARD_ABOVE_SWAP = 91  # ref px from that button up to the card art (tapping the button opens the swap menu)
 _BB_RETURN_HOME_TEMPLATE = 'breturnhome.png'
@@ -212,7 +209,6 @@ class Bot:
         self._multi_run = mr
         self._stop_when_full = bool(stop_when_full)
         self._builder_base = builder_base
-        self._loot_prioritise = loot_prioritise
         self._wall_upgrade_threshold = max(0, int(wall_upgrade_threshold or 0))
         self._bb_wall_threshold = max(0, int(bb_wall_threshold or 0))
         self._auto_upgrade_mode = auto_upgrade if auto_upgrade in AUTO_UPGRADE_MODES else MODE_OFF
@@ -429,68 +425,6 @@ wall upgrades for the first pre-Attack snapshot that would otherwise count as an
         if self.vision.find_template(frame, 'mbuilder.png', region = bottom)[0]:
             return bool(getattr(self, '_builder_base', False))  # the other village, unless that is where we farm
         return bool(self.vision.find_template(frame, 'attack.png', region = bottom)[0] and self.vision.find_template(frame, 'build.png')[0])
-
-    
-    def _wall_menu_drag_to_bottom(self):
-        '''Drag the builder upgrade list to its bottom so ``Wall`` (list end) is revealed.
-
-Touch-style swipe up: click low in the list, drag to the top, release — the reverse of
-the old wheel scroll. Baseline coords are scaled via :meth:`Config.scale_point`. Dragging
-past the bottom is a harmless no-op, so this can be called repeatedly.
-'''
-        pair = _WALL_OCR_RETRY_DRAG_BASELINE.get(self.config.aspect_key)
-        if pair is None:
-            logger.warning('wall menu drag: unknown aspect %r; skipping drag', self.config.aspect_key)
-            return None
-        (top_ref, bottom_ref) = pair
-        top = self.config.scale_point([
-            top_ref[0],
-            top_ref[1]])
-        bottom = self.config.scale_point([
-            bottom_ref[0],
-            bottom_ref[1]])
-        (x_top, y_top) = (int(top[0]), int(top[1]))  # [recovered: pycdc reversed STORE_FAST_STORE_FAST pairs]
-        (x_bot, y_bot) = (int(bottom[0]), int(bottom[1]))
-        self.input.move(x_bot, y_bot)
-        self.input.mouse_down(x_bot, y_bot)
-        
-        try:
-            self.input.human_move(x_bot, y_bot, x_top, y_top, duration = 0.5)
-            self.input.mouse_up(x_top, y_top)
-            return None
-        except:
-            self.input.mouse_up(x_top, y_top)
-
-
-    
-    def _wall_menu_drag_retry_nudge(self):
-        '''Vertical drag in the builder list when ``wall`` OCR misses (~0.5s eased move + hold pause).'''
-        pair = _WALL_OCR_RETRY_DRAG_BASELINE.get(self.config.aspect_key)
-        if pair is None:
-            logger.warning('wall OCR retry drag: unknown aspect %r; skipping drag', self.config.aspect_key)
-            return None
-        (p1_ref, p2_ref) = pair
-        p1 = self.config.scale_point([
-            p1_ref[0],
-            p1_ref[1]])
-        p2 = self.config.scale_point([
-            p2_ref[0],
-            p2_ref[1]])
-        (x1, y1) = (int(p1[0]), int(p1[1]))  # [recovered: pycdc reversed STORE_FAST_STORE_FAST pairs]
-        (x2, y2) = (int(p2[0]), int(p2[1]))
-        self.input.move(x1, y1)
-        self.input.mouse_down(x1, y1)
-        
-        try:
-            self.input.human_move(x1, y1, x2, y2, duration = 0.5)
-            if self.stop_event.wait(0.3):
-                self.input.mouse_up(x2, y2)
-                return None
-            self.input.mouse_up(x2, y2)
-            return None
-        except:
-            self.input.mouse_up(x2, y2)
-
 
     
     def _build_panel_roi(self, frame):
@@ -2697,8 +2631,9 @@ optionally run the clock boost chain, then leave Builder Base.
     
     def _wait_for_player_name(self, text, timeout = 25, error = True, region = None, **ocr_kwargs):
         '''
-Like :meth:`_wait_for_text`, but after each failed OCR pass drags upward in the lower-right
-to scroll the account list before trying again.
+Poll screenshots until OCR finds ``text`` (substring match) and return its click center;
+after each failed OCR pass, drag upward in the lower-right to scroll the account list.
+Raises RuntimeError while the "Log in to Supercell ID" prompt shows instead.
 
 OCR is limited to the right half of the window unless ``region`` is passed explicitly.
 '''
@@ -2727,27 +2662,6 @@ OCR is limited to the right half of the window unless ``region`` is passed expli
                 return (None, None)
             if error:
                 logger.warning(f'''Timeout waiting for player name OCR match: {text!r}''')
-        return (None, None)
-
-    
-    def _wait_for_text(self, text, timeout = 10, error = True, region = None, **ocr_kwargs):
-        '''Poll screenshots until OCR finds ``text`` (substring match). Returns click center.'''
-        start = time.time()
-        while time.time() - start < timeout:
-            self._check_stop()
-            frame = self.window.screenshot()
-            if frame is None:
-                if self.stop_event.wait(0.5):
-                    return (None, None)
-                continue
-            self._update_config_size(frame)
-            (x, y) = self.vision.find_word_on_screen(frame, text, region = region, **ocr_kwargs)
-            if x:
-                return (x, y)
-            if self.stop_event.wait(0.5):
-                return (None, None)
-        if error:
-            logger.warning(f'''Timeout waiting for OCR text containing {text!r}''')
         return (None, None)
 
     

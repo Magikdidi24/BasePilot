@@ -29,7 +29,6 @@ MODE_RUSHER = 'rusher'
 
 ORDER_PRICIEST = 'priciest'
 ORDER_CHEAPEST = 'cheapest'
-UPGRADE_ORDERS = (ORDER_PRICIEST, ORDER_CHEAPEST)
 
 
 @dataclass(frozen = True)

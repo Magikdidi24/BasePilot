@@ -95,7 +95,6 @@ DONATE_TROOP_TEMPLATES: dict[str, tuple[str, ...]] = {
     'sneaky goblins': ('sneaky.png',),
     'super minions': ('superminion.png',),
     'edrags': ('edrag.png',) }
-DONATE_TROOP_OPTIONS = tuple(DONATE_TROOP_TEMPLATES)
 
 _BUTTON_THRESHOLD = 0.8  # flat UI art matches high; keep the bar where the rest of the bot has it
 _TROOP_THRESHOLD = 0.75  # troop portraits are busier art
@@ -127,7 +126,6 @@ class ClanOptions:
     request: bool = False
     dry_run: bool = True
     chat_point: Optional[Tuple[float, float]] = None  # (fx, fy) fractions — fallback way in
-    chat_point_aspect: Optional[str] = None  # aspect key the point was picked on
     donate_troop: str = DONATE_TROOP_AUTO
     donate_count: int = 0  # 0 = keep giving until the troop greys out
     donate_interval_s: int = 0  # 0 = donate on every home visit (after each raid)
