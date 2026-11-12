@@ -8,7 +8,7 @@ import numpy as np
 from app.core import upgrade_menu
 from app.services import ppocr
 from app.services import vision as vision_module
-from app.services.vision import VisionService
+from app.services.vision import OcrWordBox, VisionService
 
 FRAME = np.zeros((120, 400, 3), dtype=np.uint8)
 # What Bot._switch_account_and_load_home has _wait_for_player_name read the account list with.
@@ -50,21 +50,65 @@ class NameSearchTests(OcrTestCase):
         self.assertEqual([g.text for g in groups], ['705559', '1190256'])  # "Gold" and "x" read no digit
 
 
-class FuzzyNameTests(unittest.TestCase):
-    """The account switch's name search (NAME_SEARCH) on one word of the account list."""
-    def match(self, raw, name):
-        return VisionService._ocr_query_matches(raw, name, case_sensitive=False, **NAME_SEARCH)
+def match(raw, name):
+    """The account switch's name search (NAME_SEARCH) on one read of the account list."""
+    return VisionService._ocr_query_matches(raw, name, case_sensitive=False, **NAME_SEARCH)
 
+
+class FuzzyNameTests(unittest.TestCase):
     def test_a_misread_letter_still_finds_the_name(self):
         # "King_Bob." read "King_B0b.": 0.86 alphanumerics to alphanumerics, 0.75 against the raw read
-        self.assertTrue(self.match('King_B0b.', 'king_bob'))
-        self.assertTrue(self.match('Chief_4Z', 'chief_42'))  # a letter for a digit is a misread too
+        self.assertTrue(match('King_B0b.', 'king_bob'))
+        self.assertTrue(match('Chief_4Z', 'chief_42'))  # a letter for a digit is a misread too
+        self.assertTrue(match('bobl1', 'bob11'))  # among repeated digits too
+        self.assertTrue(match('xx_slayer_g9', 'xx_slayer_99'))
 
     def test_a_sibling_account_is_not_taken_for_the_name(self):
         # accounts numbered alike differ by a digit only: 0.8 is no misread, it is the other account
-        for (raw, name) in (('Farm_2', 'farm_1'), ('Farm2', 'farm1'), ('Acc.02', 'acc.01')):
+        for (raw, name) in (('Farm_2', 'farm_1'), ('Farm2', 'farm1'), ('Acc.02', 'acc.01'), ('KingFarm2l', 'kingfarm1'),
+                            ('Farm21', 'farm12'), ('Acc10', 'acc01')):
             with self.subTest(raw=raw):
-                self.assertFalse(self.match(raw, name))
+                self.assertFalse(match(raw, name))
+
+
+class AccountNumberTests(OcrTestCase):
+    """Accounts numbered alike: the switch never takes one for another (it skips instead)."""
+    def test_a_longer_number_is_another_account(self):
+        for (raw, name) in (('Farm_12', 'farm_1'), ('Farm_1', 'farm_12'), ('Bob2', 'bob'), ('Farm12', 'farm1'),
+                            ('Bob_2', 'bob'), ('Farm.2', 'farm'), ('Bob-1', 'bob'), ('Farm_1_2', 'farm_1')):
+            with self.subTest(raw=raw, name=name):
+                self.assertFalse(match(raw, name))
+
+    def test_the_name_itself_still_matches(self):
+        for (raw, name) in (('Farm_1', 'farm_1'), ('Farm_1.', 'farm_1'), ('Chief_42!', 'chief_42'), ('12Bob', 'bob'),
+                            ('12.Bob', 'bob'), ('KingBob', 'kingbob')):
+            with self.subTest(raw=raw, name=name):
+                self.assertTrue(match(raw, name))
+
+    def test_a_word_of_a_spaced_name_is_not_the_name(self):
+        self.assertFalse(match('Farm', 'farm 1'))  # "Farm 1" reads as the words "Farm" and "1"
+
+    def find(self, row, name):
+        """Where the name search taps for ``name`` on one row, 10 px a character from x 100."""
+        with patch.object(ppocr, 'read_lines', return_value=[line(row, 100, 40, 100 + 10 * len(row), 60)]):
+            vision_module._OCR_CACHE.update(frame=None, reads={})
+            return VisionService.find_word_on_screen(FRAME, name, **NAME_SEARCH)
+
+    def test_a_spaced_name_is_found_on_consecutive_words(self):
+        self.assertEqual(self.find('Farm 1', 'Farm 1'), (130, 50))
+        self.assertEqual(self.find('Level 12 Farm 1', 'Farm 1'), (220, 50))  # the middle of "Farm 1"
+        self.assertEqual(self.find('King Bob 2', 'King Bob 2'), (150, 50))
+
+    def test_a_spaced_name_is_not_found_on_another_account(self):
+        for (row, name) in (('Farm 2', 'Farm 1'), ('King Bob', 'King Bob 2'), ('King Rob 3', 'King Bob 2')):
+            with self.subTest(row=row, name=name):
+                self.assertEqual(self.find(row, name), (None, None))
+
+    def test_the_exact_name_beats_a_longer_word_holding_it(self):
+        words = [OcrWordBox(left=100, top=40, width=80, height=20, text='KingBob', confidence=99.0),
+                 OcrWordBox(left=100, top=90, width=40, height=20, text='Bob', confidence=80.0)]
+        with patch.object(VisionService, 'find_words_ocr', return_value=words):
+            self.assertEqual(VisionService.find_word_on_screen(FRAME, 'Bob', **NAME_SEARCH), words[1].center)
 
 
 class MissingModelsTests(OcrTestCase):

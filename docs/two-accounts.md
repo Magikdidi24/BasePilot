@@ -24,7 +24,12 @@ same moment. It costs no extra CPU, needs no second client, and is unattended.
 
 Its limits: only one account is farming at any moment, and the account switch itself is
 OCR on the username list, so an account whose name reads badly can fail the switch (the
-log says which name it could not find).
+log says which name it could not find). Names numbered alike (`Farm_1`, `Farm_2`, `Farm 1`)
+are told apart by their number: a name whose number does not read fails the switch rather
+than picking the other account. What cannot be told apart is a name that is a word, or part
+of a word, of another one (`Farm` / `Farm 2`, `Bob` / `King Bob`, `Bob` / `KingBob`), or names
+a letter apart (`KingBob` / `KingRob`): give each account a name that no other one contains
+and that differs from the others by more than a letter.
 
 ## Both at once — profiles
 

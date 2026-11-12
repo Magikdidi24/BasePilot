@@ -118,6 +118,10 @@ CONTROL_LABELS = {
 _OCR_CACHE = {'frame': None, 'reads': {}}
 _WHITE_TEXT_BRIGHTNESS_FLOOR = 190
 
+def _digit_count(text):
+    return sum(ch.isdigit() for ch in text)
+
+
 class VisionService:
     '''Handles image recognition and processing.'''
     @staticmethod
@@ -432,6 +436,48 @@ Normalize high-contrast UI text to **black glyphs on white** (single channel, 0 
 
     
     @staticmethod
+    def _inside_number(longer, shorter):
+        '''True when ``shorter`` shows up in ``longer`` only with a number going on past it: a
+        digit as the next letter or digit after it, separators aside ("farm1" in "farm12",
+        "bob" in "bob_2"), or as the one before a ``shorter`` that starts with one. Accounts
+        numbered alike differ by that number; a level badge read in front of a name ("12bob")
+        is no such number.'''
+        start = longer.find(shorter)
+        while start != -1:
+            end = start + len(shorter)
+            after = next((ch for ch in longer[end:] if ch.isalnum()), '')
+            before = next((ch for ch in reversed(longer[:start]) if ch.isalnum()), '')
+            if not (after.isdigit() or (shorter[:1].isdigit() and before.isdigit())):
+                return False
+            start = longer.find(shorter, start + 1)
+        return True
+
+    @staticmethod
+    def _changes_number(tag, q, a, b, r, c, d):
+        '''True when this SequenceMatcher edit of ``q[a:b]`` into ``r[c:d]`` makes another
+        number: digits for digits, or digits added or dropped beside a digit or at the end
+        ("farm1"/"farm12", "bob"/"bob2"). A letter read for a digit is a misread.'''
+        if tag == 'replace':
+            return any(ch.isdigit() for ch in q[a:b]) and any(ch.isdigit() for ch in r[c:d])
+        if tag == 'insert':
+            return r[c:d].isdigit() and (r[c - 1:c].isdigit() or r[d:d + 1].isdigit() or d == len(r))
+        if tag == 'delete':
+            return q[a:b].isdigit() and (q[a - 1:a].isdigit() or q[b:b + 1].isdigit() or b == len(q))
+        return False
+
+    @staticmethod
+    def _numbers_differ(q, r):
+        '''True when ``r`` holds another number than ``q`` whichever way the two are lined up
+        (:meth:`_changes_number`): one misread digit among repeated ones ("bob11" read
+        "bobl1") lines up as a digit dropped one way, as a misread the other.'''
+        (n, m) = (len(q), len(r))
+        changes = VisionService._changes_number
+        forward = any(changes(t, q, a, b, r, c, d) for (t, a, b, c, d) in difflib.SequenceMatcher(None, q, r).get_opcodes())
+        backward = any(changes(t, q, n - b, n - a, r, m - d, m - c)
+                       for (t, a, b, c, d) in difflib.SequenceMatcher(None, q[::-1], r[::-1]).get_opcodes())
+        return forward and backward
+
+    @staticmethod
     def _ocr_query_matches(raw, query_norm, *, case_sensitive, match_alnum_only, fuzzy_min_ratio):
         if not query_norm:
             return False
@@ -443,14 +489,16 @@ Normalize high-contrast UI text to **black glyphs on white** (single channel, 0 
             return s.lower()
 
         r = norm_text(raw)
-        if query_norm in r:
+        inside_number = VisionService._inside_number
+        if query_norm in r and not inside_number(r, query_norm):
             return True
         if match_alnum_only:
             ar = re.sub('[^a-z0-9]', '', r.lower())
             aq = re.sub('[^a-z0-9]', '', query_norm.lower())
-            if aq and aq in ar:
+            if aq and aq in ar and not inside_number(ar, aq):
                 return True
-            if aq and ar and ar in aq and len(ar) >= max(4, int(0.55 * len(aq))):
+            # a fragment of the name (a word of it) holds all of its number, or it is another account's
+            if aq and ar and ar in aq and len(ar) >= max(4, int(0.55 * len(aq))) and _digit_count(ar) == _digit_count(aq):
                 return True
         if not fuzzy_min_ratio is None:
             # [recovered: pycdc left an empty "if match_alnum_only / elif case_sensitive" and kept
@@ -462,10 +510,9 @@ Normalize high-contrast UI text to **black glyphs on white** (single channel, 0 
             (lo, hi) = sorted((len(cr), len(cq)))
             if hi and lo / hi < 0.5:
                 return False
-            sm = difflib.SequenceMatcher(None, cq, cr)
-            if any(tag == 'replace' and cq[a:b].isdigit() and cr[c:d].isdigit() for (tag, a, b, c, d) in sm.get_opcodes()):
+            if VisionService._numbers_differ(cq, cr):
                 return False  # sibling accounts differ by their number; OCR swaps letters and digits, not 1 and 2
-            if sm.ratio() >= fuzzy_min_ratio:
+            if difflib.SequenceMatcher(None, cq, cr).ratio() >= fuzzy_min_ratio:
                 return True
         return False
 
@@ -474,7 +521,8 @@ Normalize high-contrast UI text to **black glyphs on white** (single channel, 0 
     def _ocr_username_match_tier(raw, query_norm, *, case_sensitive, match_alnum_only, fuzzy_min_ratio):
         '''
 Rank how well ``raw`` matches the username (higher is better).
-Used to pick a click target: prefer full name in OCR, then longest token, then confidence.
+Used to pick a click target: prefer the exact name, then the full name inside a word, then
+longest token, then confidence.
 '''
         if not query_norm:
             return 0
@@ -488,11 +536,14 @@ Used to pick a click target: prefer full name in OCR, then longest token, then c
         r = norm_text(raw)
         ar = re.sub('[^a-z0-9]', '', r.lower()) if match_alnum_only else ''
         aq = re.sub('[^a-z0-9]', '', query_norm.lower()) if match_alnum_only else ''
-        if match_alnum_only and aq and aq in ar:
+        inside_number = VisionService._inside_number
+        if r == query_norm or (match_alnum_only and aq and ar == aq):
+            return 4  # "Bob" before "KingBob", the longer word, when both show
+        if match_alnum_only and aq and aq in ar and not inside_number(ar, aq):
             return 3
-        if query_norm in r:
+        if query_norm in r and not inside_number(r, query_norm):
             return 2
-        if match_alnum_only and aq and ar and ar in aq and len(ar) >= max(4, int(0.55 * len(aq))):
+        if match_alnum_only and aq and ar and ar in aq and len(ar) >= max(4, int(0.55 * len(aq))) and _digit_count(ar) == _digit_count(aq):
             return 1
         return 0
 
@@ -552,13 +603,16 @@ Locate words via OCR (:mod:`app.services.ppocr`): light text on dark and dark te
 Args:
     screen_img: BGR screenshot (e.g. from ``WindowService.screenshot()``).
     region: Optional ROI ``(x, y, w, h)`` in screen coordinates.
-    query: If set, only return words whose text contains this substring (after normalization).
+    query: If set, only return words whose text contains this substring (after normalization),
+        not as part of a longer number (another account numbered alike). A query of several
+        words is also looked for on as many consecutive words of a line.
     case_sensitive: Match behavior when ``query`` is set.
     match_alnum_only: If True with ``query``, also match after stripping non-alphanumeric characters
-        and allow substring match either way on the compact strings.
+        and allow substring match either way on the compact strings (a fragment of the name only
+        with all of its digits).
     fuzzy_min_ratio: If set (e.g. ``0.8``), also accept words whose string similarity to the
-        query reaches this ratio (SequenceMatcher), unless a digit stands for another digit
-        (another account's number).
+        query reaches this ratio (SequenceMatcher), unless digits stand for other digits, or
+        digits come or go beside a digit or at the end (another account's number).
     charset: The characters the text may hold (e.g. ``'0123456789'``): nothing else is read.
     single_line: Read the whole region as one line of text, without the detector (a cost, a
         counter cut out around its text).
@@ -569,12 +623,18 @@ Returns:
     word's mean probability (0-100) as the confidence.
 '''
         qnorm = None
+        span = 1
         if query is not None:
             qnorm = query.strip() if case_sensitive else query.strip().lower()
+            span = len(qnorm.split())  # "Farm 1" reads as the words "Farm" and "1"
         words = []
         for (i, line) in enumerate(VisionService._ocr_lines(screen_img, region, charset = charset, single_line = single_line, roi_upscale = roi_upscale)):
             (_x0, y0, _x1, y1) = line.box
-            for (text, left, right, prob) in ppocr.words(line):
+            candidates = ppocr.words(line)
+            if span > 1:
+                runs = (candidates[k:k + span] for k in range(len(candidates) - span + 1))
+                candidates = candidates + [(' '.join(w[0] for w in run), run[0][1], run[-1][2], float(np.mean([w[3] for w in run]))) for run in runs]
+            for (text, left, right, prob) in candidates:
                 if qnorm is not None and not VisionService._ocr_query_matches(text, qnorm, case_sensitive = case_sensitive, match_alnum_only = match_alnum_only, fuzzy_min_ratio = fuzzy_min_ratio):
                     continue
                 words.append(OcrWordBox(left = int(round(left)), top = y0, width = max(1, int(round(right - left))),
@@ -828,8 +888,8 @@ are available.
 Returns the center ``(x, y)`` of the best OCR match for ``word_or_phrase``, or
 ``(None, None)`` if not found.
 
-Among all tokens that pass filters, picks by: (1) **full alnum name inside OCR token**,
-(2) plain substring, (3) long name fragment, (4) fuzzy; then **longest** OCR token,
+Among all tokens that pass filters, picks by: (0) **the exact name**, (1) **full alnum name
+inside OCR token**, (2) plain substring, (3) long name fragment, (4) fuzzy; then **longest** OCR token,
 then OCR confidence — so a short side label does not beat the full username.
 Extra kwargs are forwarded (e.g. ``min_confidence``, ``preprocess``).
 '''
