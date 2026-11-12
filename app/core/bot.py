@@ -2603,8 +2603,8 @@ OCR is limited to the right half of the window unless ``region`` is passed expli
             self._scroll_player_list_with_drag(frame)
             if self.stop_event.wait(0.45):
                 return (None, None)
-            if error:
-                logger.warning(f'''Timeout waiting for player name OCR match: {text!r}''')
+        if error:
+            logger.warning(f'''Timeout waiting for player name OCR match: {text!r}''')
         return (None, None)
 
     
