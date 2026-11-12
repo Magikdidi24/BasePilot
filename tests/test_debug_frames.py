@@ -19,15 +19,19 @@ class DebugFrameTests(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
+        self.data = folder.name
         env = patch.dict(os.environ, {'LOCALAPPDATA': folder.name, 'HOME': folder.name})  # never the user's data dir
         env.start()
         self.addCleanup(env.stop)
 
     def test_a_frame_goes_to_the_debug_dir_as_a_jpeg(self):
         for (name, dump) in DUMPERS:
-            with self.subTest(name):
+            with self.subTest(name), patch('cv2.imwrite', wraps=cv2.imwrite) as write:
                 path = dump(FRAME, 'probe')
-                self.assertEqual((path.parent.name, path.name.split('_')[0], path.suffix), ('debug', 'probe', '.jpg'))
+                (prefix, stamp) = path.stem.split('_')
+                self.assertEqual((path.parent.name, prefix, stamp.isdigit(), path.suffix), ('debug', 'probe', True, '.jpg'))
+                self.assertTrue(path.is_relative_to(self.data))  # the data dir, here the temporary one
+                self.assertEqual(write.call_args.args[2], [cv2.IMWRITE_JPEG_QUALITY, 88])
                 self.assertEqual(cv2.imread(str(path)).shape, FRAME.shape)
 
     def test_no_frame_gives_no_file(self):

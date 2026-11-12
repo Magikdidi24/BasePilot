@@ -57,7 +57,6 @@ Safety rails, same spirit as the Build panel's:
 - After ``_SESSION_FAILURE_LIMIT`` passes that could not verify what they were looking
   at, the assistant disables itself for the rest of the session.
 '''
-import time
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
@@ -66,7 +65,7 @@ import numpy as np
 
 from app.core.build_panel import gem_prompt_visible
 from app.services.vision import VisionService
-from app.utils.common import get_template_path, get_user_app_data_dir
+from app.utils.common import get_template_path, save_debug_frame
 from app.utils.logger import setup_logger
 
 logger = setup_logger('ClanAssist')
@@ -203,11 +202,7 @@ def _dump_debug_frame(frame, prefix):
     if frame is None:
         return None
     try:
-        import cv2 as _cv2
-        dbg = get_user_app_data_dir() / 'debug'
-        dbg.mkdir(parents = True, exist_ok = True)
-        path = dbg / f'''{prefix}_{int(time.time())}.jpg'''
-        _cv2.imwrite(str(path), frame, [_cv2.IMWRITE_JPEG_QUALITY, 88])
+        path = save_debug_frame(frame, prefix)
         logger.info('Clan assist: frame saved to %s', path)
         return path
     except Exception:

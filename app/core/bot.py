@@ -18,7 +18,7 @@ from app.services.input import InputService
 from app.services.vision import BOTTOM_HALF_BOT_TEMPLATES, TOP_HALF_BOT_TEMPLATES, VisionService
 from app.services.window import WindowService
 from app.utils import battle_history
-from app.utils.common import get_template_path
+from app.utils.common import get_template_path, save_debug_frame
 from app.utils.logger import setup_logger
 from app.utils.profile_settings_store import EARTHQUAKE_METHOD_CURVE, EARTHQUAKE_METHOD_LEARN, EARTHQUAKE_METHOD_RANDOM
 logger = setup_logger('BotCore')
@@ -152,12 +152,7 @@ def _dump_debug_frame(frame, prefix):
     if frame is None:
         return None
     try:
-        import cv2 as _cv2
-        from app.utils.common import get_user_app_data_dir
-        dbg = get_user_app_data_dir() / 'debug'
-        dbg.mkdir(parents = True, exist_ok = True)
-        path = dbg / f'''{prefix}_{int(time.time())}.jpg'''
-        _cv2.imwrite(str(path), frame, [_cv2.IMWRITE_JPEG_QUALITY, 88])
+        path = save_debug_frame(frame, prefix)
         logger.info('Debug frame saved to %s', path)
         return path
     except Exception:

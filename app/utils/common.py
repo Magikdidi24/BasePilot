@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 from pathlib import Path
 
 def get_resource_path(relative_path):
@@ -159,6 +160,18 @@ def get_log_path():
     '''Path to the rotating ``basepilot.log`` in the per-user data dir.'''
     ensure_dir(get_user_app_data_dir())
     return get_user_app_data_dir() / 'basepilot.log'
+
+
+def save_debug_frame(frame, prefix):
+    '''Write ``frame`` to ``debug/<prefix>_<unix time>.jpg`` in the data dir (JPEG quality 88),
+    the frames a bug report comes with, and return the path. Raises when OpenCV or the folder
+    fails; cv2.imwrite's False is not checked.'''
+    import cv2  # lazy: importing this module must not load OpenCV (setup_logger imports it)
+    folder = get_user_app_data_dir() / 'debug'
+    folder.mkdir(parents = True, exist_ok = True)
+    path = folder / f'{prefix}_{int(time.time())}.jpg'
+    cv2.imwrite(str(path), frame, [cv2.IMWRITE_JPEG_QUALITY, 88])
+    return path
 
 
 def get_template_path(template_name):
