@@ -47,10 +47,28 @@ class ProfileSettingsTests(unittest.TestCase):
         self.path.write_text('{"attack_max_skips": 3}', encoding='utf-8')
         self.assertEqual(store.load_profile_settings(), ProfileSettings(attack_max_skips=3))
 
+    def test_an_infinite_or_huge_number_gives_the_default(self):
+        # json reads Infinity and 1e999 as float('inf') and NaN as nan, which int() cannot take;
+        # float() cannot take an int past 1.8e308
+        self.path.write_text('{"attack_min_gold_k": 7, "attack_max_skips": Infinity, "reserve_builders": 1e999, '
+                             '"wall_upgrade_threshold_m": -Infinity, '
+                             '"clan_min_elixir_k": NaN, "clan_chat_point": [1' + '0' * 309 + ', 0.5]}', encoding='utf-8')
+        # the valid field shows each bad one fell back alone, not the whole file
+        self.assertEqual(store.load_profile_settings(), ProfileSettings(attack_min_gold_k=7))
+
+    def test_a_file_that_is_not_utf8_gives_the_defaults(self):
+        self.path.write_bytes(b'{"upgrade_order": "cheapest\xe9"}')
+        self.assertEqual(store.load_profile_settings(), ProfileSettings())
+
+    def test_a_file_saved_with_a_bom_is_read(self):
+        self.path.write_text('\ufeff{"attack_max_skips": 3}', encoding='utf-8')  # Notepad's "UTF-8 with BOM"
+        self.assertEqual(store.load_profile_settings(), ProfileSettings(attack_max_skips=3))
+
     def test_a_broken_or_absent_file_gives_the_defaults(self):
         self.assertEqual(store.load_profile_settings(), ProfileSettings())
-        for text in ('not json', '[1, 2]'):
-            with self.subTest(text):
+        huge = '{"attack_max_skips": 1' + '0' * 5000 + '}'  # json refuses ints of over 4300 digits
+        for text in ('not json', '[1, 2]', huge):
+            with self.subTest(text[:30]):
                 self.path.write_text(text, encoding='utf-8')
                 self.assertEqual(store.load_profile_settings(), ProfileSettings())
 

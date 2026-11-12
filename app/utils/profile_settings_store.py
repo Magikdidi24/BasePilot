@@ -91,7 +91,7 @@ def _normalize_wall_threshold_m(raw):
     '''Millions of gold/elixir that trigger wall upgrades; 0 = only when storages are full.'''
     try:
         value = int(raw)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # OverflowError: int(inf)
         return WALL_UPGRADE_THRESHOLD_M_DEFAULT
     return max(0, min(WALL_UPGRADE_THRESHOLD_M_MAX, value))
 
@@ -107,7 +107,7 @@ def _normalize_reserve_builders(raw):
     0 = every free builder may be used; walls-maxed accounts want 0.'''
     try:
         value = int(raw)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # OverflowError: int(inf)
         return RESERVE_BUILDERS_DEFAULT
     return max(0, min(RESERVE_BUILDERS_MAX, value))
 
@@ -119,7 +119,7 @@ def _normalize_clan_chat_point(raw):
         return None
     try:
         (fx, fy) = (float(raw[0]), float(raw[1]))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # OverflowError: float() of an int past 1.8e308
         return None
     if not 0 <= fx <= 1 or not 0 <= fy <= 1:
         return None
@@ -142,7 +142,7 @@ def _normalize_clan_donate_troop(raw):
 def _normalize_int(raw, default, low, high):
     try:
         value = int(raw)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # OverflowError: int(inf)
         return default
     return max(low, min(high, value))
 
@@ -176,11 +176,11 @@ def load_profile_settings():
         return ProfileSettings()
 
     try:
-        raw = json.loads(path.read_text(encoding = 'utf-8'))
+        raw = json.loads(path.read_text(encoding = 'utf-8-sig'))  # -sig: Notepad's UTF-8 with BOM too
         if not isinstance(raw, dict):
             return ProfileSettings()
         return _settings_from(raw.get)
-    except (json.JSONDecodeError, OSError):
+    except (ValueError, OSError):  # bad JSON or UTF-8, an int of over 4300 digits: all ValueErrors
         return ProfileSettings()  # [recovered: decompiler turned this into `return None`, crashing every caller on a corrupt settings.json]
 
 

@@ -47,7 +47,7 @@ def load_players():
         return []
     
     try:
-        raw = json.loads(path.read_text(encoding = 'utf-8'))
+        raw = json.loads(path.read_text(encoding = 'utf-8-sig'))  # -sig: Notepad's UTF-8 with BOM too
         if not isinstance(raw, list):
             return []
         out = []
@@ -55,12 +55,12 @@ def load_players():
             if not isinstance(item, dict):
                 continue
             name = item.get('name')
-            if not name or not isinstance(name, str):  # [recovered: dropped `not` — every valid (string) name was skipped, so the list always loaded empty]
+            if not isinstance(name, str) or not name.strip():  # [recovered: dropped `not` — every valid (string) name was skipped, so the list always loaded empty]
                 continue
             enabled = bool(item.get('enabled', True))
             out.append(PlayerEntry(name = name.strip(), enabled = enabled))
         return out
-    except (json.JSONDecodeError, OSError):
+    except (ValueError, OSError):  # bad JSON or UTF-8, an int of over 4300 digits: all ValueErrors
         return []  # [recovered: returned None, which every caller iterates -> TypeError on a corrupt file]
 
 
