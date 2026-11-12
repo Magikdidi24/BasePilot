@@ -1055,34 +1055,21 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
     
     def _wait_for_attack_with_nudge(self, timeout = 10, error = True):
         '''Poll bottom-half ``attack.png``; dismiss ``okay`` / ``exit`` popups first; else empty + scroll.'''
-        start = time.time()
-        while time.time() - start < timeout:
-            self._check_stop()
-            frame = self.window.screenshot()
-            if frame is None:
-                if self.stop_event.wait(0.5):
-                    return (None, None)
-                continue
-            self._update_config_size(frame)
+        def look(frame, elapsed):
             if self._dismiss_okay_or_exit_on_frame(frame):
-                if self.stop_event.wait(0.25):
-                    return (None, None)
-                continue
+                return 0.25
             if self._live_battle_button(frame)[0]:
                 # We are inside a live battle — nudge clicks would deploy troops. Bail out and
                 # let _home_screen_recovery surrender/return-home.
                 logger.warning('Attack wait: live battle detected (Surrender / End Battle visible) — leaving it to recovery')
                 return (None, None)
             search_region = self._search_region_for_template(frame, 'attack.png', None, None, 200)
-            (ax, ay) = self.vision.find_control(frame, 'attack.png', region = search_region, ocr = time.time() - start >= _LABEL_FALLBACK_AFTER)
+            (ax, ay) = self.vision.find_control(frame, 'attack.png', region = search_region, ocr = elapsed() >= _LABEL_FALLBACK_AFTER)
             if ax:
                 return (ax, ay)
             self._nudge_view_to_reveal_attack()
-            if self.stop_event.wait(0.35):
-                return (None, None)
-        if error:
-            logger.warning('Timeout waiting for attack.png')  # [recovered: decompiler misnested this inside the loop — it spammed once per poll]
-        return (None, None)
+            return None
+        return self._poll_screen(look, timeout, 0.35, 'Timeout waiting for attack.png' if error else None)
 
     
     def _between_raids(self, upgrade_walls, deadline):
@@ -2087,24 +2074,18 @@ then, after :data:`_LABEL_FALLBACK_AFTER`, their "Return Home" / "Claim Reward" 
 With ``dismiss_okay``, an ``okay.png`` confirm on the way is clicked first (at most twice).
 Returns (``"return"`` | ``"chest"``, x, y) or (None, None, None) on timeout.
 '''
-        start = time.time()
         okay_clicks = 0
-        while time.time() - start < timeout:
-            self._check_stop()
-            frame = self.window.screenshot()
-            if frame is None:
-                if self.stop_event.wait(0.5):
-                    return (None, None, None)
-                continue
-            self._update_config_size(frame)
+
+        def look(frame, elapsed):
+            nonlocal okay_clicks
             if self._battle_rewards.handle(frame):
-                continue
+                return 0
             if dismiss_okay and okay_clicks < 2:
                 (ox, oy) = self.vision.find_template(frame, 'okay.png')
                 if ox:
                     self.input.click(ox, oy, pause = 0.1)
                     okay_clicks += 1
-                    continue
+                    return 0
             (rx, ry) = (None, None)
             returnhome_tpls = ('returnhome.png', 'returnhome2.png') if self.config.aspect_key == ASPECT_16_10 else ('returnhome.png',)
             for tpl in returnhome_tpls:
@@ -2116,7 +2097,7 @@ Returns (``"return"`` | ``"chest"``, x, y) or (None, None, None) on timeout.
             (cx, cy) = self.vision.find_template(frame, 'chestclaim.png')
             if cx:
                 return ('chest', cx, cy)
-            if time.time() - start >= _LABEL_FALLBACK_AFTER:
+            if elapsed() >= _LABEL_FALLBACK_AFTER:
                 bottom = VisionService.bottom_half_region(frame)
                 (rx, ry) = self.vision.find_label(frame, 'Return Home', region = bottom)
                 if rx:
@@ -2125,10 +2106,8 @@ Returns (``"return"`` | ``"chest"``, x, y) or (None, None, None) on timeout.
                 (cx, cy) = self.vision.find_label(frame, 'Claim Reward', region = bottom)
                 if cx:
                     return ('chest', cx, cy)
-            if self.stop_event.wait(0.5):
-                return (None, None, None)
-        logger.warning('Timeout waiting for returnhome.png / returnhome2.png (16:10) or chestclaim.png')
-        return (None, None, None)
+            return None
+        return self._poll_screen(look, timeout, 0.5, 'Timeout waiting for returnhome.png / returnhome2.png (16:10) or chestclaim.png', miss = (None, None, None))
 
     
     def _random_point_chest_tap_through(self):
@@ -2582,15 +2561,7 @@ Raises RuntimeError while the "Log in to Supercell ID" prompt shows instead.
 
 OCR is limited to the right half of the window unless ``region`` is passed explicitly.
 '''
-        start = time.time()
-        while time.time() - start < timeout:
-            self._check_stop()
-            frame = self.window.screenshot()
-            if frame is None:
-                if self.stop_event.wait(0.5):
-                    return (None, None)
-                continue
-            self._update_config_size(frame)
+        def look(frame, elapsed):
             roi = region if not region is None else VisionService.right_half_region(frame)
             (x, y) = self.vision.find_word_on_screen(frame, text, region = roi, **ocr_kwargs)
             if x:
@@ -2601,11 +2572,8 @@ OCR is limited to the right half of the window unless ``region`` is passed expli
                 self._status(msg)
                 raise RuntimeError(msg)
             self._scroll_player_list_with_drag(frame)
-            if self.stop_event.wait(0.45):
-                return (None, None)
-        if error:
-            logger.warning(f'''Timeout waiting for player name OCR match: {text!r}''')
-        return (None, None)
+            return None
+        return self._poll_screen(look, timeout, 0.45, f'''Timeout waiting for player name OCR match: {text!r}''' if error else None)
 
     
     def _dismiss_open_popup(self, allow_okay = True):
@@ -2672,20 +2640,42 @@ OCR is limited to the right half of the window unless ``region`` is passed expli
         return self.vision.find_template(frame, template, threshold = threshold, region = search_region)
 
     
-    def _wait_for_any_image(self, templates, timeout = 10, error = True, threshold = 0.8, region = None, region_from_frame = None, label_after = _LABEL_FALLBACK_AFTER):
-        '''First ordered template match wins (checked left-to-right each frame).'''
+    def _poll_screen(self, look, timeout, pause, timeout_msg = None, miss = (None, None)):
+        '''The wait loops' skeleton. Each turn takes a screenshot (none: wait 0.5 s and take
+        another) and asks ``look(frame, elapsed)``; ``elapsed()`` gives the seconds since the
+        wait began: call it where the clock must be read, after the slow scans. The
+        answer: a tuple ends the wait as its result (``miss`` to give up), None waits ``pause``
+        s before the next turn, a number of seconds waits that long instead (0: no wait). A
+        Stop during a wait returns ``miss``, a Stop at the start of a turn raises
+        InterruptedError; the time out returns ``miss`` after logging ``timeout_msg``, once.'''
         start = time.time()
-        while time.time() - start < timeout:
+
+        def elapsed():
+            return time.time() - start
+        while elapsed() < timeout:
             self._check_stop()
             frame = self.window.screenshot()
             if frame is None:
                 if self.stop_event.wait(0.5):
-                    return (None, None)
+                    return miss
                 continue
             self._update_config_size(frame)
+            answer = look(frame, elapsed)
+            if isinstance(answer, tuple):
+                return answer
+            wait = pause if answer is None else answer
+            if wait and self.stop_event.wait(wait):
+                return miss
+        if timeout_msg:
+            logger.warning(timeout_msg)
+        return miss
+
+    def _wait_for_any_image(self, templates, timeout = 10, error = True, threshold = 0.8, region = None, region_from_frame = None, label_after = _LABEL_FALLBACK_AFTER):
+        '''First ordered template match wins (checked left-to-right each frame).'''
+        def look(frame, elapsed):
             if self._battle_rewards.handle(frame):
-                continue
-            ocr = time.time() - start >= label_after
+                return 0
+            ocr = elapsed() >= label_after
             search_region = region
             if search_region is None and region_from_frame is not None:  # [recovered: both conditions were inverted]
                 search_region = region_from_frame(frame)
@@ -2696,34 +2686,17 @@ OCR is limited to the right half of the window unless ``region`` is passed expli
                 (x, y) = self.vision.find_control(frame, template, threshold = threshold, region = tpl_region, ocr = ocr)
                 if x:  # [recovered: was an unconditional `return`, so only the first template was ever checked]
                     return (x, y)
-            if self.stop_event.wait(0.5):
-                return (None, None)
-        if error:
-            logger.warning(f'''Timeout waiting for any of {templates}''')
-        return (None, None)
+            return None
+        return self._poll_screen(look, timeout, 0.5, f'''Timeout waiting for any of {templates}''' if error else None)
 
     
     def _wait_for_image(self, template, timeout = 10, error = True, region = None, y_anchor = None, y_slop = 200, threshold = 0.8, label_after = _LABEL_FALLBACK_AFTER):
-        start = time.time()
-        while time.time() - start < timeout:
-            self._check_stop()
-            frame = self.window.screenshot()
-            if frame is None:
-                if self.stop_event.wait(0.5):
-                    return (None, None)
-                continue
-            self._update_config_size(frame)
+        def look(frame, elapsed):
             if self._battle_rewards.handle(frame):
-                continue
+                return 0
             search_region = self._search_region_for_template(frame, template, region, y_anchor, y_slop)
-            ocr = time.time() - start >= label_after
-            (x, y) = self.vision.find_control(frame, template, threshold = threshold, region = search_region, ocr = ocr)
-            if x:
-                return (x, y)
-            if self.stop_event.wait(0.5):
-                return (None, None)
-        if error:
-            logger.warning(f'''Timeout waiting for {template}''')
-        return (None, None)
+            (x, y) = self.vision.find_control(frame, template, threshold = threshold, region = search_region, ocr = elapsed() >= label_after)
+            return (x, y) if x else None
+        return self._poll_screen(look, timeout, 0.5, f'''Timeout waiting for {template}''' if error else None)
 
 

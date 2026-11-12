@@ -374,6 +374,7 @@ class ReturnHomeWaitTests(WaitLoopTestCase):
         with self.assertLogs('BotCore', 'WARNING') as logs:
             self.assertEqual(self.bot._wait_for_return_home_or_chest_claim(timeout=1.5), MISS3)
         self.assertEqual(self.clock.pauses, [0.5, 0.5, 0.5])
+        self.assertEqual(self.bot.window.screenshot.call_count, 4)  # the reward's frame is looked at again at once
         self.assertEqual(logs.output, ['WARNING:BotCore:Timeout waiting for returnhome.png / returnhome2.png (16:10) or chestclaim.png'])
 
 
