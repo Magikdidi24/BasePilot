@@ -246,9 +246,3 @@ def words(line):
                         float(np.mean([k.prob for k in current]))))
             current = []
     return out
-
-
-def runtime():
-    '''What runs the models, for the log ("onnxruntime 1.31.1"), or None.'''
-    model = _model('rec')
-    return model.runtime if model is not None else None

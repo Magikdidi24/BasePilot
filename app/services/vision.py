@@ -32,7 +32,6 @@ class OcrWordBox:
 _NUMBERS_HUD_ROI_AT_BASELINE: Dict[str, Tuple[int, int]] = {
     ASPECT_16_9: (550, 350),
     ASPECT_16_10: (600, 400) }
-_NUMBERS_REF_LINE_HEIGHT_PX = 30
 # Blank between two characters, in median digit widths, that means they belong to
 # different numbers rather than to the same one.
 _NUMBER_RUN_GAP_WIDTHS = 2.0
@@ -183,15 +182,6 @@ last miss. A hit at the bot's scale costs no extra match; thresholds stay the ca
 
     
     @staticmethod
-    def top_right_quadrant_region(screen_img):
-        '''ROI (x, y, w, h) covering the top-right quarter of the screenshot.'''
-        (h, w) = screen_img.shape[:2]
-        x0 = w // 2
-        y1 = h // 2
-        return (x0, 0, w - x0, y1)
-
-    
-    @staticmethod
     def _match_best(img, tpl):
         '''``(score, (x, y))`` of the best TM_CCOEFF_NORMED match, as matchTemplate + minMaxLoc
 gives it, 4-7x faster on captures. Coarse-to-fine: a half-resolution search ranks the
@@ -327,88 +317,6 @@ Returns (None, None, confidence) if not found above threshold.
 
     
     @staticmethod
-    def _template_best_match(screen_img, template_name, region = None):
-        '''Best ``TM_CCOEFF_NORMED`` score and match center ``(x, y)``, or ``(0.0, None, None)``.'''
-        
-        try:
-            template_path = str(get_template_path(template_name))
-            template = cv2.imread(template_path)
-            if template is None:
-                logger.error(f'''Template not found: {template_path}''')
-                return (0, None, None)
-            template = VisionService._resize_template_for_screen(template, screen_img)
-            if region:
-                (x, y, w, h) = region
-                (h_screen, w_screen) = screen_img.shape[:2]
-                if x + w > w_screen or y + h > h_screen:
-                    return (0, None, None)
-                search_img = screen_img[y:y + h, x:x + w]
-                (offset_x, offset_y) = (x, y)  # [fix: x/y offsets were swapped -> every region search returned wrong coords]
-            else:
-                search_img = screen_img
-                (offset_x, offset_y) = (0, 0)
-            (t_h, t_w) = template.shape[:2]
-            (s_h, s_w) = search_img.shape[:2]
-            if t_w > s_w or t_h > s_h:
-                return (0, None, None)
-            (max_val, max_loc) = VisionService._match_best(search_img, template)
-            center_x = offset_x + max_loc[0] + t_w // 2
-            center_y = offset_y + max_loc[1] + t_h // 2
-            return (float(max_val), center_x, center_y)
-        except Exception:
-            e = None
-            logger.error(f'''Error in _template_best_match ({template_name}): {e}''')
-            e = None
-            del e
-            return (0, None, None)
-            e = None
-            del e
-
-
-    
-    @staticmethod
-    def find_active_over_disabled_template(screen_img, active_template, disabled_template, region = None, threshold = 0.8):
-        '''
-Match active vs disabled (grayed/red) UI variants of the same control.
-
-Each PNG is matched once via ``minMaxLoc`` (single best peak in ``region``). Among
-active and disabled scores that meet ``threshold``, only the **highest** score is
-considered; the active center is returned when that winner is the active template,
-otherwise ``(None, None)`` (disabled/grayed control).
-
-Falls back to ``find_template`` when the disabled PNG is missing (e.g. 16:10 pack).
-'''
-        disabled_path = get_template_path(disabled_template)
-        if not disabled_path.exists():
-            return VisionService.find_template(screen_img, active_template, threshold = threshold, region = region)
-        (active_score, ax, ay) = VisionService._template_best_match(screen_img, active_template, region = region)
-        (disabled_score, dx, dy) = VisionService._template_best_match(screen_img, disabled_template, region = region)
-        best_score = -1
-        best_is_active = False
-        best_x = None
-        best_y = None
-        for score, x, y, is_active in ((active_score, ax, ay, True), (disabled_score, dx, dy, False)):
-            if not score >= threshold:
-                continue
-            if x is None:
-                continue
-            if y is None:
-                continue
-            if not score > best_score:
-                continue
-            best_score = score
-            best_is_active = is_active
-            (best_x, best_y) = (x, y)  # [recovered: pycdc reversed STORE_FAST_STORE_FAST pairs]
-        if not best_is_active or best_x is None or best_y is None:  # [recovered: decompiler dropped the `not` — a disabled control counted as active]
-            return (None, None)
-        return (best_x, best_y)
-
-    
-
-    
-
-    
-    @staticmethod
     def yellow_fraction(bgr, *, hue_lo = 18, hue_hi = 40, sat_floor = 80, val_floor = 80):
         '''
 Fraction of pixels in yellow hue (OpenCV H 0–179) with saturation and value
@@ -445,56 +353,6 @@ at least ``sat_floor`` / ``val_floor``.
 
     
     @staticmethod
-    def find_active_hgoldfull(screen_img, region = None, *, template_threshold = 0.85, yellow_threshold = 0.5, max_matches = 8):
-        '''
-Locate a full gold storage hero-bar icon via ``hgoldfull.png`` template matching
-plus per-hit yellow color verification.
-'''
-        matches = VisionService._find_template_matches(screen_img, 'hgoldfull.png', template_threshold, region, max_matches = max_matches)
-        if not matches:
-            return (None, None)
-        (frame_h, frame_w) = screen_img.shape[:2]
-        for left, top, tw, th, _score in sorted(matches, key = (lambda m: m[4]), reverse = True):
-            x0 = max(0, min(int(left), frame_w))
-            y0 = max(0, min(int(top), frame_h))
-            x1 = max(0, min(int(left) + int(tw), frame_w))
-            y1 = max(0, min(int(top) + int(th), frame_h))
-            crop = screen_img[y0:y1, x0:x1]
-            if VisionService.yellow_fraction(crop) < yellow_threshold:
-                continue
-            sorted(matches, key = (lambda m: m[4]), reverse = True)
-            return (int(left) + int(tw) // 2, int(top) + int(th) // 2)
-        return (None, None)
-
-    
-    @staticmethod
-    def find_active_helixirfull(screen_img, region = None, *, template_threshold = 0.85, pink_threshold = 0.5, max_matches = 8):
-        '''
-Locate a full elixir storage hero-bar icon via ``helixirfull.png`` template matching
-plus per-hit pink color verification.
-'''
-        matches = VisionService._find_template_matches(screen_img, 'helixirfull.png', template_threshold, region, max_matches = max_matches)
-        if not matches:
-            return (None, None)
-        (frame_h, frame_w) = screen_img.shape[:2]
-        for left, top, tw, th, _score in sorted(matches, key = (lambda m: m[4]), reverse = True):
-            x0 = max(0, min(int(left), frame_w))
-            y0 = max(0, min(int(top), frame_h))
-            x1 = max(0, min(int(left) + int(tw), frame_w))
-            y1 = max(0, min(int(top) + int(th), frame_h))
-            crop = screen_img[y0:y1, x0:x1]
-            if VisionService.pink_fraction(crop) < pink_threshold:
-                continue
-            sorted(matches, key = (lambda m: m[4]), reverse = True)
-            return (int(left) + int(tw) // 2, int(top) + int(th) // 2)
-        return (None, None)
-
-    
-
-    
-
-    
-    @staticmethod
     def red_hue_fraction(bgr, *, sat_floor = 40, val_floor = 40):
         '''
 Fraction of pixels whose hue falls in red/orange-red ranges (OpenCV H 0–179),
@@ -512,65 +370,6 @@ with saturation and value at least ``sat_floor`` / ``val_floor``.
         if total > 0:
             return float(cv2.countNonZero(mask)) / float(total)
         return 0
-
-    
-    @staticmethod
-    def _clip_rect_xywh(x, y, w, h, frame_w, frame_h):
-        (x2, y2) = (x + w, y + h)  # [recovered: pycdc reversed STORE_FAST_STORE_FAST pairs]
-        x0 = max(0, min(int(x), int(frame_w)))
-        y0 = max(0, min(int(y), int(frame_h)))
-        x1 = max(0, min(int(x2), int(frame_w)))
-        y1 = max(0, min(int(y2), int(frame_h)))
-        (rw, rh) = (x1 - x0, y1 - y0)  # [recovered: pycdc reversed STORE_FAST_STORE_FAST pairs]
-        if rw <= 0 or rh <= 0:
-            return None
-        return (x0, y0, rw, rh)
-
-    
-    @staticmethod
-    def _match_template_top_left(screen_img, template_name, threshold, region = None):
-        '''
-Best ``cv2.matchTemplate`` match: ``(left, top, t_w, t_h, score)``.
-``left`` … ``t_h`` are ``None`` when below ``threshold`` or on error (``score`` still set when matching ran).
-'''
-        
-        try:
-            template_path = str(get_template_path(template_name))
-            template = cv2.imread(template_path)
-            if template is None:
-                logger.error(f'''Template not found: {template_path}''')
-                return (None, None, None, None, 0)
-            template = VisionService._resize_template_for_screen(template, screen_img)
-            if region:
-                (x, y, w, h) = region
-                (h_screen, w_screen) = screen_img.shape[:2]
-                if x + w > w_screen or y + h > h_screen:
-                    return (None, None, None, None, 0)
-                search_img = screen_img[y:y + h, x:x + w]
-                (offset_x, offset_y) = (x, y)  # [fix: x/y offsets were swapped -> every region search returned wrong coords]
-            else:
-                search_img = screen_img
-                (offset_x, offset_y) = (0, 0)
-            (t_h, t_w) = template.shape[:2]
-            (s_h, s_w) = search_img.shape[:2]
-            if t_w > s_w or t_h > s_h:
-                return (None, None, None, None, 0)
-            (max_val, max_loc) = VisionService._match_best(search_img, template)
-            score = float(max_val)
-            if score < threshold:
-                return (None, None, None, None, score)
-            left = offset_x + max_loc[0]
-            top = offset_y + max_loc[1]
-            return (left, top, t_w, t_h, score)
-        except Exception:
-            e = None
-            logger.error(f'''Error in _match_template_top_left: {e}''')
-            e = None
-            del e
-            return (None, None, None, None, 0)
-            e = None
-            del e
-
 
     
     @staticmethod

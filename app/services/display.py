@@ -159,9 +159,6 @@ class DisplayService:
             pass
         return (True, (int(saved.dmPelsWidth), int(saved.dmPelsHeight)), 'ok')
 
-    def has_pending_restore(self):
-        return self._restore_path().is_file()
-
     def restore_if_pending(self):
         '''Startup safety: if a switch was left un-restored (app closed while in 16:9),
         put the display back. Returns True if it restored something.'''

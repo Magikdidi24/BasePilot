@@ -13,8 +13,6 @@ logger = setup_logger('TaskbarThumb')
 WM_COMMAND = 273
 THBN_CLICKED = 6144
 GWLP_WNDPROC = -4
-GA_ROOT = 2
-GA_ROOTOWNER = 3
 IMAGE_ICON = 1
 LR_LOADFROMFILE = 16
 LR_DEFAULTSIZE = 64
@@ -127,7 +125,6 @@ class TaskbarThumb:
     def setup(self, hwnd, title):
         '''Initialize toolbar and install message handler. Returns True on success.'''
         ole32 = ctypes.windll.ole32
-        user32 = ctypes.windll.user32
         self.hwnd = int(hwnd) if hwnd else 0
         if not self.hwnd:
             logger.warning('Could not find valid HWND for taskbar')
