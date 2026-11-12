@@ -31,7 +31,10 @@ _WALL_OCR_RETRY_DRAG_BASELINE: dict[str, tuple[tuple[int, int], tuple[int, int]]
 _BB_CARD_SWAP_TEMPLATE = 'bbswap.png'  # green swap button under every troop card before the first deploy
 _BB_CARD_ABOVE_SWAP = 91  # ref px from that button up to the card art (tapping the button opens the swap menu)
 _BB_RETURN_HOME_TEMPLATE = 'breturnhome.png'
-_BB_RETURN_HOME_OCR_EVERY = 3  # s between label reads of Return Home while the art is not matched
+# s between label reads of Return Home while its art is not matched: a safety net (the art
+# matches the results screen), and each read stalled the fight's ability and speed taps
+_BB_RETURN_HOME_OCR_EVERY = 10
+_BB_RESULTS_LEAVE_TIMEOUT = 8.0  # s for the results screen to go once Return Home is tapped
 _BB_BATTLE_MAX_SECONDS = 360  # two stages of ~2 min, the scouting and the transitions; then recovery
 _BB_REDEPLOY_AFTER = 8  # s after a deploy before swap buttons on the bar mean a new stage
 _BB_TEMPLATE_SUPPRESS_PAD = 0.1
@@ -1396,7 +1399,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
     def _bb_attack_once(self, cb):
         '''One Builder Base battle: Battle → Find Now → deploy → play it to its end (never
         End Battle nor Surrender). False when no battle was played (a control never showed up).'''
-        self._bb_plan = None  # a new battle draws its attack plan
+        self._bb_stage_plans = {}  # a new battle draws the attack plan of each stage
         self.input.scroll(*self._scroll_point(), 20)
         if self.stop_event.wait(random.uniform(0.1, 0.25)):
             self._check_stop()
@@ -1582,14 +1585,14 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                 logger.info('Builder Base: %s ability as it lands', step.troop)
             abilities.add(step, time.monotonic(), fired = fired)
 
-    def _bb_fronts(self, frame, cards):
+    def _bb_fronts(self, frame, cards, stage = bb_learning.FIRST):
         '''``(label, front)`` to attack from, best first: the sides of the base the scouting
         found (:mod:`app.core.bb_scout`) — for a P.E.K.K.A push, the side of the Multi
         Mortar first — then one top edge of the map as a last resort.'''
         h = frame.shape[0]
         fronts = []
         try:
-            (scouting, entries) = self._bb_plan_entries(frame, cards)
+            (scouting, entries) = self._bb_plan_entries(frame, cards, stage)
         except Exception:
             logger.warning('Builder Base: scouting failed', exc_info = True)
             (scouting, entries) = (None, [])
@@ -1610,20 +1613,27 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             learner = self._bb_plans = bb_learning.PlanLearner.from_history(battle_history.load())
         return learner
 
-    def _bb_plan_entries(self, frame, cards):
-        '''``(scouting, entries)`` of the battle's attack plan (:mod:`app.core.bb_learning`):
-        drawn at the first stage among the plans that apply, kept for the second.'''
+    def _bb_plan_entries(self, frame, cards, stage = bb_learning.FIRST):
+        '''``(scouting, entries)`` of the stage's attack plan (:mod:`app.core.bb_learning`):
+        each stage draws its own among the plans that apply (the second base is another
+        base, scored apart); a redeploy within the stage keeps it. The army is the first
+        stage's: the second one's bar holds what is left of it.'''
         scouting = bb_scout.scout(frame)
         if scouting is None:
             return (None, [])
-        army = bb_learning.PEKKA if bb_strategy.pekka_push(cards) else bb_learning.OTHER
+        plans = getattr(self, '_bb_stage_plans', None)
+        if plans is None:
+            plans = self._bb_stage_plans = {}
+        opening = plans.get(bb_learning.FIRST)
+        army = opening[0] if opening else (bb_learning.PEKKA if bb_strategy.pekka_push(cards) else bb_learning.OTHER)
         mortar = bb_scout.multi_mortar(frame, scouting) if army == bb_learning.PEKKA else None
         available = ['best', 'core', 'reach'] + (['mortar'] if mortar is not None else [])
-        plan = getattr(self, '_bb_plan', None)
+        plan = plans.get(stage)
         if plan is None or plan[1] not in available:
             learner = self._bb_learner()
-            plan = self._bb_plan = (army, learner.choose(army, available))
-            logger.info('Builder Base: attack plan "%s" (expected damage: %s)', plan[1], learner.summary(army, available))
+            plan = plans[stage] = (army, learner.choose(army, available, stage = stage))
+            logger.info('Builder Base: stage %d attack plan "%s" (expected damage: %s)', stage, plan[1],
+                        learner.summary(army, available, stage = stage))
         if plan[1] == 'mortar':
             logger.info('Builder Base: Multi Mortar at %s — the P.E.K.K.As go for it first', mortar)
             return (scouting, bb_scout.towards(scouting, mortar))
@@ -1642,13 +1652,17 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         if result is None:
             logger.info('Builder Base: results screen not read')
             return None
-        plan = getattr(self, '_bb_plan', None)
-        logger.info('Builder Base: %d star(s), %d %% damage, %s gold, %s trophies (plan %s, %ds)', result.stars, result.damage,
-                    result.gold, result.trophies, plan[1] if plan else '-', int(time.monotonic() - start))
+        plans = getattr(self, '_bb_stage_plans', None) or {}
+        (first, second) = (plans.get(bb_learning.FIRST), plans.get(bb_learning.SECOND))
+        logger.info('Builder Base: %d star(s), %d %% damage, %s gold, %s trophies (plans %s, %ds)', result.stars, result.damage,
+                    result.gold, result.trophies, ' then '.join(p[1] for p in (first, second) if p) or '-', int(time.monotonic() - start))
         record = dict(result.as_dict(), village = 'builder', session = getattr(self, '_session_id', None), seconds = int(time.monotonic() - start))
-        if plan is not None:
-            record.update(army = plan[0], plan = plan[1])
-            self._bb_learner().record(plan[0], plan[1], result.damage)
+        if first or second:
+            army = (first or second)[0]
+            # "plan": the last stage's, as the history had it before the stages were scored apart
+            record.update(army = army, plan = (second or first)[1])
+            record.update({key: p[1] for (key, p) in (('plan1', first), ('plan2', second)) if p})
+            self._bb_learner().record_battle(army, first[1] if first else None, second[1] if second else None, result.damage)
         battle_history.append(record)
         return result
 
@@ -1662,18 +1676,18 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         frame = self.window.screenshot()
         return frame is None or not self._bb_swaps_shown(frame)
 
-    def _deploy_bb_army(self, frame):
+    def _deploy_bb_army(self, frame, stage = bb_learning.FIRST):
         '''Read the bar and play the plan of :mod:`app.core.bb_strategy`: the machine, then
-        each troop by its role, along the side of the base the scouting picked. Once the
-        first troop is down, the rest follow; a first troop that did not land (its spot is
-        no-deploy) goes again from the next side. A troop still on the bar after the deploy
-        lands once more at the entry. Returns the stage's
+        each troop by its role, along the side of the base the scouting picked for the
+        ``stage``. Once the first troop is down, the rest follow; a first troop that did not
+        land (its spot is no-deploy) goes again from the next side. A troop still on the bar
+        after the deploy lands once more at the entry. Returns the stage's
         :class:`~app.core.bb_strategy.Abilities`, or None when no card is on the bar.'''
         (h, _w) = frame.shape[:2]
         (cards, machine) = self._read_bb_bar(frame)
         if not cards and machine is None:
             return None
-        fronts = self._bb_fronts(frame, cards)
+        fronts = self._bb_fronts(frame, cards, stage)
         check = self._bb_swaps_shown(frame)  # before any troop lands, the swap buttons show
         abilities = bb_strategy.Abilities()
         for (k, (label, front)) in enumerate(fronts):
@@ -1714,6 +1728,32 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                 return (x, y)
         return None
 
+    def _bb_leave_results(self, point):
+        '''Tap Return Home, then wait for the results screen to go. It stays up a moment as
+        the village loads: the recovery that runs next used to find it still there and tap
+        Return Home again (live: 19 battles in 20), and a late tap lands on the village, whose
+        selection then eats the next Battle tap. Still there once a lost tap's delay is over,
+        it is tapped once more. True once it is gone.'''
+        self.input.click(*point, pause = 0.3)
+        tapped = time.monotonic()
+        again = False
+        while time.monotonic() - tapped < _BB_RESULTS_LEAVE_TIMEOUT:
+            if self.stop_event.wait(0.4):
+                self._check_stop()
+            frame = self.window.screenshot()
+            if frame is None:
+                continue
+            self._update_config_size(frame)
+            point = self._bb_return_home_point(frame, ocr = True)
+            if point is None:
+                return True
+            if not again and time.monotonic() - tapped >= _TAP_EATEN_AFTER:
+                logger.info('Builder Base: the results screen is still up — tapping Return Home again')
+                self.input.click(*point, pause = 0.3)
+                again = True
+        logger.warning('Builder Base: the results screen did not go in %ds — leaving it to recovery', int(_BB_RESULTS_LEAVE_TIMEOUT))
+        return False
+
     def _bb_speed_point(self, frame):
         '''The speed button of a stage's last minute while it reads 1x, or None (not shown
         yet, or already 4x).'''
@@ -1751,7 +1791,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                     raise
                 except Exception:
                     logger.warning('Builder Base: could not record the result', exc_info = True)
-                self.input.click(*point, pause = 0.3)
+                self._bb_leave_results(point)
                 return True
             ability = abilities.next_tap(now, frame)
             if ability is not None:
@@ -1766,7 +1806,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             if now - last_deploy >= _BB_REDEPLOY_AFTER and VisionService.find_all_template_centers(
                     frame, _BB_CARD_SWAP_TEMPLATE, region = VisionService.bottom_half_region(frame), max_matches = 1):
                 logger.info('Builder Base: troops back on the bar (next stage) — deploying them')
-                fresh = self._deploy_bb_army(frame)
+                fresh = self._deploy_bb_army(frame, bb_learning.SECOND)
                 if fresh is not None:
                     abilities = fresh  # the last stage's cards are gone: their abilities would tap the new ones
                     last_deploy = time.monotonic()

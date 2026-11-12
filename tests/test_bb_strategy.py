@@ -46,7 +46,7 @@ def make_bot(vision=None):
     bot._bb_record_result = Mock(return_value=None)  # no results screen to read, no history written
     bot._bb_plans = Mock()  # no history read
     bot._bb_plans.summary.return_value = ''
-    bot._bb_plans.choose.side_effect = lambda army, available: available[0]
+    bot._bb_plans.choose.side_effect = lambda army, available, stage=1: available[0]
     return bot
 
 
@@ -263,9 +263,25 @@ class ScoutTests(unittest.TestCase):
 class FightTests(unittest.TestCase):
     def test_return_home_of_the_results_screen(self):
         bot = make_bot(VisionService)
-        (x, y) = bot._bb_return_home_point(canvas('gpg767_bb_results', 400, 560), ocr=False)  # art drawn at 0.9
+        (x, y) = bot._bb_return_home_point(canvas('gpg767_bb_results', 400, 560), ocr=False)  # the art at the bot's own scale
         self.assertTrue(abs(x - 613) <= 15 and abs(y - 648) <= 15)
         self.assertIsNone(bot._bb_return_home_point(canvas('gpg767_bb_fight_bar', 100, 640), ocr=False))
+
+    def test_return_home_waits_for_the_results_screen_to_go(self):
+        bot = make_bot()
+        clock = itertools.count(0, 0.5)
+        with patch('app.core.bot.time.monotonic', side_effect=lambda: next(clock)), \
+                patch.object(bot, '_bb_return_home_point', side_effect=[(613, 648), (613, 648), None]):
+            self.assertTrue(bot._bb_leave_results((613, 648)))
+        self.assertEqual(bot.input.click.call_count, 1)  # still fading out for a moment: no second tap
+
+    def test_a_results_screen_that_stays_gets_one_more_tap(self):
+        bot = make_bot()
+        clock = itertools.count(0, 1.0)
+        with patch('app.core.bot.time.monotonic', side_effect=lambda: next(clock)), \
+                patch.object(bot, '_bb_return_home_point', return_value=(613, 648)):
+            self.assertFalse(bot._bb_leave_results((613, 648)))
+        self.assertEqual(bot.input.click.call_count, 2)  # the tap, then once more after a lost tap's delay
 
     def test_the_speed_button_while_it_reads_1x(self):
         bot = make_bot(VisionService)
@@ -280,7 +296,7 @@ class FightTests(unittest.TestCase):
         clock = itertools.count()  # 2 s a poll
         speed = [None, (1181, 492), (1181, 492), None, None, None]  # 1x; the first tap is lost; then 4x
         with patch('app.core.bot.time.monotonic', side_effect=lambda: next(clock)), \
-                patch.object(bot, '_bb_return_home_point', side_effect=[None] * 8 + [(613, 648)]), \
+                patch.object(bot, '_bb_return_home_point', side_effect=[None] * 8 + [(613, 648), None]), \
                 patch.object(bot, '_bb_speed_point', side_effect=speed) as button, \
                 patch('app.core.bot.VisionService.find_all_template_centers', return_value=[]):
             self.assertTrue(bot._bb_fight_to_the_end(bb_strategy.Abilities()))
@@ -298,7 +314,7 @@ class FightTests(unittest.TestCase):
                 patch('app.core.bb_strategy.alive', return_value=True), \
                 patch('app.core.bb_strategy.health', return_value=0.5), \
                 patch('app.core.bb_strategy.ability_state', return_value=bb_strategy.READY), \
-                patch.object(bot, '_bb_return_home_point', side_effect=[None] * 12 + [(613, 648)]), \
+                patch.object(bot, '_bb_return_home_point', side_effect=[None] * 12 + [(613, 648), None]), \
                 patch('app.core.bot.VisionService.find_all_template_centers', return_value=[]):
             self.assertTrue(bot._bb_fight_to_the_end(abilities))
         taps = [c.args[:2] for c in bot.input.click.call_args_list]
@@ -312,7 +328,7 @@ class FightTests(unittest.TestCase):
         clock = itertools.count()
         swaps = [[(275, 732)]] + [[]] * 50  # the next stage's reinforcement shows its swap button once
         with patch('app.core.bot.time.monotonic', side_effect=lambda: next(clock)), \
-                patch.object(bot, '_bb_return_home_point', side_effect=[None] * 12 + [(613, 648)]), \
+                patch.object(bot, '_bb_return_home_point', side_effect=[None] * 12 + [(613, 648), None]), \
                 patch('app.core.bot.VisionService.find_all_template_centers', side_effect=swaps), \
                 patch.object(bot, '_deploy_bb_army', return_value=bb_strategy.Abilities()) as deploy:
             self.assertTrue(bot._bb_fight_to_the_end(bb_strategy.Abilities()))

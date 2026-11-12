@@ -132,11 +132,17 @@ of each battle it reads the results screen once its animation is over (stars, go
 silver; total damage; gold and trophies won) and writes the battle to `battles.jsonl` in
 `%LOCALAPPDATA%\BasePilot`. Four plans: **best** (the blend above), **core** (the side
 nearest the base's centre), **reach** (the most buildings in reach), **mortar** (the Multi
-Mortar's side, for a P.E.K.K.A push). Each battle's plan is drawn by Thompson sampling on
-the damage the plans did so far, per army: plans that win are played more, the others now
-and then. The P.E.K.K.A push starts with the Multi Mortar first (the player's play) leading,
-and yields only to a plan that does clearly better. The log gives each draw and the
-damage each plan is expected to do.
+Mortar's side, for a P.E.K.K.A push). Each stage draws its own plan by Thompson sampling on
+what the plans did so far, per army and per stage: plans that win are played more, the
+others now and then. The first stage's plan is scored by the battle's total damage (what it
+destroyed and the troops it left for the second base), the second stage's by its own part
+of it (the damage over 100 %). Older battles, recorded with one plan, count for the only
+stage they can belong to. The P.E.K.K.A push starts with the Multi Mortar first (the
+player's play) leading, and yields only to a plan that does clearly better. The log gives
+each draw and the damage each plan is expected to bring.
+
+After the battle, Return Home is tapped and the bot waits for the results screen to go
+(tapping it once more if it is still up 3 s later), so the next step starts on the village.
 
 Back home after a battle, the elixir cart is collected when full: looked for on the view
 as it is, else after a pan once the view has stopped moving. Nothing else is tapped there

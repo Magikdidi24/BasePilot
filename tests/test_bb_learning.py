@@ -83,12 +83,23 @@ class PlanLearnerTests(unittest.TestCase):
         picks = [learner.choose('pekka', ['best', 'core', 'reach', 'mortar'], rng) for _ in range(200)]
         self.assertGreater(picks.count('core'), 140)
 
+    def test_each_stage_scores_its_own_plan(self):
+        learner = bb_learning.PlanLearner()
+        learner.record_battle('pekka', 'mortar', 'best', 200)
+        learner.record_battle('pekka', 'core', None, 80)  # the first base not cleared: no second stage
+        # first stage, of the whole 200 %: (7 + 1) / 11 and (3 + 0.4) / 7
+        self.assertEqual(learner.summary('pekka', ['mortar', 'core']), 'mortar 145 % (1), core 97 % (1)')
+        # second stage, its share over 100 %: 100 + (3 + 1) / 7 x 100; core never played there
+        self.assertEqual(learner.summary('pekka', ['best', 'core'], stage=2), 'best 157 % (1), core 150 % (0)')
+
     def test_beliefs_come_from_the_history(self):
-        records = [{'t': 'x', 'village': 'builder', 'army': 'other', 'plan': 'reach', 'damage': 160},
+        records = [{'t': 'x', 'village': 'builder', 'army': 'other', 'plan': 'reach', 'damage': 160},  # one plan: the second stage's
+                   {'t': 'x', 'village': 'builder', 'army': 'other', 'plan': 'core', 'damage': 50},  # one plan, the first base only
+                   {'t': 'x', 'village': 'builder', 'army': 'other', 'plan': 'best', 'plan1': 'core', 'plan2': 'best', 'damage': 200},
                    {'t': 'x', 'village': 'home', 'gold': 1}, {'t': 'x', 'village': 'builder', 'plan': 'bogus', 'damage': 10}]
         learner = bb_learning.PlanLearner.from_history(records)
-        self.assertIn('reach 109 % (1)', learner.summary('other', ['reach']))  # (3 + 0.8) / 7 x 200
-        self.assertIn('best 100 % (0)', learner.summary('other', ['best']))
+        self.assertEqual(learner.summary('other', ['reach', 'core', 'best']), 'reach 100 % (0), core 106 % (2), best 100 % (0)')
+        self.assertEqual(learner.summary('other', ['reach', 'core', 'best'], stage=2), 'reach 151 % (1), core 150 % (0), best 157 % (1)')
 
 
 def make_bot():
@@ -120,30 +131,37 @@ class BotPlanTests(unittest.TestCase):
             bot._bb_plans.summary.return_value = ''
             with patch('app.core.bot.bb_scout.towards', side_effect=lambda s, t, rng=None: towards(s, t, rng=random.Random(0))):
                 (scouting, entries) = bot._bb_plan_entries(frame, pekkas)
-            self.assertEqual(bot._bb_plan, ('pekka', plan))
+            self.assertEqual(bot._bb_stage_plans[1], ('pekka', plan))
             self.assertTrue(entries and check(entries, scouting), plan)
             self.assertEqual(sorted(bot._bb_plans.choose.call_args.args[1]), ['best', 'core', 'mortar', 'reach'])
 
-    def test_the_plan_is_kept_for_the_second_stage(self):
+    def test_the_second_stage_draws_its_own_plan_and_a_redeploy_keeps_it(self):
         bot = make_bot()
         bot._bb_plans = Mock()
-        bot._bb_plan = ('other', 'reach')
-        bot._bb_plan_entries(self.battle('blue_middle'), [Mock(troop='witch')])
-        bot._bb_plans.choose.assert_not_called()
+        bot._bb_plans.choose.return_value = 'core'
+        bot._bb_plans.summary.return_value = ''
+        bot._bb_stage_plans = {1: ('pekka', 'mortar')}
+        frame = self.battle('blue_middle')
+        bot._bb_plan_entries(frame, [Mock(troop='witch')], 2)
+        self.assertEqual(bot._bb_plans.choose.call_args.kwargs['stage'], 2)
+        self.assertEqual(bot._bb_stage_plans[2], ('pekka', 'core'))  # the battle's army: the first stage's
+        bot._bb_plan_entries(frame, [Mock(troop='witch')], 2)  # troops back on the bar within the stage
+        bot._bb_plans.choose.assert_called_once()
 
     def test_the_result_scores_the_plan_and_goes_in_the_history(self):
         bot = make_bot()
         bot._bb_plans = bb_learning.PlanLearner()
-        bot._bb_plan = ('pekka', 'core')
+        bot._bb_stage_plans = {1: ('pekka', 'mortar'), 2: ('pekka', 'core')}
         result = bb_results.BattleResult(3, 158, 142000, 37)
         with patch('app.core.bot.bb_results.settled_result', return_value=result), \
                 patch('app.core.bot.battle_history.append') as append:
             bot._bb_record_result(0.0)
         record = append.call_args.args[0]
-        self.assertEqual((record['village'], record['plan'], record['army'], record['damage'], record['stars']),
-                         ('builder', 'core', 'pekka', 158, 3))
-        self.assertIn('core', bot._bb_plans.summary('pekka', ['core']))
-        self.assertIn('(1)', bot._bb_plans.summary('pekka', ['core']))
+        self.assertEqual((record['village'], record['plan'], record['plan1'], record['plan2'], record['army'], record['damage'], record['stars']),
+                         ('builder', 'core', 'mortar', 'core', 'pekka', 158, 3))
+        # the opening (the Multi Mortar's side) gets the battle, the second base's plan its share
+        self.assertEqual(bot._bb_plans.summary('pekka', ['mortar']), 'mortar 142 % (1)')
+        self.assertEqual(bot._bb_plans.summary('pekka', ['core'], stage=2), 'core 151 % (1)')
 
 
 if __name__ == '__main__':

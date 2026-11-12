@@ -121,7 +121,6 @@ class GateTests(unittest.TestCase):
 class BattleTapTests(unittest.TestCase):
     def test_a_battle_tap_a_selection_ate_goes_again(self):
         bot = make_bot([HOME])
-        bot._bb_plan = None
         bot._scroll_point = Mock(return_value=(600, 400))
         waits = {'attack.png': [(75, 734)], 'findnow.png': [(None, None), (900, 600)]}
         bot._wait_for_image = Mock(side_effect=lambda name, **kw: waits[name].pop(0) if name in waits else (None, None))
