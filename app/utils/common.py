@@ -27,29 +27,37 @@ def _legacy_data_dir():
     return Path.home() / '.local' / 'share' / _LEGACY_DATA_DIR_NAME
 
 
+_LEGACY_MIGRATED_MARKER = '.legacy_migrated'
+
+
 def _maybe_migrate_legacy_data(new_dir):
     '''One-time settings migration from the pre-rebrand data dir: copy the small
     user-state files (settings, player list, window pin, display restore) — never
-    logs or debug frames. Idempotent: skipped once the new dir holds settings.'''
+    logs or debug frames, and never over a file the new dir holds. It runs once: a
+    marker file records it, as the new dir may have no settings.json for a long time,
+    and copying again would bring back what the app deleted on purpose (an unpinned
+    window, a display mode already restored).'''
     global _migration_checked
     if _migration_checked:
         return
     _migration_checked = True
     old_dir = _legacy_data_dir()
-    if not old_dir.is_dir() or (new_dir / 'settings.json').exists():
+    marker = new_dir / _LEGACY_MIGRATED_MARKER
+    if not old_dir.is_dir() or (new_dir / 'settings.json').exists() or marker.exists():
         return
     import shutil
     ensure_dir(new_dir)
-    for item in old_dir.glob('*.json'):
+    for item in (*old_dir.glob('*.json'), *old_dir.glob('*.devmode')):
+        if (new_dir / item.name).exists():
+            continue
         try:
             shutil.copy2(item, new_dir / item.name)
         except OSError:
             pass
-    for item in old_dir.glob('*.devmode'):
-        try:
-            shutil.copy2(item, new_dir / item.name)
-        except OSError:
-            pass
+    try:
+        marker.touch()
+    except OSError:
+        pass
 
 
 PROFILE_ENV = 'BASEPILOT_PROFILE'
