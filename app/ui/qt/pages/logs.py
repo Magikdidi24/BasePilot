@@ -10,11 +10,15 @@ from app.ui.qt.theme import SPACING
 from app.ui.qt.widgets import PageTitle, neutral_button
 from app.utils.common import get_log_path
 
+# A visit reads this much of the log's end. The view keeps its last 5000 lines anyway (~90 bytes
+# a line: ~450 KB, so 1 MiB holds them twice over), and reading the whole 5 MB log stalled the page.
+_TAIL_BYTES = 1024 * 1024
+
 class LogsPage(QWidget):
     
     def __init__(self, parent = None):
         super().__init__(parent)
-        self._pos = 0
+        self._pos = None  # read offset; None: start over from the log's end
         self._tail_timer = QTimer(self)
         self._tail_timer.setInterval(1000)
         self._tail_timer.timeout.connect(self._tail_log)
@@ -41,7 +45,8 @@ class LogsPage(QWidget):
     
     def showEvent(self, event):
         super().showEvent(event)
-        self._pos = 0
+        self._log_view.clear()  # it still holds the last visit's text
+        self._pos = None
         self._tail_log()
         self._tail_timer.start()
 
@@ -58,12 +63,18 @@ class LogsPage(QWidget):
             path.parent.mkdir(parents = True, exist_ok = True)
             if not path.is_file():
                 path.touch()
-            if path.stat().st_size < self._pos:
-                self._pos = 0  # the log rolled over: follow the new file from its start
+            size = path.stat().st_size
+            (pos, start) = (self._pos, None)
+            if pos is None or size < pos:
+                # a new visit, or the log rolled over: start near its end, one byte early so
+                # a line starting right there keeps the newline before it to cut on
+                start = pos = max(0, size - _TAIL_BYTES - 1)
             with path.open('rb') as fh:
-                fh.seek(self._pos)
+                fh.seek(pos)
                 chunk = fh.read()
                 self._pos = fh.tell()
+            if start:
+                chunk = chunk[chunk.find(b'\n') + 1:]  # from the first whole line
             if chunk:
                 text = chunk.decode('utf-8', errors = 'replace')
                 self._log_view.moveCursor(QTextCursor.MoveOperation.End)
