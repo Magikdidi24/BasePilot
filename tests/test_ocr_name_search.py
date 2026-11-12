@@ -50,6 +50,23 @@ class NameSearchTests(OcrTestCase):
         self.assertEqual([g.text for g in groups], ['705559', '1190256'])  # "Gold" and "x" read no digit
 
 
+class FuzzyNameTests(unittest.TestCase):
+    """The account switch's name search (NAME_SEARCH) on one word of the account list."""
+    def match(self, raw, name):
+        return VisionService._ocr_query_matches(raw, name, case_sensitive=False, **NAME_SEARCH)
+
+    def test_a_misread_letter_still_finds_the_name(self):
+        # "King_Bob." read "King_B0b.": 0.86 alphanumerics to alphanumerics, 0.75 against the raw read
+        self.assertTrue(self.match('King_B0b.', 'king_bob'))
+        self.assertTrue(self.match('Chief_4Z', 'chief_42'))  # a letter for a digit is a misread too
+
+    def test_a_sibling_account_is_not_taken_for_the_name(self):
+        # accounts numbered alike differ by a digit only: 0.8 is no misread, it is the other account
+        for (raw, name) in (('Farm_2', 'farm_1'), ('Farm2', 'farm1'), ('Acc.02', 'acc.01')):
+            with self.subTest(raw=raw):
+                self.assertFalse(self.match(raw, name))
+
+
 class MissingModelsTests(OcrTestCase):
     """Without the OCR models every read comes back empty, never an error."""
 

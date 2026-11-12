@@ -453,15 +453,19 @@ Normalize high-contrast UI text to **black glyphs on white** (single channel, 0 
             if aq and ar and ar in aq and len(ar) >= max(4, int(0.55 * len(aq))):
                 return True
         if not fuzzy_min_ratio is None:
-            cr = r.lower()
+            # [recovered: pycdc left an empty "if match_alnum_only / elif case_sensitive" and kept
+            # only the last branch of this assignment, so an alphanumeric query met the raw read]
+            cr = re.sub('[^a-z0-9]', '', r.lower()) if match_alnum_only else r
             cq = re.sub('[^a-z0-9]', '', query_norm.lower()) if match_alnum_only else query_norm
             if len(cq) < 3:
                 return False
             (lo, hi) = sorted((len(cr), len(cq)))
             if hi and lo / hi < 0.5:
                 return False
-            ratio = difflib.SequenceMatcher(None, cq, cr).ratio()
-            if ratio >= fuzzy_min_ratio:
+            sm = difflib.SequenceMatcher(None, cq, cr)
+            if any(tag == 'replace' and cq[a:b].isdigit() and cr[c:d].isdigit() for (tag, a, b, c, d) in sm.get_opcodes()):
+                return False  # sibling accounts differ by their number; OCR swaps letters and digits, not 1 and 2
+            if sm.ratio() >= fuzzy_min_ratio:
                 return True
         return False
 
@@ -553,7 +557,8 @@ Args:
     match_alnum_only: If True with ``query``, also match after stripping non-alphanumeric characters
         and allow substring match either way on the compact strings.
     fuzzy_min_ratio: If set (e.g. ``0.8``), also accept words whose string similarity to the
-        query reaches this ratio (SequenceMatcher).
+        query reaches this ratio (SequenceMatcher), unless a digit stands for another digit
+        (another account's number).
     charset: The characters the text may hold (e.g. ``'0123456789'``): nothing else is read.
     single_line: Read the whole region as one line of text, without the detector (a cost, a
         counter cut out around its text).
