@@ -303,21 +303,28 @@ Returns (None, None, confidence) if not found above threshold.
 
     
     @staticmethod
-    def yellow_fraction(bgr, *, hue_lo = 18, hue_hi = 40, sat_floor = 80, val_floor = 80):
-        '''
-Fraction of pixels in yellow hue (OpenCV H 0–179) with saturation and value
-at least ``sat_floor`` / ``val_floor``.
-'''
+    def _hue_fraction(bgr, hue_ranges, sat_floor, val_floor):
+        '''Share of ``bgr``'s pixels whose hue falls in one of ``hue_ranges``, (lo, hi) on
+        OpenCV's H 0–179, with saturation and value at least ``sat_floor`` / ``val_floor``; 0
+        for no patch.'''
         if bgr is None or bgr.size == 0 or bgr.ndim != 3:
             return 0
         hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
         sf = max(0, min(255, int(sat_floor)))
         vf = max(0, min(255, int(val_floor)))
-        mask = cv2.inRange(hsv, (int(hue_lo), sf, vf), (int(hue_hi), 255, 255))
-        total = int(bgr.shape[0]) * int(bgr.shape[1])
-        if total > 0:
-            return float(cv2.countNonZero(mask)) / float(total)
-        return 0
+        mask = None
+        for (lo, hi) in hue_ranges:
+            part = cv2.inRange(hsv, (int(lo), sf, vf), (int(hi), 255, 255))
+            mask = part if mask is None else cv2.bitwise_or(mask, part)
+        return float(cv2.countNonZero(mask)) / float(bgr.shape[0] * bgr.shape[1])
+
+    @staticmethod
+    def yellow_fraction(bgr, *, hue_lo = 18, hue_hi = 40, sat_floor = 80, val_floor = 80):
+        '''
+Fraction of pixels in yellow hue (OpenCV H 0–179) with saturation and value
+at least ``sat_floor`` / ``val_floor``.
+'''
+        return VisionService._hue_fraction(bgr, ((hue_lo, hue_hi),), sat_floor, val_floor)
 
     
     @staticmethod
@@ -326,16 +333,7 @@ at least ``sat_floor`` / ``val_floor``.
 Fraction of pixels in pink/magenta hue (OpenCV H 0–179) with saturation and value
 at least ``sat_floor`` / ``val_floor``.
 '''
-        if bgr is None or bgr.size == 0 or bgr.ndim != 3:
-            return 0
-        hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-        sf = max(0, min(255, int(sat_floor)))
-        vf = max(0, min(255, int(val_floor)))
-        mask = cv2.inRange(hsv, (int(hue_lo), sf, vf), (int(hue_hi), 255, 255))
-        total = int(bgr.shape[0]) * int(bgr.shape[1])
-        if total > 0:
-            return float(cv2.countNonZero(mask)) / float(total)
-        return 0
+        return VisionService._hue_fraction(bgr, ((hue_lo, hue_hi),), sat_floor, val_floor)
 
     
     @staticmethod
@@ -344,18 +342,7 @@ at least ``sat_floor`` / ``val_floor``.
 Fraction of pixels whose hue falls in red/orange-red ranges (OpenCV H 0–179),
 with saturation and value at least ``sat_floor`` / ``val_floor``.
 '''
-        if bgr is None or bgr.size == 0 or bgr.ndim != 3:
-            return 0
-        hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-        sf = max(0, min(255, int(sat_floor)))
-        vf = max(0, min(255, int(val_floor)))
-        m1 = cv2.inRange(hsv, (0, sf, vf), (10, 255, 255))
-        m2 = cv2.inRange(hsv, (170, sf, vf), (180, 255, 255))
-        mask = cv2.bitwise_or(m1, m2)
-        total = int(bgr.shape[0]) * int(bgr.shape[1])
-        if total > 0:
-            return float(cv2.countNonZero(mask)) / float(total)
-        return 0
+        return VisionService._hue_fraction(bgr, ((0, 10), (170, 180)), sat_floor, val_floor)
 
     
     @staticmethod
