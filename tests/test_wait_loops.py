@@ -1,5 +1,6 @@
 """The bot's wait loops: what each one looks at, how long it pauses, when it gives up and what it
-logs. Simulated time: the clock only moves when the bot pauses on its stop event."""
+logs. Simulated time: the clock only moves when the bot pauses on its stop event, or when a test
+makes a scan slow."""
 import unittest
 from unittest.mock import Mock, call, patch
 
@@ -11,6 +12,7 @@ FRAME = np.zeros((767, 1227, 3), np.uint8)
 BOTTOM_HALF = (0, 383, 1227, 384)
 RIGHT_HALF = (613, 0, 614, 767)
 MISS = (None, None)
+MISS3 = (None, None, None)
 
 
 class Clock:
@@ -38,9 +40,9 @@ class WaitLoopTestCase(unittest.TestCase):
         bot.stop_event = Mock(**{'is_set.return_value': False, 'wait.side_effect': self.clock.wait})
         bot.window = Mock(**{'screenshot.return_value': FRAME})
         bot.input = Mock()
-        bot.config = Mock(**{'get_point.return_value': (640, 700)})
+        bot.config = Mock(aspect_key='16_10', **{'get_point.return_value': (640, 700)})
         bot.vision = Mock(**{'find_control.return_value': MISS, 'find_template.return_value': MISS,
-                             'find_word_on_screen.return_value': MISS})
+                             'find_label.return_value': MISS, 'find_word_on_screen.return_value': MISS})
         bot._battle_rewards = Mock(**{'handle.return_value': False})
         for (name, value) in (('_update_config_size', None), ('_scroll_point', (500, 400)), ('_status', None),
                               ('_frame_shows_supercell_login_prompt', False), ('_scroll_player_list_with_drag', None),
@@ -49,31 +51,39 @@ class WaitLoopTestCase(unittest.TestCase):
                               ('_leave_builder_base_with_nboat', None)):
             setattr(bot, name, Mock(return_value=value))
 
+    def slow(self, result, seconds):
+        '''A scan that takes ``seconds`` of simulated time, then answers ``result``.'''
+        def scan(*args, **kwargs):
+            self.clock.now += seconds
+            return result
+        return scan
 
-WAITS = {
-    'image': lambda bot: bot._wait_for_image('x.png'),
-    'any image': lambda bot: bot._wait_for_any_image(['a.png', 'b.png']),
-    'player name': lambda bot: bot._wait_for_player_name('Farm_1'),
-    'attack': lambda bot: bot._wait_for_attack_with_nudge(),
-    'wake home': lambda bot: bot._wake_home_and_wait_for_attack(),
+
+WAITS = {  # each wait with what it returns when it finds nothing
+    'image': (lambda bot: bot._wait_for_image('x.png'), MISS),
+    'any image': (lambda bot: bot._wait_for_any_image(['a.png', 'b.png']), MISS),
+    'player name': (lambda bot: bot._wait_for_player_name('Farm_1'), MISS),
+    'attack': (lambda bot: bot._wait_for_attack_with_nudge(), MISS),
+    'wake home': (lambda bot: bot._wake_home_and_wait_for_attack(), MISS),
+    'return home': (lambda bot: bot._wait_for_return_home_or_chest_claim(), MISS3),
 }
 
 
 class StopTests(WaitLoopTestCase):
     def test_a_stop_before_a_look_raises(self):
         self.bot.stop_event.is_set.return_value = True
-        for (name, wait) in WAITS.items():
+        for (name, (wait, _miss)) in WAITS.items():
             with self.subTest(name), self.assertRaises(InterruptedError):
                 wait(self.bot)
         self.bot.vision.find_control.assert_not_called()
 
     def test_a_stop_during_a_pause_ends_the_wait_quietly(self):
-        self.bot.stop_event.wait.side_effect = lambda seconds: True
+        self.bot.stop_event.wait.side_effect = lambda seconds: self.clock.wait(seconds) or True
         for frame in (FRAME, None):
             self.bot.window.screenshot.return_value = frame
-            for (name, wait) in WAITS.items():
+            for (name, (wait, miss)) in WAITS.items():
                 with self.subTest(name, frame=frame is not None), self.assertNoLogs('BotCore', 'WARNING'):
-                    self.assertEqual(wait(self.bot), MISS)
+                    self.assertEqual(wait(self.bot), miss)
 
 
 class ImageWaitTests(WaitLoopTestCase):
@@ -84,6 +94,19 @@ class ImageWaitTests(WaitLoopTestCase):
         # the button's label is read too once a second has gone by
         self.assertEqual(self.bot.vision.find_control.call_args_list,
                          [call(FRAME, 'x.png', threshold=0.7, region=(1, 2, 3, 4), ocr=ocr) for ocr in (False, False, True)])
+
+    def test_the_label_read_counts_the_reward_check(self):
+        self.bot._battle_rewards.handle.side_effect = self.slow(False, 1.2)
+        self.bot.vision.find_control.return_value = (10, 20)
+        self.bot._wait_for_image('x.png')
+        self.assertIs(self.bot.vision.find_control.call_args.kwargs['ocr'], True)
+
+    def test_the_frame_size_is_set_before_the_look(self):
+        order = []
+        self.bot._update_config_size.side_effect = lambda frame: order.append('size')
+        self.bot.vision.find_control.side_effect = lambda *args, **kwargs: order.append('look') or (10, 20)
+        self.bot._wait_for_image('x.png')
+        self.assertEqual(order, ['size', 'look'])
 
     def test_no_frame_is_waited_out_half_a_second_at_a_time(self):
         self.bot.window.screenshot.side_effect = [None, None, FRAME]
@@ -133,6 +156,12 @@ class AnyImageWaitTests(WaitLoopTestCase):
         self.bot._wait_for_any_image(['a.png'], label_after=0)
         self.bot.vision.find_control.assert_called_once()
 
+    def test_the_label_read_counts_the_reward_check(self):
+        self.bot._battle_rewards.handle.side_effect = self.slow(False, 1.2)
+        self.bot.vision.find_control.return_value = (10, 20)
+        self.bot._wait_for_any_image(['a.png'])
+        self.assertIs(self.bot.vision.find_control.call_args.kwargs['ocr'], True)
+
     def test_a_region_from_the_frame_serves_every_template(self):
         region_from_frame = Mock(return_value=(1, 2, 3, 4))
         self.bot._wait_for_any_image(['a.png', 'b.png'], timeout=0.5, error=False, region_from_frame=region_from_frame)
@@ -165,6 +194,10 @@ class AnyImageWaitTests(WaitLoopTestCase):
             self.assertEqual(self.bot._wait_for_any_image(['a.png', 'b.png'], timeout=1), MISS)
         self.assertEqual(self.clock.pauses, [0.5, 0.5])
         self.assertEqual(logs.output, ["WARNING:BotCore:Timeout waiting for any of ['a.png', 'b.png']"])
+
+    def test_no_warning_without_error(self):
+        with self.assertNoLogs('BotCore', 'WARNING'):
+            self.assertEqual(self.bot._wait_for_any_image(['a.png'], timeout=1, error=False), MISS)
 
 
 class PlayerNameWaitTests(WaitLoopTestCase):
@@ -216,6 +249,26 @@ class AttackWaitTests(WaitLoopTestCase):
         # in the bottom half, and the label read too once a second has gone by
         self.assertEqual(self.bot.vision.find_control.call_args_list,
                          [call(FRAME, 'attack.png', region=BOTTOM_HALF, ocr=ocr) for ocr in (False, False, False, True)])
+
+    def ocr_after_popups(self, popups):
+        '''The label flag of the look after ``popups`` closed popups, 0.25 s each.'''
+        self.bot._dismiss_okay_or_exit_on_frame.side_effect = [True] * popups + [False]
+        self.bot.vision.find_control.return_value = (100, 700)
+        self.assertEqual(self.bot._wait_for_attack_with_nudge(), (100, 700))
+        return self.bot.vision.find_control.call_args.kwargs['ocr']
+
+    def test_the_label_is_not_read_before_a_second(self):
+        self.assertIs(self.ocr_after_popups(3), False)  # 0.75 s
+
+    def test_the_label_is_read_from_one_second_exactly(self):
+        self.assertIs(self.ocr_after_popups(4), True)  # 1.0 s
+
+    def test_the_label_read_counts_the_popup_scan(self):
+        # the popup and live-battle scans take ~0.2 s at 1227x767, ~1.8 s at 2560x1600
+        self.bot._dismiss_okay_or_exit_on_frame.side_effect = self.slow(False, 1.2)
+        self.bot.vision.find_control.return_value = (100, 700)
+        self.assertEqual(self.bot._wait_for_attack_with_nudge(), (100, 700))
+        self.assertEqual(self.bot.vision.find_control.call_args, call(FRAME, 'attack.png', region=BOTTOM_HALF, ocr=True))
 
     def test_a_live_battle_ends_the_wait_without_a_nudge(self):
         self.bot._live_battle_button.return_value = (90, 600)
@@ -274,6 +327,54 @@ class WakeHomeWaitTests(WaitLoopTestCase):
         with self.assertNoLogs('BotCore', 'WARNING'):
             self.assertEqual(self.bot._wake_home_and_wait_for_attack(timeout=1), MISS)
         self.assertEqual(self.clock.pauses, [0.2, 0.35, 0.35, 0.35])
+
+
+class ReturnHomeWaitTests(WaitLoopTestCase):
+    def on_screen(self, **hits):
+        '''find_template answers from ``hits`` (template name without .png -> point).'''
+        self.bot.vision.find_template.side_effect = lambda frame, name, **kw: hits.get(name[:-len('.png')], MISS)
+
+    def looked_at(self):
+        return [c.args[1] for c in self.bot.vision.find_template.call_args_list]
+
+    def test_the_second_return_home_art_counts_on_16_10_only(self):
+        self.on_screen(returnhome2=(640, 690), chestclaim=(600, 650))
+        self.assertEqual(self.bot._wait_for_return_home_or_chest_claim(), ('return', 640, 690))
+        self.assertEqual(self.looked_at(), ['returnhome.png', 'returnhome2.png'])
+        self.bot.vision.find_template.reset_mock()
+        self.bot.config.aspect_key = '16_9'
+        self.assertEqual(self.bot._wait_for_return_home_or_chest_claim(), ('chest', 600, 650))
+        self.assertEqual(self.looked_at(), ['returnhome.png', 'chestclaim.png'])
+
+    def test_an_okay_on_the_way_is_tapped_twice_at_most_without_a_pause(self):
+        self.on_screen(okay=(50, 60), returnhome=(640, 690))
+        self.assertEqual(self.bot._wait_for_return_home_or_chest_claim(dismiss_okay=True), ('return', 640, 690))
+        self.assertEqual(self.bot.input.click.call_args_list, [call(50, 60, pause=0.1)] * 2)
+        self.assertEqual(self.clock.pauses, [])
+        self.bot.input.click.reset_mock()
+        self.bot._wait_for_return_home_or_chest_claim()  # not asked: no tap
+        self.bot.input.click.assert_not_called()
+
+    def test_the_labels_are_read_after_a_second(self):
+        self.bot.vision.find_label.side_effect = lambda frame, label, **kw: (630, 700) if label == 'Claim Reward' else MISS
+        self.assertEqual(self.bot._wait_for_return_home_or_chest_claim(), ('chest', 630, 700))
+        self.assertEqual(self.clock.pauses, [0.5, 0.5])
+        self.assertEqual(self.bot.vision.find_label.call_args_list,
+                         [call(FRAME, 'Return Home', region=BOTTOM_HALF), call(FRAME, 'Claim Reward', region=BOTTOM_HALF)])
+
+    def test_the_label_read_counts_the_art_scans(self):
+        self.bot.vision.find_template.side_effect = self.slow(MISS, 0.4)  # three scans: 1.2 s
+        self.bot.vision.find_label.side_effect = lambda frame, label, **kw: (640, 690) if label == 'Return Home' else MISS
+        self.assertEqual(self.bot._wait_for_return_home_or_chest_claim(), ('return', 640, 690))
+        self.assertEqual(self.clock.pauses, [])
+
+    def test_rewards_missing_frames_and_the_time_out(self):
+        self.bot.window.screenshot.side_effect = [None] + [FRAME] * 10
+        self.bot._battle_rewards.handle.side_effect = [True] + [False] * 10
+        with self.assertLogs('BotCore', 'WARNING') as logs:
+            self.assertEqual(self.bot._wait_for_return_home_or_chest_claim(timeout=1.5), MISS3)
+        self.assertEqual(self.clock.pauses, [0.5, 0.5, 0.5])
+        self.assertEqual(logs.output, ['WARNING:BotCore:Timeout waiting for returnhome.png / returnhome2.png (16:10) or chestclaim.png'])
 
 
 if __name__ == '__main__':
