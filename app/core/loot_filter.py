@@ -6,9 +6,9 @@ the top-left corner. Raiding a base that holds 40k gold costs the same time and 
 one holding 800k, so this reads those numbers and lets the farm loop press **Next**
 until a base clears the minimums the user set.
 
-Reading them needs OCR (Tesseract). When it is not installed, or a frame simply cannot
-be read, :func:`read_enemy_loot` returns ``None`` and the caller attacks rather than
-skipping — a filter that cannot see must not stop the bot from farming.
+Reading them needs OCR (:mod:`app.services.ppocr`). When its models cannot load, or a
+frame simply cannot be read, :func:`read_enemy_loot` returns ``None`` and the caller attacks
+rather than skipping — a filter that cannot see must not stop the bot from farming.
 '''
 from dataclasses import dataclass
 from typing import Optional, Tuple
@@ -106,7 +106,7 @@ def read_enemy_loot(frame):
         return None
     try:
         groups = VisionService.extract_grouped_numbers_in_region(
-            frame, loot_panel_region(frame), white_text = True, roi_upscale = _LOOT_ROI_UPSCALE)
+            frame, loot_panel_region(frame), roi_upscale = _LOOT_ROI_UPSCALE)
     except Exception:
         logger.debug('Loot filter: OCR of the loot panel failed', exc_info = True)
         return None

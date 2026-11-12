@@ -2,6 +2,7 @@
 from __future__ import annotations
 import os
 import sys
+import threading
 from multiprocessing import freeze_support
 
 # Make the project root (which contains the `app` package) importable when run
@@ -9,14 +10,6 @@ from multiprocessing import freeze_support
 _root = os.path.dirname(os.path.abspath(__file__))
 if _root not in sys.path:
     sys.path.insert(0, _root)
-
-# When frozen, use the Tesseract bundled alongside the exe. It lives in a
-# subfolder so its ~34 DLLs don't collide with PyInstaller's own libs at the
-# bundle root. Respect an existing TESSERACT_CMD if the user set one.
-if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS') and not os.environ.get('TESSERACT_CMD'):
-    _bundled_tess = os.path.join(sys._MEIPASS, 'tesseract', 'tesseract.exe')
-    if os.path.isfile(_bundled_tess):
-        os.environ['TESSERACT_CMD'] = _bundled_tess
 
 # `--profile NAME` before anything reads the data directory: it decides where settings,
 # the game-window pin, captured templates, the log and debug frames live, so two copies
@@ -31,13 +24,22 @@ if '--profile' in sys.argv:
 
 from app.ui.qt.app import run_gui
 from app.utils.logger import setup_logger
-from app.utils.tesseract_env import configure_tesseract
 logger = setup_logger('Main')
+
+
+def _load_ocr():
+    '''Load the OCR models off the UI thread: the first read on screen does not wait for
+    them, and the log says at once what runs them (or that they did not load).'''
+    try:
+        from app.services import ppocr
+        ppocr.available()
+    except Exception:
+        logger.warning('OCR warm-up failed', exc_info = True)
 
 
 def main():
     try:
-        configure_tesseract()
+        threading.Thread(target = _load_ocr, daemon = True, name = 'OcrWarmUp').start()
         try:
             from app.services.display import DisplayService
             DisplayService().restore_if_pending()

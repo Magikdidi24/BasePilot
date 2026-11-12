@@ -9,12 +9,6 @@ build_new/
 dist/
 dist_new/
 
-# Tesseract build input (~40 MB of Apache-2.0 binaries + tessdata).
-# Not committed to keep the repo light. To rebuild the exe, recreate it from a
-# UB-Mannheim Tesseract 5 install (tesseract.exe + its DLLs + tessdata/) or from
-# an existing build's PyInstaller extraction. See README.
-tesseract_bundle/
-
 # Per-user runtime data (created on first run under %LOCALAPPDATA%\BasePilot)
 *.log
 

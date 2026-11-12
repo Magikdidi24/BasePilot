@@ -26,7 +26,7 @@ def results_screen(name):
     return frame
 
 
-@unittest.skipUnless(ppocr.available(), 'needs OpenCV DNN and the model in app/data/ocr')
+@unittest.skipUnless(ppocr.available(), 'needs the OCR models in app/data/ocr')
 class ResultsScreenTests(unittest.TestCase):
     def test_stars_damage_and_rewards(self):
         want = {'75_1': (1, 75, 30000, 9), '93_2': (2, 93, 72000, 20), '142_3': (3, 142, 122000, 31),

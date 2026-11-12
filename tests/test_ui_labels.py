@@ -1,4 +1,3 @@
-import shutil
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -7,13 +6,14 @@ import cv2
 import numpy as np
 
 from app.core.bot import Bot
+from app.services import ppocr
 from app.services.vision import CONTROL_LABELS, VisionService
 
 FRAME = np.zeros((731, 1299, 3), dtype=np.uint8)
 
 
 def fresh():
-    """A new capture: find_label caches OCR words per frame object."""
+    """A new capture: the OCR reads are cached per frame object."""
     return np.zeros((731, 1299, 3), dtype=np.uint8)
 
 
@@ -34,11 +34,10 @@ class LabelTests(unittest.TestCase):
         self.assertEqual(VisionService.find_label(fresh(), 'Battle'), (436, 610))
 
     @patch.object(VisionService, 'find_words_ocr')
-    def test_ocr_typo_still_matches_and_later_passes_are_tried(self, ocr):
-        ocr.side_effect = [[], [], [word('Retum', 20), word('Home', 92)]]
+    def test_ocr_typo_still_matches(self, ocr):
+        ocr.return_value = [word('Retum', 20), word('Home', 92)]
         self.assertEqual(VisionService.find_label(fresh(), 'Return Home'), (80, 610))
-        self.assertEqual([(c.kwargs['preprocess'], c.kwargs['white_text']) for c in ocr.call_args_list],
-                         [(False, False), (True, True), (True, False)])
+        ocr.assert_called_once()  # one read: light and dark text alike
 
     @patch.object(VisionService, 'find_words_ocr')
     def test_two_line_label_and_stray_glyphs(self, ocr):
@@ -64,17 +63,17 @@ class LabelTests(unittest.TestCase):
             ocr.return_value = [word(first, 20, width=30), word('Battle', 56)]
             self.assertIsNone(VisionService.find_label(fresh(), 'Battle')[0], first)
 
-    @patch.object(VisionService, 'find_words_ocr', return_value=[])
-    def test_labels_on_one_frame_share_the_ocr_runs(self, ocr):
+    @patch.object(ppocr, 'read_lines', return_value=[])
+    def test_labels_on_one_frame_share_the_ocr_read(self, ocr):
         frame = fresh()
         VisionService.find_label(frame, 'Return Home')
         VisionService.find_label(frame, 'Claim Reward')
-        self.assertEqual(ocr.call_count, 3)
+        self.assertEqual(ocr.call_count, 1)
         VisionService.find_label(fresh(), 'Return Home')
-        self.assertEqual(ocr.call_count, 6)
+        self.assertEqual(ocr.call_count, 2)
 
     @patch.object(VisionService, 'find_words_ocr', return_value=None)
-    def test_missing_tesseract_is_a_miss(self, _ocr):
+    def test_no_words_is_a_miss(self, _ocr):
         self.assertEqual(VisionService.find_label(fresh(), 'Battle'), (None, None))
 
     @patch.object(VisionService, 'find_label', return_value=(5, 6))
@@ -142,7 +141,7 @@ class BotFlowTests(unittest.TestCase):
         self.assertTrue(self.bot._home_hud_visible(FRAME))
 
 
-@unittest.skipUnless(shutil.which('tesseract'), 'needs the tesseract binary')
+@unittest.skipUnless(ppocr.available(), 'needs the OCR models in app/data/ocr')
 class RealArtLabelTests(unittest.TestCase):
     """The label fallback on the game's real button art, pasted at a 1299x731 capture scale."""
 

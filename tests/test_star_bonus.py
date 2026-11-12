@@ -1,8 +1,6 @@
 """The Star Bonus dialog on a live 1227x767 client (Builder Base): its Okay, drawn at 0.9
 (0.75 at the bot's scale), is tapped once its title is read; the crop leaves the names
 out (x 270-980, y 120-700)."""
-import os
-import shutil
 import unittest
 from pathlib import Path
 from unittest.mock import Mock
@@ -12,10 +10,11 @@ import numpy as np
 
 from app.config import Config
 from app.core.bot import Bot
+from app.services import ppocr
 from app.services.vision import VisionService
 
 FIXTURES = Path(__file__).parent / 'fixtures'
-HAVE_OCR = shutil.which('tesseract') or os.path.exists(r'C:\Program Files\Tesseract-OCR\tesseract.exe')
+HAVE_OCR = ppocr.available()
 
 
 def make_bot():
@@ -32,7 +31,7 @@ def dialog():
     return frame
 
 
-@unittest.skipUnless(HAVE_OCR, 'the title is read by Tesseract')
+@unittest.skipUnless(HAVE_OCR, 'needs the OCR models in app/data/ocr')
 class StarBonusTests(unittest.TestCase):
     def test_its_okay_is_tapped(self):
         bot = make_bot()

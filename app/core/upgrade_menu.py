@@ -23,6 +23,7 @@ from typing import List, Optional, Tuple
 
 import cv2
 
+from app.services import ppocr
 from app.services.vision import VisionService
 from app.utils.logger import setup_logger
 
@@ -189,28 +190,17 @@ def _classify_resource_icon(frame, cost_bbox):
 
 
 def _ocr_label_words(frame):
-    '''Letter OCR in the top-center band, fenced to the popup's label column; runs both
-    polarities and keeps the richer pass. Single-char words are dropped (time units
-    H/M, multiplier x) — no building name has them.'''
+    '''Letter OCR in the top-center band, fenced to the popup's label column. Single-char
+    words are dropped (time units H/M, multiplier x) — no building name has them.'''
     (fh, fw) = frame.shape[:2]
     if fw / fh > 1.7:
         roi = (round(fw*.402), round(fh*.12), round(fw*.128), round(fh*.50))
-        return [w for w in VisionService.find_words_ocr(
-            frame, region=roi, white_text=True, brightness_floor=180,
-            roi_upscale=3, tesseract_config='--psm 6')
-            if len(w.text.strip()) >= 2]
+        return [w for w in VisionService.find_words_ocr(frame, region=roi) if len(w.text.strip()) >= 2]
     x_min = int(fw * _LABEL_X_MIN_FRAC)
     x_max = int(fw * _LABEL_X_MAX_FRAC)
     y_min = int(fh * _ROW_Y_MIN_FRAC)
-    best = []
-    for white in (False, True):
-        words = VisionService.ocr_letters_top_center(frame, white_text = white, cc_filter_blobs = False)
-        words = [
-            w for w in words
+    return [w for w in VisionService.ocr_letters_top_center(frame)
             if len(w.text.strip()) >= 2 and x_min <= w.left < x_max and w.top >= y_min]
-        if len(words) > len(best):
-            best = words
-    return best
 
 
 def _collect_label_lines(words):
@@ -240,9 +230,7 @@ def parse_builder_menu(frame, initial_section = ''):
     # be split off by x-gap; the rightmost segment inside the cost column is the cost.
     char_clusters = []
     if fw / fh <= 1.7:
-        VisionService.extract_grouped_numbers_in_region(
-            frame, roi, white_text = True, cc_filter_blobs = False,
-            allow_hud_ocr_debug = True, hud_debug_char_clusters_out = char_clusters)
+        VisionService.extract_grouped_numbers_in_region(frame, roi, char_clusters_out = char_clusters)
     cost_x_min = int(fw * _COST_X_MIN_FRAC)
     cost_x_max = int(fw * _COST_X_MAX_FRAC)
     costs = []  # (line_cy, value, bbox)
@@ -250,9 +238,7 @@ def parse_builder_menu(frame, initial_section = ''):
         # Read the complete cost column without clipping leading digits or
         # binarizing away their thin strokes. Exclude red, unaffordable text.
         cost_roi = (round(fw*.535), round(fh*.12), round(fw*.080), round(fh*.50))
-        words = VisionService.find_words_ocr(
-            frame, region=cost_roi, preprocess=False, roi_upscale=4,
-            tesseract_config='--psm 6 -c tessedit_char_whitelist=0123456789')
+        words = VisionService.find_words_ocr(frame, region=cost_roi, charset=VisionService.DIGITS, roi_upscale=2)
         for word in words:
             text = word.text.strip()
             if not text.isdigit() or len(text) < _MIN_COST_DIGITS:
@@ -412,9 +398,8 @@ def merge_rows(existing, new_rows):
     return [by_label[k] for k in order]
 
 
-# Top-HUD "free/total" chips. Each ROI covers only the chip's text — including the
-# icon inside it (builder face / lab flask) breaks Tesseract's single-line
-# segmentation (a huge bright blob next to three small glyphs).
+# Top-HUD "free/total" chips. Each ROI covers only the chip's text: the icon inside it
+# (builder face / lab flask) is no digit.
 _BUILDER_CHIP_ROI_FRAC = (0.489, 0.018, 0.05, 0.048)  # x, y, w, h as fractions of the frame
 # Lab chip ("0/1" with a flask+sword icon) sits immediately left of the builder chip.
 # Calibrated on live 1299x731 frames: text spans x 513-563, y 25-45. Keep the ROI top
@@ -422,8 +407,8 @@ _BUILDER_CHIP_ROI_FRAC = (0.489, 0.018, 0.05, 0.048)  # x, y, w, h as fractions 
 # ROI and breaks PSM7 line segmentation (live repro: '0' dropped, read '1').
 _LAB_CHIP_ROI_FRAC = (0.394, 0.026, 0.048, 0.036)
 # The 1 is the chip font's only narrow glyph (width 0.3-0.45 of its height; the other
-# digits and the slash 0.6 and up). Small, it is the glyph Tesseract loses: it reads it as a
-# V, which the whitelist drops, or merges it into the slash (live 1227x767: "1/2" read "2").
+# digits and the slash 0.6 and up). Small, it is the glyph OCR loses (Tesseract read it as a
+# V, or merged it into the slash: live 1227x767, "1/2" read "2"): its shape reads it.
 _ONE_MAX_ASPECT = 0.5
 _CHIP_LINE_MARGIN = 0.3  # blank around the glyphs in the OCR line, in glyph heights
 # Shapes are only trusted in full-white ink (glyph peaks 250-255 on a clear screen). While a
@@ -434,13 +419,10 @@ _CHIP_INK_MIN_PEAK = 235
 
 
 def _parse_fraction_chip(frame, roi_frac, max_total):
-    '''Read a top-HUD "free/total" chip → ``(free, total)`` or ``None``.
-    The slash is not in the digit whitelist, so it appears as a gap (or an ``l`` → ``1``).
-    The chips are translucent — animated village pixels behind the glyphs push the
-    binarization over/under threshold frame to frame (live repro: identical-looking
-    frames 2s apart read '01', '1', nothing) — so escalate through upscales/polarity
-    until one pass parses. When the ink shows the three glyphs, a narrow one reads as 1
-    from its shape and OCR, on the glyphs' own box, only names the wide ones.'''
+    '''Read a top-HUD "free/total" chip → ``(free, total)`` or ``None``: the chip's line read
+    whole, digits and the slash only (:mod:`app.services.ppocr`). When the ink shows the three
+    glyphs, the line is cut on them, and a narrow one is a 1 from its shape whatever OCR made
+    of it.'''
     if frame is None or frame.size == 0:
         return None
     (fh, fw) = frame.shape[:2]
@@ -448,12 +430,11 @@ def _parse_fraction_chip(frame, roi_frac, max_total):
     roi = (int(fw * rx), int(fh * ry), int(fw * rw), int(fh * rh))
     glyphs = _chip_glyphs(frame, roi)
     if glyphs is not None:
-        (frame, roi) = _chip_line(frame, glyphs)
-    for upscale, white in ((6, True), (8, True), (6, False)):
-        parsed = _parse_fraction_chip_once(frame, roi, max_total, upscale, white, glyphs)
-        if parsed is not None:
-            return parsed
-    return None
+        roi = _chip_line(frame, glyphs)
+    (x, y, w, h) = roi
+    text = ppocr.read_line(frame[y:y + h, x:x + w], allowed = '0123456789/') or ''
+    logger.debug('chip roi=%s read %r, glyphs %s', roi, text, glyphs)
+    return _fraction(text, glyphs, max_total)
 
 
 def _chip_glyphs(frame, roi):
@@ -482,66 +463,37 @@ def _chip_glyphs(frame, roi):
 
 
 def _chip_line(frame, glyphs):
-    '''``(frame, roi)`` for the OCR once the glyphs are known: a copy of the frame with the
-    1s blanked out (their shape reads them; in the line they only confuse Tesseract), and
-    the glyphs' box with a margin, set on the text itself rather than on the anchor.'''
-    frame = frame.copy()
-    for (gx, gy, gw, gh) in (glyphs[0], glyphs[2]):
-        if gw < _ONE_MAX_ASPECT * gh:
-            frame[max(0, gy - 1):gy + gh + 1, max(0, gx - 1):gx + gw + 1] = 0
+    '''The OCR box once the glyphs are known: theirs with a margin, set on the text itself
+    rather than on the anchor.'''
     m = _CHIP_LINE_MARGIN * max(gh for (_x, _y, _w, gh) in glyphs)
     (fh, fw) = frame.shape[:2]
     x0 = max(0, int(min(gx for (gx, _y, _w, _h) in glyphs) - m))
     y0 = max(0, int(min(gy for (_x, gy, _w, _h) in glyphs) - m))
     x1 = min(fw, int(round(max(gx + gw for (gx, _y, gw, _h) in glyphs) + m)))
     y1 = min(fh, int(round(max(gy + gh for (_x, gy, _w, gh) in glyphs) + m)))
-    return (frame, (x0, y0, x1 - x0, y1 - y0))
+    return (x0, y0, x1 - x0, y1 - y0)
 
 
-def _glyph_fraction(chars, glyphs, max_total):
-    '''``(free, total)`` from the chip glyphs: a narrow one is a 1, a wide one takes the one
-    OCR digit centred on it (whatever OCR makes of the slash is left out), else None.'''
-    digits = []
-    for (gx, _gy, gw, gh) in (glyphs[0], glyphs[2]):
-        if gw < _ONE_MAX_ASPECT * gh:
-            digits.append(1)
-            continue
-        on = [int(c.text) for c in chars if c.text.isdigit() and gx <= c.left + c.width / 2 < gx + gw]
-        if len(on) != 1:
-            return None
-        digits.append(on[0])
-    (free, total) = digits
-    return (free, total) if 0 <= free <= total <= max_total else None
-
-
-def _parse_fraction_chip_once(frame, roi, max_total, roi_upscale, white_text, glyphs = None):
-    clusters = []
-    VisionService.extract_grouped_numbers_in_region(
-        frame, roi, white_text = white_text, cc_filter_blobs = False, roi_upscale = roi_upscale,
-        tesseract_config = '--psm 7 -c tessedit_char_whitelist=0123456789l/',
-        allow_hud_ocr_debug = True, hud_debug_char_clusters_out = clusters)
-    logger.debug('chip roi=%s upscale=%s white=%s clusters=%s', roi, roi_upscale, white_text, [[c.text for c in cl] for cl in clusters])
+def _fraction(text, glyphs, max_total):
+    '''``(free, total)`` from a chip's read: "1/6", or "16" when the slash is lost, or "116"
+    when it is read as a 1. A narrow glyph is a 1 whatever was read. None unless both
+    numbers are known and ``0 <= free <= total <= max_total``.'''
+    digits = re.findall('[0-9]', text)
+    slash = re.fullmatch('\\s*([0-9])?\\s*/\\s*([0-9])?\\s*', text)
+    if slash:
+        (free_s, total_s) = slash.groups()
+    elif len(digits) == 2:
+        (free_s, total_s) = digits
+    elif len(digits) == 3 and digits[1] == '1':
+        (free_s, total_s) = (digits[0], digits[2])
+    else:
+        (free_s, total_s) = (None, None)
     if glyphs is not None:
-        return _glyph_fraction([c for cl in clusters for c in cl], glyphs, max_total)
-    for chars in clusters:
-        segments = _split_digit_segments([c for c in chars if c.text.isdigit() or c.text == 'l'])
-        digits = [''.join(c.text for c in seg).replace('l', '1') for seg in segments]
-        digits = [d for d in digits if d.isdigit()]
-        if not digits:
-            continue
-        if len(digits) >= 2:
-            (free_s, total_s) = (digits[0], digits[-1])
-        elif len(digits[0]) == 2:
-            (free_s, total_s) = (digits[0][0], digits[0][1])
-        elif len(digits[0]) == 3 and digits[0][1] == '1':
-            # slash OCR'd as l→1 and merged: "1/6" → "116"
-            (free_s, total_s) = (digits[0][0], digits[0][2])
-        else:
-            continue
-        (free, total) = (int(free_s), int(total_s))
-        if 0 <= free <= total <= max_total:
-            return (free, total)
-    return None
+        (free_s, total_s) = ('1' if gw < _ONE_MAX_ASPECT * gh else d for ((_x, _y, gw, gh), d) in zip((glyphs[0], glyphs[2]), (free_s, total_s)))
+    if free_s is None or total_s is None:
+        return None
+    (free, total) = (int(free_s), int(total_s))
+    return (free, total) if 0 <= free <= total <= max_total else None
 
 
 def parse_builder_chip(frame):

@@ -562,21 +562,13 @@ class UpgradeAdvisor:
         (fh, fw) = frame.shape[:2]
         y0 = int(fh * _EXEC_UPGRADE_BAND_Y_FRAC)
         region = (0, y0, fw, fh - y0)
-        words = []
-        # Binarization ladder — different button skins need different floors, AND the
-        # live raw frames run brighter than the JPEG debug dumps the floors were first
-        # tuned on (live repro: floor-200 read the bottom-bar 'Upgrade' on the saved
-        # dump but missed it on the raw frames of the very same screen). 228 isolates
-        # raw whites, 200 catches JPEG-soft whites/green-button text, default reads
-        # dark-bar labels, and the upscale pass rescues small glyphs. Words pool
-        # across passes so the 'Upgrade time' veto sees every reading.
-        for kwargs in ({'brightness_floor': 228}, {'brightness_floor': 200}, {}, {'roi_upscale': 2}):
-            try:
-                words += self.vision.find_words_ocr(
-                    frame, region = region, white_text = True,
-                    preprocess = True, min_confidence = 25, **kwargs)
-            except Exception:
-                logger.debug('Upgrade exec: word OCR failed (%s)', kwargs, exc_info = True)
+        # One read covers every button skin (light text on dark and dark on light alike), and
+        # the 'Upgrade time' veto below sees every word of it.
+        try:
+            words = self.vision.find_words_ocr(frame, region = region) or []
+        except Exception:
+            logger.debug('Upgrade exec: word OCR failed', exc_info = True)
+            words = []
         if not words:
             return None
 
@@ -639,13 +631,10 @@ class UpgradeAdvisor:
         words = []
         for (y0f, y1f) in ((0.60, 0.80), (0.02, 0.12)):
             region = (0, int(fh * y0f), fw, int(fh * (y1f - y0f)))
-            for kwargs in ({'brightness_floor': 200}, {}):
-                try:
-                    words += self.vision.find_words_ocr(
-                        frame, region = region, white_text = True,
-                        preprocess = True, min_confidence = 20, **kwargs)
-                except Exception:
-                    logger.debug('Upgrade exec: name-gate OCR failed', exc_info = True)
+            try:
+                words += self.vision.find_words_ocr(frame, region = region) or []
+            except Exception:
+                logger.debug('Upgrade exec: name-gate OCR failed', exc_info = True)
         if not words:
             return None
         target = _compact(pick.label)
@@ -714,17 +703,11 @@ class UpgradeAdvisor:
         """
         h, w = frame.shape[:2]
         footer = self.vision.find_words_ocr(
-            frame, region=(round(w*.47), round(h*.81), round(w*.30), round(h*.06)),
-            preprocess=False, roi_upscale=2)
+            frame, region=(round(w*.47), round(h*.81), round(w*.30), round(h*.06)), roi_upscale=2)
         if not any(self._word_is(word.text, 'crafting', .85) for word in footer):
             return None
         words = self.vision.find_words_ocr(
-            frame, region=(round(w*.775), round(h*.19), round(w*.11), round(h*.49)),
-            white_text=True, brightness_floor=200, roi_upscale=3)
-        if not any(self._word_is(word.text, 'confirm', .75) for word in words):
-            words = self.vision.find_words_ocr(
-                frame, region=(round(w*.775), round(h*.19), round(w*.11), round(h*.49)),
-                preprocess=False, roi_upscale=3)
+            frame, region=(round(w*.775), round(h*.19), round(w*.11), round(h*.49)), roi_upscale=3)
         if not any(self._word_is(word.text, 'confirm', .75) for word in words):
             art = cv2.imread(str(get_resource_path('templates/events/crafting_confirm.png')), 0)
             if art is not None:
@@ -741,8 +724,7 @@ class UpgradeAdvisor:
             x0, x1 = round(w*.775), round(w*.862)
             y0, y1 = word.top+word.height, min(h, word.top+3*word.height)
             price_words = self.vision.find_words_ocr(
-                frame, region=(x0,y0,x1-x0,y1-y0), white_text=True, brightness_floor=200, roi_upscale=3,
-                tesseract_config='--psm 7 -c tessedit_char_whitelist=0123456789')
+                frame, region=(x0,y0,x1-x0,y1-y0), charset=VisionService.DIGITS, single_line=True)
             digits = ''.join(c for token in price_words for c in token.text if c.isdigit())
             if not digits or int(digits) != pick.cost:
                 continue

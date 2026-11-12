@@ -1,8 +1,8 @@
 '''Clan assist: donate to clanmates' requests and request reinforcements.
 
 The whole flow is template-driven — the same screen-capture + match + click loop the
-attack and upgrade flows use, and **no OCR**, so it works whether or not Tesseract is
-installed. Seven pieces of the game's own art drive it, captured once from your client
+attack and upgrade flows use, and **no OCR**, so it works even when the OCR models cannot
+load. Seven pieces of the game's own art drive it, captured once from your client
 (*Settings -> Clan assist -> Capture templates*, which crops them at the reference
 resolution for you):
 

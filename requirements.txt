@@ -3,11 +3,8 @@ PySide6>=6.11,<7
 opencv-python>=4.12,<6
 numpy>=2.2,<3
 pillow>=10,<14
-pytesseract>=0.3.13,<0.4
-# In-process Tesseract (Windows wheels bundle Tesseract 5.5.3): 4-12x faster reads than
-# launching tesseract.exe per call. If it is missing or cannot start, pytesseract is used.
-tesserocr>=2.12,<3
+# Runs the PP-OCRv6 text models of app/data/ocr: 2-3x faster than OpenCV's DNN module, which
+# runs them when ONNX Runtime cannot load.
+onnxruntime>=1.31,<2
 
-# pytesseract still needs a Tesseract 5 install (tesseract.exe, its DLLs and tessdata/)
-# in tesseract_bundle/ — see README. tesserocr reads the same tessdata/.
-# Build the exe with: pyinstaller BasePilot.spec   (pip install pyinstaller pefile)
+# Build the exe with: pyinstaller BasePilot.spec   (pip install pyinstaller)

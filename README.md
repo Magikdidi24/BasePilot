@@ -19,9 +19,9 @@ reading, no packet manipulation, no modified client.
 > Walls are bought one at a time, elixir first. The Builder Base fight deploys whatever
 > troops your army has, and the camera is zoomed out before looking for the boat.
 > The bot never taps the Ranked Battle card (the ranked fill mode is gone).
-> It is also faster: in-process OCR through tesserocr (falls back to pytesseract),
-> one-copy screen capture, coarse-to-fine template matching, and no dead waits after a
-> battle that ends by itself.
+> It is also faster: OCR by PaddleOCR's PP-OCRv6 models on ONNX Runtime (2.5 to 7 times
+> faster than the Tesseract it replaced, and nothing to install), one-copy screen capture,
+> coarse-to-fine template matching, and no dead waits after a battle that ends by itself.
 > Account switching on the new UI goes through the profile (top left) and its Settings tab,
 > untested on a live switch yet. Not working on the new UI yet: star-bonus mode.
 > The screen readers are tested on 16:10 screenshots of the current game, but the bot has
@@ -217,26 +217,26 @@ pip install -r requirements.txt
 python main.py
 ```
 
-OCR needs a Tesseract 5 install. For development, BasePilot falls back to
-`C:\Program Files\Tesseract-OCR\tesseract.exe`, so a
-[UB-Mannheim build](https://github.com/UB-Mannheim/tesseract/wiki) is enough — or point
-`TESSERACT_CMD` at any `tesseract.exe` you prefer.
+The OCR is PaddleOCR's PP-OCRv6: a text detector and a line recognizer, in
+`app/data/ocr`, run by ONNX Runtime (installed with the requirements; without it, OpenCV's
+DNN module runs them, 2-3x slower). There is nothing else to install. The log says at
+startup what runs them.
 
-To build the one-file exe, copy that Tesseract install (`tesseract.exe`, its DLLs, and
-`tessdata/`) into `tesseract_bundle/` and run:
+To build the one-file exe:
 
 ```
+pip install pyinstaller
 pyinstaller BasePilot.spec
 ```
 
-`tesseract_bundle/` is gitignored to keep the repo light — it is ~40 MB of Apache-2.0
-binaries. The release workflow in `.github/workflows/release.yml` recreates it on a
-Windows runner and publishes the exe automatically on every `v*` tag.
+The release workflow in `.github/workflows/release.yml` builds it on a Windows runner,
+checks that it starts and loads its OCR models, and publishes it on every `v*` tag.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Tesseract, bundled into the released exe, ships under the
-Apache 2.0 license.
+MIT — see [LICENSE](LICENSE). PaddleOCR's PP-OCRv6 models (`app/data/ocr`, in the ONNX
+export RapidOCR publishes) ship under the Apache 2.0 license, and ONNX Runtime, bundled into
+the released exe, under the MIT license.
 
 ## Disclaimer
 

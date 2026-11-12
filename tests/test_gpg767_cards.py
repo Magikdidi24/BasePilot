@@ -63,7 +63,7 @@ class CostLineTests(unittest.TestCase):
 
     def parse(self, words):
         vision = Mock()
-        vision.find_words_ocr.side_effect = [words, [], []]  # the general pass, then any digit re-read finds nothing
+        vision.find_words_ocr.side_effect = [words, []]  # the general pass, then any digit re-read finds nothing
         return (bp.parse_cards(vision, np.zeros((767, 1227, 3), np.uint8)), vision)
 
     def test_icon_glyphs_are_no_cost_line(self):
@@ -100,17 +100,18 @@ class CostLineTests(unittest.TestCase):
                                        (['000'], '10000', 10000)):
             vision = Mock()
             general = [word('Skeleton', 894, 375, 80, 12)] + [word(t, 1137 + 30 * i, 396, 26, 12) for (i, t) in enumerate(column)]
-            vision.find_words_ocr.side_effect = [general, [], [word(reread, 1137, 396, 60, 12)]]
+            vision.find_words_ocr.side_effect = [general, [word(reread, 1137, 396, 60, 12)]]
             rows = bp.parse_cards(vision, np.zeros((767, 1227, 3), np.uint8))
             self.assertEqual(rows[0].cost, cost, (column, reread))
 
-    def test_digit_reread_modes_must_agree(self):
-        # psm 7 then psm 8 on "1 520 000": one of them dropping a glyph makes no cost
+    def test_the_digit_reread_is_one_line_of_digits(self):
+        # "1 520 000": the cost's line read whole, nothing but digits allowed
         vision = Mock()
-        for (reads, cost) in (((['120000'], ['1520000']), None), ((['1520000'], ['1520000']), 1520000),
-                              (([], ['1520000']), 1520000)):
-            vision.find_words_ocr.side_effect = [[word(t, 1103, 234, 90, 13) for t in r] for r in reads]
-            self.assertEqual(bp._ocr_cost(vision, np.zeros((767, 1227, 3), np.uint8), (1103, 234, 1193, 247)), cost)
+        vision.find_words_ocr.return_value = [word(t, 1103 + 30 * i, 234, 26, 13) for (i, t) in enumerate(('1', '520', '000'))]
+        self.assertEqual(bp._ocr_cost(vision, np.zeros((767, 1227, 3), np.uint8), (1103, 234, 1193, 247)), 1520000)
+        self.assertEqual(vision.find_words_ocr.call_args.kwargs, {'charset': '0123456789', 'single_line': True})
+        vision.find_words_ocr.return_value = [word('l520000', 1103, 234, 90, 13)]
+        self.assertIsNone(bp._ocr_cost(vision, np.zeros((767, 1227, 3), np.uint8), (1103, 234, 1193, 247)))
 
 
 if __name__ == '__main__':

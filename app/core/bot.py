@@ -533,7 +533,7 @@ past the bottom is a harmless no-op, so this can be called repeatedly.
         return False
 
     def _find_wall_row_once(self):
-        '''One fresh screenshot → Wall label OCR, both polarities (dark popup text first).
+        '''One fresh screenshot → the Wall card's label read in the Build panel.
 
         Returns ``(frame, point)``; the frame comes back so the caller can tell a list
         that is still travelling from one that has hit its bottom without paying for a
@@ -543,15 +543,12 @@ past the bottom is a harmless no-op, so this can be called repeatedly.
         if frame is None:
             return (None, None)
         self._update_config_size(frame)
-        # The Wall card sits in the Build panel on the right; read both text polarities and
-        # take the lowest hit, as the old popup reader did.
-        roi = self._build_panel_roi(frame)
-        upscale = 2 if frame.shape[0] < 1000 else 1
-        for white in (False, True):
-            words = self.vision.find_words_ocr(frame, roi, white_text = white, roi_upscale = upscale, tesseract_config = VisionService._TESSERACT_WALL_LABEL_SPARSE) or []
-            hits = [w for w in words if 'wall' in w.text.lower()]
-            if hits:
-                return (frame, max(hits, key = lambda b: b.top + b.height).center)
+        # The Wall card sits in the Build panel on the right: the lowest hit, as the old popup
+        # reader took.
+        words = self.vision.find_words_ocr(frame, self._build_panel_roi(frame)) or []
+        hits = [w for w in words if 'wall' in w.text.lower()]
+        if hits:
+            return (frame, max(hits, key = lambda b: b.top + b.height).center)
         return (frame, None)
 
     def _wall_menu_signature(self, frame):
@@ -729,7 +726,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
 
         An unreadable HUD does NOT block donating: this is a courtesy floor, not a
         spend guard (nothing here can spend anything), and the reading needs OCR, which
-        is absent on installs without Tesseract. It is logged either way.
+        is absent when its models cannot load. It is logged either way.
         '''
         floor = int(getattr(opts, 'min_elixir', 0) or 0)
         if floor <= 0:
@@ -2397,7 +2394,7 @@ Returns (``"return"`` | ``"chest"``, x, y) or (None, None, None) on timeout.
             self._close_windows()
             raise RuntimeError('Multi-run: the switch-account button (changeuser.png) is not in Settings — a frame of that screen is in the debug folder')
         self.input.click(cux, cuy, pause = 1)
-        (ucx, ucy) = self._wait_for_player_name(username, timeout = 25, min_confidence = 70, tesseract_config = '--psm 11', match_alnum_only = True, fuzzy_min_ratio = 0.8, white_text = True)
+        (ucx, ucy) = self._wait_for_player_name(username, timeout = 25, match_alnum_only = True, fuzzy_min_ratio = 0.8)
         if not ucx:
             err = f'''Multi-run: could not find username "{username}" on screen (OCR)'''
             logger.error(err)
@@ -2675,7 +2672,7 @@ optionally run the clock boost chain, then leave Builder Base.
         """True if OCR sees the Supercell ID login line (list scroll won't help)."""
         if frame is None or frame.size == 0:
             return False
-        words = self.vision.find_words_ocr(frame, query = None, min_confidence = 20, preprocess = True, tesseract_config = '--psm 11', white_text = True)
+        words = self.vision.find_words_ocr(frame)
         blob = ' '.join([ w.text for w in words ]).lower()
         if 'supercell id' in blob:
             return True

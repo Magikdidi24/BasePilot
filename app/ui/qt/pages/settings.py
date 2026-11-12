@@ -192,7 +192,7 @@ class SettingsPage(QWidget):
         '''Minimum loot a base must hold before the bot spends an army on it.'''
         card = Card()
         card.card_layout.addWidget(SectionTitle('Minimum loot to attack'))
-        hint = QLabel('On the battle-prep screen the bot reads how much loot the base holds and presses Next while it is under these amounts, so an army is never spent on a 40k base. Needs OCR (Tesseract) and a captured nextbase.png — without either it attacks every base and says so in the log. Set both to 0 to attack anything.')
+        hint = QLabel('On the battle-prep screen the bot reads how much loot the base holds and presses Next while it is under these amounts, so an army is never spent on a 40k base. Needs the OCR models and a captured nextbase.png — without either it attacks every base and says so in the log. Set both to 0 to attack anything.')
         hint.setWordWrap(True)
         hint.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
         card.card_layout.addWidget(hint)
@@ -326,7 +326,7 @@ class SettingsPage(QWidget):
         count_row.addStretch()
         card.card_layout.addLayout(count_row)
         card.card_layout.addWidget(SectionTitle('Elixir floor'))
-        elixir_hint = QLabel('Only donate while the HUD shows at least this much elixir, so giving troops away never eats the loot you are farming for. Read before the clan menu opens; needs OCR (Tesseract) — without it the check is skipped and logged. 0 turns it off.')
+        elixir_hint = QLabel('Only donate while the HUD shows at least this much elixir, so giving troops away never eats the loot you are farming for. Read before the clan menu opens; needs the OCR models — without them the check is skipped and logged. 0 turns it off.')
         elixir_hint.setWordWrap(True)
         elixir_hint.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
         card.card_layout.addWidget(elixir_hint)

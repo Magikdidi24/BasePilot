@@ -59,6 +59,7 @@ _LEVEL_BADGE_X = 0.45  # the card icons (level badges, OCR junk) sit left of thi
 _COST_MAX_X = 0.05  # cost digits start left of this distance from the right edge; the resource icon and the stopwatch right of it
 _MIN_COST = 100
 _MAX_COST = 40000000
+_DIGITS = '0123456789'
 _RED_COST = 0.08  # share of red pixels in the cost box that marks it unaffordable
 _GEM_ICON = 'gemicon.png'
 _CLOSE_TEMPLATES = ('closex.png', 'exit.png')
@@ -133,10 +134,7 @@ def find_tab(vision, frame, index):
     '''Center of the index-th tab, found by its "free/total" count, or None.'''
     h = frame.shape[0]
     region = _region(frame, _x_from_right(frame, _LIST_X[0] + 0.01), h * _TABS_Y[0], frame.shape[1], h * _TABS_Y[1])
-    words = []
-    for white in (True, False):  # the selected tab is lighter: its count may read only in one polarity
-        words += vision.find_words_ocr(frame, region, white_text = white, roi_upscale = 2 if h < 1000 else 1,
-                                       tesseract_config = '--psm 11 -c tessedit_char_whitelist=0123456789/') or []
+    words = vision.find_words_ocr(frame, region, roi_upscale = 2 if h < 1000 else 1) or []
     # "1/2" often reads as "2" or "/": digits or a slash mark a tab (the anvil and lock tabs have none)
     counts = []
     for w in sorted((w for w in words if re.search('[0-9/]', w.text)), key = lambda b: b.left):
@@ -181,19 +179,13 @@ def _number(tokens):
 
 
 def _ocr_cost(vision, frame, box):
-    '''Digits-only re-read of a cost the general pass garbled ("10 000" read "to ooo"). Two
-    page modes; when both read a cost they must agree: on small text one of them drops the
-    narrow "1" or reads "5" as "3", and a cost read too low must not come out of here.'''
+    '''Digits-only re-read of a cost the general pass garbled ("10 000" read "to ooo"): the
+    cost's line read whole, with nothing but digits (and the thousands spaces) allowed.'''
     (x0, y0, x1, y1) = box
     h = y1 - y0
     region = _region(frame, x0 - 3 * h, y0 - 0.4 * h, x1 + 0.2 * h, y1 + 0.4 * h)
-    costs = set()
-    for psm in (7, 8):
-        words = vision.find_words_ocr(frame, region, white_text = True, roi_upscale = 2,
-                                      tesseract_config = f'--psm {psm} -c tessedit_char_whitelist=0123456789') or []
-        costs.add(_number(sorted(words, key = lambda b: b.left)))
-    costs.discard(None)
-    return costs.pop() if len(costs) == 1 else None
+    words = vision.find_words_ocr(frame, region, charset = _DIGITS, single_line = True) or []
+    return _number(sorted(words, key = lambda b: b.left))
 
 
 def _checked_reread(vision, frame, box, column):
@@ -259,7 +251,7 @@ def parse_cards(vision, frame):
     research come back without a cost; new buildings ("New" under the name) are left
     out, since tapping them starts placing a building on the map.'''
     (h, w) = frame.shape[:2]
-    words = vision.find_words_ocr(frame, list_region(frame), white_text = True, roi_upscale = 2 if h < 1000 else 1) or []
+    words = vision.find_words_ocr(frame, list_region(frame)) or []
     name_max = _x_from_right(frame, _NAME_MAX_X)
     badge_max = _x_from_right(frame, _LEVEL_BADGE_X)
     cost_max = _x_from_right(frame, _COST_MAX_X)
@@ -356,7 +348,7 @@ def dialog_title_ok(vision, frame):
     '''The dialog on top is an upgrade one ("Upgrade X to Level N?", "Upgrade to level N?").'''
     (h, w) = frame.shape[:2]
     # left of the panel: its "Suggested upgrades" header must not read as a dialog title
-    words = vision.find_words_ocr(frame, _region(frame, 0.12 * w, 0, 0.66 * w, 0.18 * h), white_text = True) or []
+    words = vision.find_words_ocr(frame, _region(frame, 0.12 * w, 0, 0.66 * w, 0.18 * h)) or []
     return any(difflib.SequenceMatcher(None, t.text.lower()[:7], 'upgrade').ratio() >= 0.8 for t in words)
 
 
@@ -374,7 +366,7 @@ def wall_upgrade_button(vision, frame, resources = (RESOURCE_ELIXIR, RESOURCE_GO
         return None
     top = min(y for (_x, y) in hammers)
     # left of the panel, whose own "Wall x 2" cards must not vouch for a selected building
-    names = vision.find_words_ocr(frame, _region(frame, 0, top - 0.3 * h, 0.66 * w, top - 0.04 * h), white_text = True) or []
+    names = vision.find_words_ocr(frame, _region(frame, 0, top - 0.3 * h, 0.66 * w, top - 0.04 * h)) or []
     if not any(re.sub('[^a-z]', '', t.text.lower()).startswith('wall') for t in names):
         return None
     tiles = {}

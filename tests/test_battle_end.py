@@ -2,7 +2,6 @@
 during the battle, End Battle once it stops dropping, Surrender with no star and nothing
 coming, and nothing tapped when the battle ends by itself."""
 import itertools
-import shutil
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -12,6 +11,7 @@ import numpy as np
 
 from app.config import Config
 from app.core.bot import Bot
+from app.services import ppocr
 from app.core.loot_filter import read_enemy_loot
 
 FIXTURES = Path(__file__).parent / 'fixtures'
@@ -74,7 +74,7 @@ class BattleEndTests(unittest.TestCase):
         self.assertGreaterEqual(bot.window.screenshot.call_count, 60)
 
 
-@unittest.skipUnless(shutil.which('tesseract'), 'needs the tesseract binary')
+@unittest.skipUnless(ppocr.available(), 'needs the OCR models in app/data/ocr')
 class LootDuringBattleTests(unittest.TestCase):
     def test_the_available_loot_drops_as_the_storages_fall(self):
         # live 1227x767 raid, the panel below the defender's name (left out of the crops)

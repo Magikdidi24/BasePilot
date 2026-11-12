@@ -7,7 +7,7 @@ everything else lives in *Settings → Clan assist*.
 
 The code is [`app/core/clan.py`](../app/core/clan.py). It is template-driven — the same
 capture → match → click loop the attack and upgrade flows use — and uses **no OCR**, so
-it works whether or not Tesseract is installed.
+it works even when the OCR models cannot load.
 
 ## What it clicks, in order
 
@@ -99,8 +99,8 @@ the menu and skips donating while elixir is below *Settings → Clan assist → 
 floor* (500k by default; set it to **off** to always donate). Requesting reinforcements
 is unaffected — that costs nothing.
 
-Reading the HUD needs OCR, so on an install without Tesseract the check is skipped
-rather than blocking donations, and says so in the log:
+Reading the HUD needs OCR, so when the OCR models cannot load the check is skipped rather
+than blocking donations, and says so in the log:
 
 ```
 Clan assist: could not read the HUD (OCR unavailable?) — donating without the elixir check

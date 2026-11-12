@@ -14,6 +14,7 @@ import numpy as np
 
 from app.config import Config
 from app.core.bot import Bot
+from app.services import ppocr
 from app.core.upgrade_menu import RESOURCE_ELIXIR, RESOURCE_GOLD
 from app.services.vision import VisionService
 from app.utils import profile_settings_store as store
@@ -48,8 +49,7 @@ def make_bot(frames=()):
     return bot
 
 
-@unittest.skipUnless(__import__('shutil').which('tesseract') or os.path.exists(r'C:\Program Files\Tesseract-OCR\tesseract.exe'),
-                     'the panel title is read by Tesseract')
+@unittest.skipUnless(ppocr.available(), 'needs the OCR models in app/data/ocr')
 class PanelTests(unittest.TestCase):
     def test_the_builder_base_panel_opens_on_buildings_and_heroes(self):
         bot = make_bot([PANEL])
