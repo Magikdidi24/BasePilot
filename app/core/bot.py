@@ -1085,6 +1085,17 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         return (None, None)
 
     
+    def _between_raids(self, upgrade_walls, deadline):
+        '''The Home Village's errands before the first raid and after each cycle, in this
+        order: the clan visit, a wall pass, an upgrade pass, the idle gate (Maxer and Rusher wait
+        there with full storages), then the full-storage stop. True when the farm loop ends there
+        (Stop when storages are full).'''
+        self._maybe_clan_assist()
+        self._safely('Wall pass', self._maybe_upgrade_walls, upgrade_walls)
+        self._maybe_auto_upgrade()
+        self._safely('Idle gate', self._maybe_idle, deadline)
+        return bool(self._safely('Full storages', self._stop_if_storages_full))
+
     def _run_loop(self, method_id, duration_seconds, star_bonus = False, upgrade_walls = False):
         start_time = time.time()
         if self.stop_event.wait(1):
@@ -1104,11 +1115,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         # storages with "Stop when storages are full"); with Maxer or Rusher, full storages
         # park the loop in _maybe_idle instead.
         deadline = start_time + duration_seconds if duration_seconds else None
-        self._maybe_clan_assist()
-        self._safely('Wall pass', self._maybe_upgrade_walls, upgrade_walls)
-        self._maybe_auto_upgrade()
-        self._safely('Idle gate', self._maybe_idle, deadline)
-        if self._safely('Full storages', self._stop_if_storages_full):
+        if self._between_raids(upgrade_walls, deadline):
             return None
         troop_failures = 0
         while deadline is None or time.time() < deadline:
@@ -1155,11 +1162,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                     return None
             else:
                 troop_failures = 0
-            self._maybe_clan_assist()
-            self._safely('Wall pass', self._maybe_upgrade_walls, upgrade_walls)
-            self._maybe_auto_upgrade()
-            self._safely('Idle gate', self._maybe_idle, deadline)
-            if self._safely('Full storages', self._stop_if_storages_full):
+            if self._between_raids(upgrade_walls, deadline):
                 return None
             self.input.scroll(*self._scroll_point(), 5)
             if self.stop_event.wait(random.uniform(0.15, 0.25)):
