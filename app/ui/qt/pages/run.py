@@ -9,7 +9,7 @@ from app.core import bb_strategy, schedule
 from app.ui.qt._constants import ATTACK_STRATEGIES, BUILDER_BASE_ATTACK_STRATEGIES
 from app.ui.qt.dialogs import show_error, show_under_development
 from app.ui.qt.theme import SPACING, TOKENS
-from app.ui.qt.widgets import Card, SectionTitle, StepperButton, ToggleSwitch, chip_button, danger_button, hint_label, muted_label, neutral_button, primary_button, scroll_page, segment_button, spin_box
+from app.ui.qt.widgets import Card, SectionTitle, StepperButton, ToggleSwitch, chip_button, danger_button, hint_label, muted_label, neutral_button, primary_button, scroll_page, segment_button, short_amount, spin_box
 from app.utils.common import ui_settings_name
 from app.utils.player_list_store import load_players
 from app.utils.logger import setup_logger
@@ -429,15 +429,6 @@ class RunPage(QWidget):
         card.card_layout.addWidget(self._stat_note)
         return card
 
-    @staticmethod
-    def _fmt_amount(value):
-        value = int(value)
-        if value >= 1000000:
-            return f'''{value / 1000000:.1f}M'''
-        if value >= 10000:
-            return f'''{value / 1000:.0f}k'''
-        return str(value)
-
     _STATE_COLORS = {
         'farming': '#4ADE80',  # engaged green
         'builder base': '#4ADE80',
@@ -467,13 +458,13 @@ class RunPage(QWidget):
             self._stat_note.setText(f'''Upgrades: {note}''')
 
     def _on_loot_changed(self, gold, elixir, dark, elapsed):
-        self._stat_loot.setText(f'''{self._fmt_amount(gold)} / {self._fmt_amount(elixir)} / {self._fmt_amount(dark)}''')
+        self._stat_loot.setText(f'''{short_amount(gold)} / {short_amount(elixir)} / {short_amount(dark)}''')
         if elapsed < 600:
             # A per-hour figure extrapolated from a few minutes is noise — hold it back.
             self._stat_loot_rate.setText('— (needs 10m)')
             return None
         hours = elapsed / 3600
-        self._stat_loot_rate.setText(f'''{self._fmt_amount(gold / hours)} / {self._fmt_amount(elixir / hours)} / {self._fmt_amount(dark / hours)}''')
+        self._stat_loot_rate.setText(f'''{short_amount(gold / hours)} / {short_amount(elixir / hours)} / {short_amount(dark / hours)}''')
 
     def _on_status_line(self, msg, _warning):
         if msg.lower().startswith(('idling', 'resuming')):

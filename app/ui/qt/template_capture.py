@@ -14,13 +14,14 @@ from pathlib import Path
 
 import cv2
 from PySide6.QtCore import QRect, QSize, Qt
-from PySide6.QtGui import QImage, QPixmap
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QRubberBand, QVBoxLayout
 
 from app.config import ASPECT_BASELINE, resolve_aspect_key
 from app.core.clan import CLAN_TEMPLATE_SPECS
 from app.core.loot_filter import LOOT_TEMPLATE_SPECS
 from app.services.window import WindowService
+from app.ui.qt.frame_preview import NO_CAPTURE, capture_line, frame_pixmap
 from app.ui.qt.theme import SPACING, TOKENS
 from app.ui.qt.widgets import neutral_button, primary_button
 from app.utils.common import ensure_dir, get_resource_path, get_user_app_data_dir
@@ -133,20 +134,14 @@ class TemplateCaptureDialog(QDialog):
         self._frame = frame
         if frame is None or not getattr(frame, 'size', 0):
             self._image.setPixmap(QPixmap())
-            self._status.setText('Could not capture the game window. Open Clash of Clans (and check Settings → Game window), then press Refresh.')
+            self._status.setText(NO_CAPTURE)
             return None
         (h, w) = frame.shape[:2]
         self._aspect_key = resolve_aspect_key(w, h)
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        # .copy() detaches the QImage from the numpy buffer Qt would otherwise keep.
-        image = QImage(rgb.data, w, h, 3 * w, QImage.Format.Format_RGB888).copy()
-        pixmap = QPixmap.fromImage(image).scaled(_MAX_PREVIEW_WIDTH, _MAX_PREVIEW_HEIGHT,
-                                                 Qt.AspectRatioMode.KeepAspectRatio,
-                                                 Qt.TransformationMode.SmoothTransformation)
+        pixmap = frame_pixmap(frame, _MAX_PREVIEW_WIDTH, _MAX_PREVIEW_HEIGHT)
         self._image.setPixmap(pixmap)
         self._image.setFixedSize(pixmap.size())
-        aspect = self._aspect_key.replace('_', ':') if self._aspect_key else 'unsupported aspect'
-        self._status.setText(f'''Capture {w}x{h} ({aspect}). Drag a box around a button.''')
+        self._status.setText(capture_line(w, h, self._aspect_key, 'Drag a box around a button.'))
 
     def _on_select(self, rect):
         pixmap = self._image.pixmap()

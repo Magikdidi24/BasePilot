@@ -11,6 +11,11 @@ ASPECT_BASELINE: Dict[str, tuple[int, int]] = {
     ASPECT_16_9: (2560, 1440),
     ASPECT_16_10: (2560, 1600) }
 
+def aspect_label(key, unknown = 'unknown aspect'):
+    '''"16:9" / "16:10" for an aspect key; ``unknown`` for None or anything else.'''
+    return {ASPECT_16_9: '16:9', ASPECT_16_10: '16:10'}.get(key, unknown)
+
+
 def resolve_aspect_key(width, height):
     '''``16_9``, ``16_10``, or ``None`` when the pixel size is neither aspect within tolerance.'''
     if width <= 0 or height <= 0:

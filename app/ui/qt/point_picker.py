@@ -13,13 +13,13 @@ can be flagged instead of silently clicking a stale spot.
 from __future__ import annotations
 from typing import Optional, Tuple
 
-import cv2
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QImage, QPixmap
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QVBoxLayout
 
 from app.config import resolve_aspect_key
 from app.services.window import WindowService
+from app.ui.qt.frame_preview import NO_CAPTURE, capture_line, frame_pixmap
 from app.ui.qt.theme import SPACING, TOKENS
 from app.ui.qt.widgets import neutral_button
 from app.utils.logger import setup_logger
@@ -28,18 +28,6 @@ logger = setup_logger('PointPicker')
 
 _MAX_PREVIEW_WIDTH = 960
 _MAX_PREVIEW_HEIGHT = 560
-
-
-def _frame_to_pixmap(frame):
-    '''BGR numpy frame -> QPixmap scaled to fit the preview box.'''
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    (h, w) = rgb.shape[:2]
-    # .copy() detaches the QImage from the numpy buffer, which Qt would otherwise
-    # keep referencing after this function returns.
-    image = QImage(rgb.data, w, h, 3 * w, QImage.Format.Format_RGB888).copy()
-    pixmap = QPixmap.fromImage(image)
-    return pixmap.scaled(_MAX_PREVIEW_WIDTH, _MAX_PREVIEW_HEIGHT,
-                         Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
 
 
 class _ClickableImage(QLabel):
@@ -102,13 +90,12 @@ class PointPickerDialog(QDialog):
             frame = None
         if frame is None or not getattr(frame, 'size', 0):
             self._image.setPixmap(QPixmap())
-            self._status.setText('Could not capture the game window. Open Clash of Clans (and check Settings → Game window), then press Refresh.')
+            self._status.setText(NO_CAPTURE)
             return None
         (h, w) = frame.shape[:2]
         self._aspect_key = resolve_aspect_key(w, h)
-        self._image.setPixmap(_frame_to_pixmap(frame))
-        aspect = self._aspect_key.replace('_', ':') if self._aspect_key else 'unsupported aspect'
-        self._status.setText(f'''Capture {w}x{h} ({aspect}). Click the button in the image.''')
+        self._image.setPixmap(frame_pixmap(frame, _MAX_PREVIEW_WIDTH, _MAX_PREVIEW_HEIGHT))
+        self._status.setText(capture_line(w, h, self._aspect_key, 'Click the button in the image.'))
 
     def _on_image_click(self, fx, fy):
         self.picked = (fx, fy, self._aspect_key)

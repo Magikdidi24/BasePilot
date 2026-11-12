@@ -5,20 +5,11 @@ from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QHeaderView, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 from app.core import stats
 from app.ui.qt.theme import SPACING, TOKENS
-from app.ui.qt.widgets import Card, PageTitle, SectionTitle, hint_label, neutral_button
+from app.ui.qt.widgets import Card, PageTitle, SectionTitle, hint_label, neutral_button, short_amount
 from app.utils import battle_history
 
 _STAR_COLOURS = {0: TOKENS['danger'], 1: TOKENS['warning'], 2: '#84CC16', 3: TOKENS['success']}
 _COLUMNS = ('Started', 'Village', 'Battles', 'Gold', 'Elixir', 'Dark', 'Gold / h', 'Elixir / h', 'Stars', 'Damage')
-
-
-def _amount(value):
-    value = int(value)
-    if abs(value) >= 1000000:
-        return f'{value / 1000000:.1f}M'
-    if abs(value) >= 10000:
-        return f'{value / 1000:.0f}k'
-    return str(value)
 
 
 class DamageChart(QWidget):
@@ -92,8 +83,8 @@ class StatsPage(QWidget):
         self._table.setRowCount(len(summaries))
         for (row, s) in enumerate(summaries):
             cells = (s.start.strftime('%d/%m %H:%M'), {'home': 'Home', 'builder': 'Builder', 'both': 'Both'}.get(s.village, s.village),
-                     str(s.battles), _amount(s.gold), _amount(s.elixir), _amount(s.dark),
-                     _amount(s.per_hour(s.gold)), _amount(s.per_hour(s.elixir)),
+                     str(s.battles), short_amount(s.gold), short_amount(s.elixir), short_amount(s.dark),
+                     short_amount(s.per_hour(s.gold)), short_amount(s.per_hour(s.elixir)),
                      '' if s.stars is None else f'{s.stars:.1f}', '' if s.damage is None else f'{s.damage:.0f} %')
             for (col, text) in enumerate(cells):
                 self._table.setItem(row, col, QTableWidgetItem(text))
@@ -104,7 +95,7 @@ class StatsPage(QWidget):
         else:
             gold = sum(s.gold for s in summaries)
             builder = [r for r in self._records if r.get('village') == 'builder']
-            text = f'{len(summaries)} session(s), {len(self._records)} battle(s), {_amount(gold)} gold in all.'
+            text = f'{len(summaries)} session(s), {len(self._records)} battle(s), {short_amount(gold)} gold in all.'
             if builder:
                 text += f' Builder Base: {sum(int(r.get("damage") or 0) for r in builder) / len(builder):.0f} % damage on average over {len(builder)} battle(s).'
             self._summary.setText(text)

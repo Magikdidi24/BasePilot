@@ -2,7 +2,7 @@
 from __future__ import annotations
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow, QVBoxLayout, QWidget
-from app.config import resolve_aspect_key
+from app.config import aspect_label, resolve_aspect_key
 from app.services.display import DisplayService
 from app.services.window import WindowService
 from app.core.clan import donate_troop_template_names, missing_templates
@@ -11,16 +11,12 @@ from app.ui.qt.template_capture import TemplateCaptureDialog
 from app.ui.qt.theme import SPACING, TOKENS
 from app.ui.qt.widgets import Card, PageTitle, SectionTitle, ToggleSwitch, hint_label, muted_label, neutral_button, primary_button, scroll_page, spin_box
 from app.utils.logger import setup_logger
-from app.utils.profile_settings_store import BB_WALL_THRESHOLD_K_MAX, ATTACK_MAX_SKIPS_MAX, ATTACK_MIN_DARK_K_MAX, ATTACK_MIN_LOOT_K_MAX, CLAN_MIN_ELIXIR_K_MAX, CLAN_DONATE_COUNT_MAX, CLAN_DONATE_INTERVAL_M_MAX, CLAN_DONATE_INTERVAL_M_MIN, CLAN_REQUEST_INTERVAL_M_MAX, CLAN_REQUEST_INTERVAL_M_MIN, EARTHQUAKE_METHOD_OPTIONS, RESERVE_BUILDERS_MAX, WALL_UPGRADE_THRESHOLD_M_MAX, ProfileSettings, load_profile_settings, save_profile_settings, UPGRADE_ORDER_CHEAPEST, UPGRADE_ORDER_PRICIEST
+from app.utils.profile_settings_store import BB_WALL_THRESHOLD_K_MAX, ATTACK_MAX_SKIPS_MAX, ATTACK_MIN_DARK_K_MAX, ATTACK_MIN_LOOT_K_MAX, CLAN_MIN_ELIXIR_K_MAX, CLAN_DONATE_COUNT_MAX, CLAN_DONATE_INTERVAL_M_MAX, CLAN_DONATE_INTERVAL_M_MIN, CLAN_REQUEST_INTERVAL_M_MAX, CLAN_REQUEST_INTERVAL_M_MIN, EARTHQUAKE_METHOD_OPTIONS, RESERVE_BUILDERS_MAX, WALL_UPGRADE_THRESHOLD_M_MAX, ProfileSettings, load_profile_settings, save_profile_settings, UPGRADE_ORDER_CHEAPEST, UPGRADE_ORDER_PRICIEST, CLAN_DONATE_TROOP_AUTO, CLAN_DONATE_TROOP_OPTIONS
 from app.utils.window_settings_store import clear_window_selection, load_window_selection, save_window_selection
 logger = setup_logger('SettingsPage')
 # Display label -> the key stored in settings.json (see app.core.clan).
-CLAN_TROOP_CHOICES = (
-    ('Auto (first troop found)', 'auto'),
-    ('Valkyries', 'valkyries'),
-    ('Sneaky Goblins', 'sneaky goblins'),
-    ('Super Minions', 'super minions'),
-    ('Edrags', 'edrags'))
+CLAN_TROOP_CHOICES = tuple(('Auto (first troop found)' if key == CLAN_DONATE_TROOP_AUTO else key.title(), key)
+                           for key in CLAN_DONATE_TROOP_OPTIONS)
 
 class WindowInfoDialog(QDialog):
     '''Read-only view of every child window/surface under a selected top-level window.'''
@@ -314,7 +310,7 @@ class SettingsPage(QWidget):
             self._clan_chat_label.setText('Not set — clan assist stays idle until you pick it.')
             return None
         aspect = self._clan_chat_point_aspect
-        pretty = {'16_9': '16:9', '16_10': '16:10'}.get(aspect or '', 'unknown aspect')
+        pretty = aspect_label(aspect)
         self._clan_chat_label.setText(f'''Set: {point[0] * 100:.1f}% x, {point[1] * 100:.1f}% y ({pretty})''')
 
 
@@ -493,7 +489,7 @@ class SettingsPage(QWidget):
         aspect = resolve_aspect_key(w, h)
         if aspect is None:
             return f'''{w}x{h} (not ~16:9/16:10)'''
-        pretty = '16:9' if aspect == '16_9' else '16:10'
+        pretty = aspect_label(aspect)
         return f'''{w}x{h} ({pretty})'''
 
     
