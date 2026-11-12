@@ -41,14 +41,16 @@ edge of it; only when a swiped row turns up nothing donatable is the request don
 open, so it is what proves the menu opened and what proves it closed again — no
 guessing from pixel density, no assuming a click landed.
 
-Safety rails, same spirit as the upgrader:
+Safety rails, same spirit as the Build panel's:
 
 - **Send** is the only click that could ever cost something (a request during castle
   cooldown offers a gem boost), so it is vetoed when the art around it shows a red
   cost or a gem icon.
 - Every click target is re-found on a fresh frame; stale coordinates are never reused
   after a panel moves.
-- Panels are escaped via their own close button, never a blind confirm.
+- Panels are escaped via their own close button, never a blind confirm, and no Okay is
+  pressed while a gem icon is on screen (as in the bot's popup dismissal,
+  ``Bot._dismiss_okay_or_exit_on_frame``).
 - Unverified states dump a frame to ``%LOCALAPPDATA%\\BasePilot\\debug\\clan_*.jpg``.
 - ``dry_run`` walks in, logs every click it *would* make, and clicks nothing but the
   menu open/close — the intended first run after capturing templates.
@@ -62,6 +64,7 @@ from typing import List, Optional, Tuple
 import cv2
 import numpy as np
 
+from app.core.build_panel import gem_prompt_visible
 from app.services.vision import VisionService
 from app.utils.common import get_template_path, get_user_app_data_dir
 from app.utils.logger import setup_logger
@@ -383,14 +386,19 @@ class ClanAssistant:
         logger.warning('Clan assist: clan menu still open — leaving it to home-screen recovery')
         return False
 
-    def _escape_subpanel(self):
+    def _escape_subpanel(self, allow_okay = True):
         '''Back out of a donate/request panel: its own close button when it has one,
         otherwise a tap on empty ground — which is how a player dismisses a panel that
-        has no X, and the donate panel has none. Never a blind confirm.'''
+        has no X, and the donate panel has none. Never a blind confirm, and an Okay only
+        while no gem icon shows (``allow_okay=False`` after a price veto on Send).'''
         frame = self._frame()
         if frame is None:
             return None
-        for name in ('exit.png', 'okay.png'):
+        if allow_okay and gem_prompt_visible(self.vision, frame):  # a gem purchase is on offer
+            logger.warning('Clan assist: gem icon on screen — not pressing Okay')
+            allow_okay = False
+        names = ('exit.png', 'okay.png') if allow_okay else ('exit.png', 'closex.png')
+        for name in names:
             (x, y) = self._find(frame, name)
             if x:
                 self.input.click(x, y, pause = 0.3)
@@ -567,13 +575,15 @@ class ClanAssistant:
         to press Send where one exists, and skips a stray tap on the village).
         '''
         frame = self._frame()
+        vetoed = False
         if frame is not None:
             (sx, sy) = self._find(frame, TEMPLATE_SEND)
             if sx and not self._price_veto(frame, sx, sy):
                 logger.info('Clan assist: Send at (%s, %s) — confirming the donation', sx, sy)
                 self.input.click(sx, sy, pause = 0.6)
                 return None
-        self._escape_subpanel()
+            vetoed = bool(sx)
+        self._escape_subpanel(allow_okay = not vetoed)
 
     def _ensure_menu_open(self):
         '''The tap that closes the donate panel can close the whole clan menu with it.
@@ -690,7 +700,7 @@ class ClanAssistant:
             self._escape_subpanel()
             return False
         if self._price_veto(frame, sx, sy):
-            self._escape_subpanel()
+            self._escape_subpanel(allow_okay = False)
             return False
         logger.info('Clan assist: Send at (%s, %s) — requesting reinforcements', sx, sy)
         self.input.click(sx, sy, pause = 0.6)
