@@ -11,7 +11,6 @@ with the released exe too, without rebuilding.
 '''
 from __future__ import annotations
 from pathlib import Path
-from typing import Optional
 
 import cv2
 from PySide6.QtCore import QRect, QSize, Qt

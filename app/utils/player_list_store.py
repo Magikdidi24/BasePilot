@@ -5,7 +5,6 @@ import shutil
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, List
 from app.utils.common import ensure_dir, get_user_app_data_dir
 
 @dataclass

@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 import cv2
 import numpy as np
-from typing import Any, Dict, Optional, Tuple, List, Sequence
+from typing import Dict, Tuple
 from app.config import ASPECT_BASELINE, ASPECT_16_10, ASPECT_16_9, Config, resolve_aspect_key
 from app.services import ppocr
 from app.utils.common import get_template_path

@@ -192,7 +192,6 @@ class WindowTests(unittest.TestCase):
 
 class LoggerTests(unittest.TestCase):
     def test_module_loggers_share_one_rotating_file_handler(self):
-        import logging
         import tempfile
         from logging.handlers import RotatingFileHandler
         from app.utils.logger import setup_logger

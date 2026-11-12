@@ -1,6 +1,5 @@
 '''Players page — multi-run account list.'''
 from __future__ import annotations
-from typing import List, Optional
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QHBoxLayout, QLineEdit, QScrollArea, QVBoxLayout, QWidget
 from app.ui.qt.theme import SPACING, TOKENS

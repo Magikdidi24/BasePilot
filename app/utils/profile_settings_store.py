@@ -2,8 +2,7 @@
 from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
-from pathlib import Path
-from typing import Any, List, Optional
+from typing import List, Optional
 from app.utils.common import ensure_dir, get_user_app_data_dir
 EARTHQUAKE_METHOD_CURVE = 'Curve Placement'
 EARTHQUAKE_METHOD_RANDOM = 'Random Placement'

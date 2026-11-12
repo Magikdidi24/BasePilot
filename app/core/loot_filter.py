@@ -11,7 +11,6 @@ frame simply cannot be read, :func:`read_enemy_loot` returns ``None`` and the ca
 rather than skipping — a filter that cannot see must not stop the bot from farming.
 '''
 from dataclasses import dataclass
-from typing import Optional, Tuple
 
 from app.services.vision import VisionService
 from app.utils.logger import setup_logger

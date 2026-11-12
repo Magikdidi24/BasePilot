@@ -2,8 +2,7 @@ import ctypes
 import time
 import random
 import math
-from typing import Tuple
-from app.services.window import WindowService, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, MK_LBUTTON, WM_MOUSEWHEEL, WHEEL_DELTA
+from app.services.window import WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, MK_LBUTTON, WM_MOUSEWHEEL, WHEEL_DELTA
 from app.utils.logger import setup_logger
 logger = setup_logger('InputService')
 _CLICK_JITTER_REF_PX = 15  # the spread the click scatter was authored for, in reference pixels

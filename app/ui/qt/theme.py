@@ -8,7 +8,6 @@ fallbacks (Fira Code/Sans → Cascadia → Consolas/Segoe UI).
 '''
 from __future__ import annotations
 from PySide6.QtGui import QColor, QFontDatabase, QPalette
-from PySide6.QtWidgets import QApplication
 
 TOKENS = {
     'bg': '#020617',           # near-black canvas (OLED)

@@ -7,8 +7,6 @@ or auto-detection picks the wrong window.
 from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
-from pathlib import Path
-from typing import Any
 from app.utils.common import ensure_dir, get_user_app_data_dir
 from app.utils.logger import setup_logger
 logger = setup_logger('WindowSettings')

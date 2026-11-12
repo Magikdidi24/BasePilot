@@ -7,7 +7,6 @@ import ctypes
 from ctypes import wintypes
 import tempfile
 import os
-from typing import Optional, Callable
 from PIL import Image, ImageDraw
 from app.utils.logger import setup_logger
 logger = setup_logger('TaskbarThumb')

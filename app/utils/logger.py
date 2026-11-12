@@ -1,7 +1,6 @@
 import logging
 import sys
 from logging.handlers import RotatingFileHandler
-from typing import Optional
 
 # One console handler and one file handler per log file, shared by every module logger.
 # A RotatingFileHandler per module on the same file cannot roll over on Windows (the

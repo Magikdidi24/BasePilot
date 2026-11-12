@@ -2,10 +2,7 @@ import math
 import time
 import random
 import cv2
-from typing import Any, List, Optional, Tuple
-from app.services.input import InputService
-from app.services.vision import VisionService
-from app.config import ASPECT_16_9, Config
+from app.config import ASPECT_16_9
 from app.utils.logger import setup_logger
 from app.utils.profile_settings_store import EARTHQUAKE_METHOD_CURVE, EARTHQUAKE_METHOD_RANDOM
 logger = setup_logger('Strategies')

@@ -11,16 +11,12 @@ the reserved builder — the existing wall flow handles those), and keep a gold 
 so the Find a Match entry fee is never spent away.
 '''
 from dataclasses import dataclass
-from typing import Iterable, Optional, Sequence, Tuple
 
 from app.core.upgrade_menu import (
     RESOURCE_DARK,
     RESOURCE_ELIXIR,
     RESOURCE_GOLD,
     SECTION_IN_PROGRESS,
-    SECTION_OTHER,
-    SECTION_SUGGESTED,
-    UpgradeRow,
     is_town_hall_row,
     is_wall_row,
 )

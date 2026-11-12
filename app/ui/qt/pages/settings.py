@@ -1,11 +1,10 @@
 '''Settings page — profile preferences and manual game-window selection.'''
 from __future__ import annotations
-from typing import List, Optional
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow, QSpinBox, QVBoxLayout, QWidget
 from app.config import resolve_aspect_key
 from app.services.display import DisplayService
-from app.services.window import DescendantInfo, WindowCandidate, WindowService
+from app.services.window import WindowService
 from app.core.clan import donate_troop_template_names, missing_templates
 from app.ui.qt.point_picker import PointPickerDialog
 from app.ui.qt.template_capture import TemplateCaptureDialog

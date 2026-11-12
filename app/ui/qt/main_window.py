@@ -4,10 +4,9 @@ import platform
 import sys
 import threading
 from PySide6.QtCore import QObject, QSettings, QTimer, Qt, Signal
-from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow, QStackedWidget, QStatusBar, QSystemTrayIcon, QVBoxLayout, QWidget
 from app import __version__
-from app.ui.qt.branding import app_icon, apply_app_icon, logo_pixmap
+from app.ui.qt.branding import app_icon, logo_pixmap
 from app.ui.qt.bot_controller import BotController
 from app.ui.qt.dialogs import show_error
 from app.ui.qt.pages.logs import LogsPage

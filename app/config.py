@@ -1,6 +1,6 @@
 import json
 import sys
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict
 from app.utils.common import get_resource_path
 from app.utils.logger import setup_logger
 logger = setup_logger('Config')

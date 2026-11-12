@@ -1,11 +1,7 @@
 '''Qt adapter for Windows taskbar thumbnail buttons.'''
 from __future__ import annotations
 import platform
-from typing import Optional
 from PySide6.QtCore import QTimer, QObject
-from PySide6.QtWidgets import QMainWindow
-from app.ui.qt.bot_controller import BotController
-from app.ui.qt.pages.run import RunPage
 from app.utils.logger import setup_logger
 logger = setup_logger('QtTaskbarThumb')
 

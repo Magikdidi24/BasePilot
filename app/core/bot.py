@@ -5,15 +5,14 @@ import random
 import threading
 import cv2
 import numpy as np
-from typing import Callable, List, Optional, Tuple
 from app.config import ASPECT_16_10, ASPECT_16_9, Config
 from app.core.clan import ClanAssistant, ClanOptions, missing_templates
 from app.core.loot_filter import TEMPLATE_NEXT_BASE, LootFilter, combine_reads, meets, read_enemy_loot
-from app.core.strategies import AttackStrategy, EdragStrategy, TroopSpamStrategy, _EDRAG_DELAY
+from app.core.strategies import EdragStrategy, TroopSpamStrategy, _EDRAG_DELAY
 from app.core import bb_learning, bb_results, bb_scout, bb_strategy, hv_results
 from app.core.build_panel import TAB_BUILDINGS, BuildPanelUpgrader, find_close, gem_prompt_visible, panel_tab, wall_upgrade_button
 from app.core.upgrade_menu import RESOURCE_ELIXIR, RESOURCE_GOLD
-from app.core.upgrader import AUTO_UPGRADE_MODES, LIVE_UPGRADE_MODES, MODE_OFF, UpgradeAdvisor, is_october_build_panel_hud
+from app.core.upgrader import AUTO_UPGRADE_MODES, LIVE_UPGRADE_MODES, MODE_OFF, UpgradeAdvisor
 from app.core.village_state import is_october_hud, read_hud_triplet_stable, read_village_state, read_village_state_stable, storages_full
 from app.services.input import InputService
 from app.services.vision import BOTTOM_HALF_BOT_TEMPLATES, TOP_HALF_BOT_TEMPLATES, VisionService
@@ -21,7 +20,6 @@ from app.services.window import WindowService
 from app.utils import battle_history
 from app.utils.common import get_template_path
 from app.utils.logger import setup_logger
-from app.utils.player_list_store import PlayerEntry
 from app.utils.profile_settings_store import EARTHQUAKE_METHOD_CURVE, EARTHQUAKE_METHOD_LEARN, EARTHQUAKE_METHOD_RANDOM
 logger = setup_logger('BotCore')
 _HOME_VILLAGE_BUILDER_TEMPLATES = ('builder.png', 'gbuilder.png')

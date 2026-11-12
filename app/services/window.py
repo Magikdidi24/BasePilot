@@ -4,7 +4,6 @@ from ctypes import wintypes
 from dataclasses import dataclass
 import numpy as np
 import cv2
-from typing import List, Optional, Tuple
 from app.utils.logger import setup_logger
 from app.utils.window_settings_store import WindowSelection, load_window_selection
 logger = setup_logger('WindowService')
