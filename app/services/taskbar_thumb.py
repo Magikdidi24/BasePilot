@@ -141,14 +141,9 @@ class TaskbarThumb:
             self._start_message_hook()
             logger.info('Taskbar thumbnail toolbar initialized (hwnd=%s)', self.hwnd)
             return True
-        except Exception:
-            e = None
+        except Exception as e:
             logger.warning(f'''Failed to create taskbar icons: {e}''')
-            e = None
-            del e
             return False
-            e = None
-            del e
 
 
     

@@ -246,14 +246,9 @@ Returns (center_x, center_y) or (None, None).
             center_x = offset_x + max_loc[0] + t_w // 2
             center_y = offset_y + max_loc[1] + t_h // 2
             return (center_x, center_y)
-        except Exception:
-            e = None
+        except Exception as e:
             logger.error(f'''Error in find_template: {e}''')
-            e = None
-            del e
             return (None, None)
-            e = None
-            del e
 
 
     
@@ -293,14 +288,9 @@ Returns (None, None, confidence) if not found above threshold.
             center_x = offset_x + max_loc[0] + t_w // 2
             center_y = offset_y + max_loc[1] + t_h // 2
             return (center_x, center_y, float(max_val))
-        except Exception:
-            e = None
+        except Exception as e:
             logger.error(f'''Error in find_template_with_confidence: {e}''')
-            e = None
-            del e
             return (None, None, 0)
-            e = None
-            del e
 
 
     
@@ -418,14 +408,9 @@ with saturation and value at least ``sat_floor`` / ``val_floor``.
                 x1 = min(work.shape[1], max_loc[0] + t_w + pad_x)
                 work[y0:y1, x0:x1] = 0
             return matches
-        except Exception:
-            e = None
+        except Exception as e:
             logger.error(f'''Error in _find_template_matches ({template_name}): {e}''')
-            e = None
-            del e
             return None
-            e = None
-            del e
 
 
     

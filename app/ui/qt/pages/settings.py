@@ -582,15 +582,9 @@ class SettingsPage(QWidget):
                 self._window_status.setText('Using auto-detect.')
             self._update_window_buttons()
             return None
-        except Exception:
-            exc = None
+        except Exception as exc:
             logger.warning(f'''Could not enumerate windows: {exc}''')
             self._candidates = []
-            exc = None
-            del exc
-
-        exc = None
-        del exc
 
     
     def _muted_brush(self):
@@ -639,14 +633,8 @@ class SettingsPage(QWidget):
                 lines.append('Surface OK to use.')
             self._window_status.setText('\n'.join(lines))
             return None
-        except Exception:
-            exc = None
+        except Exception as exc:
             logger.warning(f'''Could not inspect subWin: {exc}''')
-            exc = None
-            del exc
-
-        exc = None
-        del exc
 
     
     def _on_switch_display_169(self):
@@ -682,15 +670,9 @@ class SettingsPage(QWidget):
             descendants = WindowService().enumerate_descendants(cand.top_hwnd)
             WindowInfoDialog(self.window(), cand, descendants).exec()
             return None
-        except Exception:
-            exc = None
+        except Exception as exc:
             logger.warning(f'''Could not enumerate descendants: {exc}''')
             descendants = []
-            exc = None
-            del exc
-
-        exc = None
-        del exc
 
     
     def _on_use_window(self):

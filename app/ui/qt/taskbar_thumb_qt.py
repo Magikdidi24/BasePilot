@@ -44,15 +44,10 @@ class QtTaskbarThumb(QObject):
             self._poll_timer.timeout.connect(self._poll_once)
             self._poll_timer.start()
             return True
-        except Exception:
-            exc = None
+        except Exception as exc:
             logger.warning('Taskbar thumb setup failed: %s', exc, exc_info = True)
             self._impl = None
-            exc = None
-            del exc
             return False
-            exc = None
-            del exc
 
 
     

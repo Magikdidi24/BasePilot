@@ -178,21 +178,13 @@ Returns True when the aspect (and on-disk config) actually changed.
             return None
         except FileNotFoundError:
             logger.error(f'''data.json not found for aspect {self.aspect_key}!''')
-            
-            try:
-                
-                try:
-                    raise 
-                except json.JSONDecodeError:
-                    logger.error('data.json is invalid JSON!')
-                    raise 
-
-            except Exception:
-                e = None
-                logger.error(f'''Error loading config: {e}''')
-                raise 
-                e = None
-                del e
+            raise
+        except json.JSONDecodeError:
+            logger.error('data.json is invalid JSON!')
+            raise
+        except Exception as e:
+            logger.error(f'''Error loading config: {e}''')
+            raise
 
 
 
