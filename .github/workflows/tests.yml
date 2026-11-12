@@ -19,8 +19,10 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       # The bot logic needs no Qt and no Windows API; the tests run headless. The OCR models
-      # are in the repo (app/data/ocr).
+      # are in the repo (app/data/ocr). requirements.txt bounds the versions as constraints, so
+      # the tests run within the bounds the exe ships with; the headless OpenCV takes
+      # opencv-python's bound.
       - name: Install Python dependencies
-        run: pip install numpy opencv-python-headless pillow onnxruntime
+        run: pip install -c requirements.txt numpy pillow onnxruntime "opencv-python-headless>=4.12,<6"
       - name: Run tests
         run: python -m unittest discover -s tests -v

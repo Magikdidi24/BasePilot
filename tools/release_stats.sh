@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# BasePilot release stats. Usage: bash tools/release_stats.sh
+# BasePilot release stats. Usage: bash tools/release_stats.sh [OWNER/REPO]  (default: the fork)
 # Requires the GitHub CLI (gh auth login). Traffic needs push access to the repo.
 set -u
-REPO="${1:-efebolukbasi/BasePilot}"
+REPO="${1:-Magikdidi24/BasePilot}"  # the fork the app's update check reads (app/utils/update_check.py)
 
 echo "=== $REPO ==="
 gh repo view "$REPO" --json stargazerCount,forkCount,watchers \

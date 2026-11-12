@@ -1,5 +1,7 @@
 # BasePilot runtime dependencies. The unit tests run on Python 3.13 and 3.14 (CI, Linux).
 PySide6>=6.11,<7
+# The Linux CI (tests.yml) installs opencv-python-headless with this same bound, written there by
+# hand, and reads this file as pip's -c constraints: keep one plain name per line (no extras, no -e).
 opencv-python>=4.12,<6
 numpy>=2.2,<3
 pillow>=10,<14
