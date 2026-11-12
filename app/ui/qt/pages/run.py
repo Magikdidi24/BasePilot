@@ -673,9 +673,19 @@ class RunPage(QWidget):
                 show_error(self.window(), 'Error', 'Invalid time duration. Enter 1-999 minutes.')
                 return None
         self._save_choices()
-        # Clan assist rides the Home Village flow (the chat button is calibrated on it,
-        # and the Builder Base has no clan chat).
-        self._controller.start(method = method, minutes = mins, star_bonus = star_bonus, upgrade_walls = self._bb_upgrade_walls.isChecked() if builder_base else self._upgrade_walls.isChecked(), multi_run_players = multi_arg, builder_base = builder_base, auto_upgrade = (self._get_auto_upgrade_mode() if self._bb_auto_upgrade.isChecked() else 'off') if builder_base else self._get_auto_upgrade_mode(), auto_donate = False if builder_base else self._auto_donate.isChecked(), auto_request = False if builder_base else self._auto_request.isChecked(), stop_when_full = self._stop_when_full.isChecked())
+        if builder_base:
+            upgrade_walls = self._bb_upgrade_walls.isChecked()
+            auto_upgrade = self._get_auto_upgrade_mode() if self._bb_auto_upgrade.isChecked() else 'off'
+            # Clan assist rides the Home Village flow (the chat button is calibrated on it,
+            # and the Builder Base has no clan chat).
+            (auto_donate, auto_request) = (False, False)
+        else:
+            upgrade_walls = self._upgrade_walls.isChecked()
+            auto_upgrade = self._get_auto_upgrade_mode()
+            (auto_donate, auto_request) = (self._auto_donate.isChecked(), self._auto_request.isChecked())
+        self._controller.start(method = method, minutes = mins, star_bonus = star_bonus, upgrade_walls = upgrade_walls,
+                               multi_run_players = multi_arg, builder_base = builder_base, auto_upgrade = auto_upgrade,
+                               auto_donate = auto_donate, auto_request = auto_request, stop_when_full = self._stop_when_full.isChecked())
 
     
     def is_star_bonus_enabled(self):
