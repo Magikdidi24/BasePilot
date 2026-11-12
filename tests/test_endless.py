@@ -98,6 +98,17 @@ class FullStorageStopTests(unittest.TestCase):
         self.assertTrue(bot._stop_if_storages_full())  # this account's session ends
         self.assertIsNone(bot.finish_reason)  # not the run
 
+    def test_between_raids_clan_walls_upgrades_idle_then_full_storages(self):
+        bot = make_bot()
+        order = Mock()
+        (bot._maybe_clan_assist, bot._maybe_upgrade_walls, bot._maybe_auto_upgrade) = (order.clan, order.walls, order.upgrade)
+        (bot._maybe_idle, bot._stop_if_storages_full) = (order.idle, order.full)
+        order.full.side_effect = [False, True]  # before the first raid, then after it
+        bot._return_home = Mock()
+        bot._find_match_and_attack = Mock(return_value=None)  # a raid played
+        self.assertIsNone(bot._run_loop(1, 0, upgrade_walls=True))
+        self.assertEqual(order.mock_calls, [call.clan(), call.walls(True), call.upgrade(), call.idle(None), call.full()] * 2)
+
     def test_a_home_village_run_stops_once_full_after_the_spending(self):
         bot = make_bot()
         bot._stop_when_full = True
