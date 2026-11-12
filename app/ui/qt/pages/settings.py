@@ -64,6 +64,14 @@ class WindowInfoDialog(QDialog):
         layout.addLayout(btn_row)
 
 
+def _pinned_row(candidates, saved):
+    '''Row of the window the pin resolves to, or -1: the first game window the pin matches
+    (``WindowSelection.matches``), as ``WindowService._resolve_hwnd`` picks it (game windows
+    are listed first).'''
+    if not saved.is_set():
+        return -1
+    return next((i for (i, cand) in enumerate(candidates) if cand.is_game and saved.matches(cand)), -1)
+
 
 class SettingsPage(QWidget):
     
@@ -559,19 +567,12 @@ class SettingsPage(QWidget):
             self._candidates = WindowService().enumerate_windows()
             saved = load_window_selection()
             self._window_list.clear()
-            selected_row = -1
-            for i, cand in enumerate(self._candidates):
+            for cand in self._candidates:
                 item = QListWidgetItem(cand.display_label())
                 if not cand.is_game:
                     item.setForeground(self._muted_brush())
                 self._window_list.addItem(item)
-                if not saved.is_set():
-                    continue
-                if not cand.title.strip().lower() == saved.title.strip().lower():
-                    continue
-                if not saved.top_class and cand.top_class == saved.top_class:
-                    continue
-                selected_row = i
+            selected_row = _pinned_row(self._candidates, saved)
             if selected_row >= 0:
                 self._window_list.setCurrentRow(selected_row)
             if not self._candidates:

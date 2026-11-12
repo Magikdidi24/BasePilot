@@ -23,6 +23,17 @@ class WindowSelection:
     def is_set(self):
         return bool(self.title.strip() or self.child_class.strip())
 
+    def matches(self, window):
+        '''True when ``window`` (its ``title`` and ``top_class``) may be the pinned one: the
+        same title, case and outer spaces aside (any title when none was saved), and the
+        same class when one was saved. Nothing matches a selection that is not set.'''
+        if not self.is_set():
+            return False
+        title = self.title.strip().lower()
+        if title and window.title.strip().lower() != title:
+            return False
+        return not self.top_class or window.top_class == self.top_class
+
 
 
 def get_window_selection_path():
