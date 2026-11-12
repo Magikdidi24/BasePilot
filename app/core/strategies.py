@@ -442,6 +442,29 @@ If L,T,R are collinear, uses a quadratic Bezier with control point chosen so t=0
 
 
 
+    def _finish_attack(self, stop_event = None):
+        '''Once the troops are down: the golden drags if the bar has them, then the heroes on
+        that same frame, then the spells on a fresh capture. A Stop or a failed capture skips
+        the rest. Always True: the troops went down.'''
+        ev = stop_event or self.stop_event
+        if ev and ev.is_set():
+            return True
+        frame = self.input.window_service.screenshot()
+        if frame is None:
+            return True
+        self._sync_frame_size(frame)
+        if self.deploy_golden_drags_if_present(frame, ev):
+            return True  # True only when a Stop came during the golden drags
+        self.deploy_heroes(frame)
+        if ev and ev.is_set():
+            return True
+        frame = self.input.window_service.screenshot()
+        if frame is not None:
+            self._sync_frame_size(frame)
+            self.deploy_spells(frame)
+        return True
+
+
 class TroopSpamStrategy(AttackStrategy):
     
     def __init__(self, input_service, vision_service, config, stop_event, troop_name, duration, status_callback = None, earthquake_method = EARTHQUAKE_METHOD_CURVE):
@@ -513,21 +536,7 @@ class TroopSpamStrategy(AttackStrategy):
                 curr_y = target_y
                 curr_x = target_x
             self.input.mouse_up(curr_x, curr_y)
-            if ev and ev.is_set():
-                return True
-            frame = self.input.window_service.screenshot()
-            if not frame is None:
-                self._sync_frame_size(frame)
-                if self.deploy_golden_drags_if_present(frame, ev):
-                    return True
-                self.deploy_heroes(frame)
-                if ev and ev.is_set():
-                    return True
-                frame = self.input.window_service.screenshot()
-                if not frame is None:
-                    self._sync_frame_size(frame)
-                    self.deploy_spells(frame)
-            return True
+            return self._finish_attack(ev)
         finally:
             self.input.mouse_up(curr_x, curr_y)
 
@@ -551,20 +560,6 @@ class EdragStrategy(AttackStrategy):
             if self.status_callback:
                 self.status_callback(msg)
             return False
-        if ev and ev.is_set():
-            return True
-        frame = self.input.window_service.screenshot()
-        if not frame is None:
-            self._sync_frame_size(frame)
-            if self.deploy_golden_drags_if_present(frame, ev):
-                return True
-            self.deploy_heroes(frame)
-            if ev and ev.is_set():
-                return True
-            frame = self.input.window_service.screenshot()
-            if not frame is None:
-                self._sync_frame_size(frame)
-                self.deploy_spells(frame)
-        return True
+        return self._finish_attack(ev)
 
 
