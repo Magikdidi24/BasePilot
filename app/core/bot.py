@@ -593,7 +593,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         '''Interval-gated Build panel pass (:meth:`_build_panel_pass`). ``force=True``
         bypasses the interval (used when storages fill up — the idle gate needs a spend
         attempt NOW, not in 10 minutes). A failure here must never take down the farm
-        loop. Returns None.'''
+        loop. True when the pass started an upgrade or a research.'''
         mode = getattr(self, '_auto_upgrade_mode', MODE_OFF)
         if mode == MODE_OFF:
             return None
@@ -626,14 +626,16 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
 
     def _build_panel_pass(self, mode):
         '''October 2026 HUD: one upgrade and one research from the Build panel, never with
-        the goblin and never through a gem prompt (see :mod:`app.core.build_panel`).'''
-        note = self._build_panel_upgrader().run_pass(mode, reserve_builders = self._effective_reserve(), order = getattr(self, '_upgrade_order', None),
-                                             builder_base = getattr(self, '_builder_base', False))
+        the goblin and never through a gem prompt (see :mod:`app.core.build_panel`). True
+        when it started one of them.'''
+        upgrader = self._build_panel_upgrader()
+        note = upgrader.run_pass(mode, reserve_builders = self._effective_reserve(), order = getattr(self, '_upgrade_order', None),
+                                 builder_base = getattr(self, '_builder_base', False))
         logger.info('Upgrades: %s', note)
         cb = getattr(self, '_status_callback', None)
         if cb:
             cb(f'''Upgrades: {note}''')
-        return None
+        return upgrader.started > 0
 
     def _clan_assistant(self):
         '''The session's single ClanAssistant (holds the failure counter that
@@ -826,16 +828,12 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                 return None
             self._eager_spend_last = now
         logger.info('Idle gate: spend burst (%s) — forcing upgrade passes', state.summary())
-        # Burn through candidates NOW instead of one per 5-minute wake: every failed
-        # pick lands on cooldown so each retry reaches the next candidate, and every
-        # SUCCESS frees loot but may leave another builder idle — keep going until
-        # nothing is pickable or the attempts are spent.
+        # Spend NOW rather than one pass per wake: a pass starts at most one upgrade and one
+        # research, and another builder may still be free after it, so keep going while
+        # passes start something (a card that failed to start sits out its cooldown).
         for _attempt in range(5):
-            result = self._maybe_auto_upgrade(force = True)
-            if result is None:
-                break  # scan preconditions failed
-            if result.pick is None and not result.collecting:
-                break  # genuinely nothing pickable remains (a collect pass is not a verdict)
+            if not self._maybe_auto_upgrade(force = True):
+                break  # nothing started: nothing free or affordable, or no Build panel
         state = self._read_state_stable()
         if state is None or not state.storages_full:
             return None

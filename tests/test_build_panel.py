@@ -10,7 +10,8 @@ import numpy as np
 from app.config import Config
 from app.core import build_panel as bp
 from app.core.bot import Bot
-from app.core.upgrade_menu import RESOURCE_DARK, RESOURCE_ELIXIR, RESOURCE_GOLD
+from app.core.upgrade_menu import RESOURCE_DARK, RESOURCE_ELIXIR, RESOURCE_GOLD, UpgradeRow
+from app.core.upgrade_policy import UpgradePolicy
 
 FIXTURES = Path(__file__).parent / 'fixtures'
 
@@ -125,6 +126,54 @@ class GemSafetyTests(unittest.TestCase):
         note = self.up.confirm(RESOURCE_GOLD, 'Wall')
         self.assertTrue(note.startswith('no Confirm button'), note)
         self.assertEqual([c.args[:2] for c in self.input.click.call_args_list], [(900, 100)])
+
+
+class StartCountTests(unittest.TestCase):
+    """run_pass counts what it started: the idle spend burst goes on while passes start something."""
+    def setUp(self):
+        stop = Mock(**{'wait.return_value': False})
+        window = Mock(**{'screenshot.return_value': np.zeros((1200, 1920, 3), np.uint8)})
+        self.up = bp.BuildPanelUpgrader(window, Mock(), Mock(), Mock(), stop)
+        self.up._open = Mock(return_value=True)
+        self.up._close_panel = Mock()
+        self.up._start = Mock(return_value='started')
+        self.card = UpgradeRow(label='Cannon', section='', cost=5000, resource=RESOURCE_GOLD, affordable=True, center=(1500, 400))
+
+    def one(self, mode, chip_after):
+        with (patch.object(bp, 'parse_cards', return_value=[self.card]),
+              patch.object(bp, 'choose_upgrade', return_value=self.card),
+              patch.object(bp, 'read_chips', return_value=(chip_after, None))):
+            return self.up._one(bp.TAB_BUILDINGS, (10 ** 6, 10 ** 6, 0), 1, UpgradePolicy(), mode)
+
+    def test_a_start_the_chip_confirms_is_counted(self):
+        note = self.one('maxer', bp.Chip(0, 6, False))
+        self.assertEqual(self.up.started, 1, note)
+
+    def test_a_start_the_chip_does_not_confirm_is_not_counted(self):
+        for (case, chip) in (('slot still free', bp.Chip(1, 6, False)), ('chip unreadable', None)):
+            with self.subTest(case):
+                self.up.started = 0
+                note = self.one('maxer', chip)
+                self.assertEqual(self.up.started, 0, note)
+
+    def test_a_dry_run_starts_nothing(self):
+        note = self.one('dry', bp.Chip(0, 6, False))
+        self.assertEqual(self.up.started, 0, note)
+        self.up._start.assert_not_called()
+
+    @patch.object(bp, 'read_chips', return_value=(bp.Chip(1, 6, True), bp.Chip(1, 2, True)))
+    def test_each_pass_counts_from_zero(self, _chips):
+        self.up.started = 2  # what the last pass started
+        self.up.run_pass('maxer')  # goblin only: nothing to start
+        self.assertEqual(self.up.started, 0)
+
+    def test_the_bot_hears_whether_the_pass_started_something(self):
+        bot = Bot.__new__(Bot)
+        bot._panel_upgrader = Mock(**{'run_pass.return_value': 'note'})
+        for (started, expected) in ((0, False), (1, True), (2, True)):
+            with self.subTest(started=started):
+                bot._panel_upgrader.started = started
+                self.assertIs(bot._build_panel_pass('maxer'), expected)
 
 
 def make_bot():

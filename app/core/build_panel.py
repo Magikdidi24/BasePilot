@@ -404,6 +404,7 @@ class BuildPanelUpgrader:
         self.config = config
         self.stop_event = stop_event
         self._failed = {}  # card label -> time.monotonic() of its failed start
+        self.started = 0  # upgrades and researches the last run_pass started
 
     def _frame(self):
         frame = self.window.screenshot()
@@ -430,7 +431,9 @@ class BuildPanelUpgrader:
         return None
 
     def run_pass(self, mode, reserve_builders = 0, order = None, builder_base = False, research = True):
-        '''One builder upgrade and/or one research. Returns a short note for the log/UI.'''
+        '''One builder upgrade and/or one research. Returns a short note for the log/UI;
+        :attr:`started` counts what the pass started.'''
+        self.started = 0
         frame = self._frame()
         if frame is None:
             return 'no capture'
@@ -484,6 +487,8 @@ class BuildPanelUpgrader:
             if chip is not None and chip.free >= free:
                 logger.warning('Build panel: %s of %s not confirmed (chip still %s)', what, pick.label, _chip_text(chip))
                 result = 'started (not confirmed by the chip)'
+            elif chip is not None:  # an unread chip does not confirm it either
+                self.started += 1
         return f'{what}: {result} {pick.label} ({pick.cost})'
 
     def _open(self, tab):

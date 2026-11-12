@@ -139,6 +139,23 @@ class FullStorageStopTests(unittest.TestCase):
         bot._maybe_auto_upgrade.assert_called_with(force=True)  # the spend burst still goes first
         bot.stop_event.wait.assert_not_called()  # but no idling: the run ends instead
 
+    @patch('app.core.bot.read_village_state')
+    def test_the_spend_burst_goes_on_while_passes_start_something(self, state):
+        full = SimpleNamespace(storages_full=True, free_builders=2, builders=(2, 6), lab_idle=False,
+                               gold_full=True, elixir_full=True, summary=lambda: 'full')
+        state.return_value = full
+        for (started, passes) in (([True, True, False], 3), ([True] * 6, 5), ([False], 1)):
+            with self.subTest(started=started):
+                bot = make_bot()
+                bot._auto_upgrade_mode = 'maxer'
+                bot._stop_when_full = True
+                bot._emit_village_state = Mock()
+                bot._reserve_builders = 0
+                bot._maybe_auto_upgrade = Mock(side_effect=started)
+                bot._read_state_stable = Mock(return_value=full)
+                bot._maybe_idle(None)
+                self.assertEqual(bot._maybe_auto_upgrade.call_count, passes)
+
 
 class EndlessTests(unittest.TestCase):
     def test_an_endless_builder_base_run_backs_off_instead_of_stopping(self):
