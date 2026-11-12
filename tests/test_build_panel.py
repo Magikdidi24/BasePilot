@@ -1,10 +1,8 @@
 """October 2026 Build panel: the readers on live 16:10 crops, and the gem-safety rules."""
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-import cv2
 import numpy as np
 
 from app.config import Config
@@ -13,18 +11,7 @@ from app.core import upgrade_menu
 from app.core.bot import Bot
 from app.core.upgrade_menu import RESOURCE_DARK, RESOURCE_ELIXIR, RESOURCE_GOLD, UpgradeRow
 from app.core.upgrade_policy import UpgradePolicy
-
-FIXTURES = Path(__file__).parent / 'fixtures'
-
-
-def canvas(*parts):
-    """Live 1920x1200 crops (no player name in them) pasted back where they were taken."""
-    frame = np.zeros((1200, 1920, 3), np.uint8)
-    for (name, y, x) in parts:
-        img = cv2.imread(str(FIXTURES / f'{name}.jpg'))
-        frame[y:y + img.shape[0], x:x + img.shape[1]] = img
-    Config().set_target_size_from_frame(frame)
-    return frame
+from tests.helpers import WAYDROID, canvas
 
 
 def costed(rows):
@@ -33,7 +20,7 @@ def costed(rows):
 
 class ReaderTests(unittest.TestCase):
     def test_home_village_cards(self):
-        frame = canvas(('panel_hv_buildings', 0, 1280))
+        frame = canvas(('panel_hv_buildings.jpg', 1280, 0), size=WAYDROID)
         self.assertEqual(bp.panel_tab(_vision(), frame), bp.TAB_BUILDINGS)
         got = costed(bp.parse_cards(_vision(), frame))
         self.assertEqual({(c, r) for (_l, c, r) in got},
@@ -42,7 +29,7 @@ class ReaderTests(unittest.TestCase):
         self.assertNotIn(3200000, {c for (_l, c, _r) in got})
 
     def test_lab_cards_and_tab(self):
-        frame = canvas(('panel_hv_lab', 0, 1280))
+        frame = canvas(('panel_hv_lab.jpg', 1280, 0), size=WAYDROID)
         self.assertEqual(bp.panel_tab(_vision(), frame), bp.TAB_ARMY)
         got = costed(bp.parse_cards(_vision(), frame))
         self.assertIn(10000, {c for (_l, c, _r) in got})  # Skeleton Spell, "10 000" first read "to ooo"
@@ -51,7 +38,7 @@ class ReaderTests(unittest.TestCase):
         self.assertTrue(1480 < x < 1570 and y > 1100)
 
     def test_builder_base_red_cost_is_not_affordable(self):
-        frame = canvas(('panel_bb_buildings', 0, 1280))
+        frame = canvas(('panel_bb_buildings.jpg', 1280, 0), size=WAYDROID)
         got = costed(bp.parse_cards(_vision(), frame))
         self.assertNotIn(2320000, {c for (_l, c, _r) in got})  # Battle Machine, red
         self.assertIn((8000, RESOURCE_GOLD), {(c, r) for (_l, c, r) in got})  # the paler Builder Base gold
@@ -59,12 +46,12 @@ class ReaderTests(unittest.TestCase):
         self.assertTrue(1700 < x < 1820)  # two tabs only in the Builder Base
 
     def test_chips_and_the_goblin(self):
-        (builders, lab) = bp.read_chips(_vision(), Config(), canvas(('chips_hv_builders_busy_lab_goblin', 860, 1640)))
+        (builders, lab) = bp.read_chips(_vision(), Config(), canvas(('chips_hv_builders_busy_lab_goblin.jpg', 1640, 860), size=WAYDROID))
         self.assertEqual((builders.free, builders.total, builders.regular_free), (0, 6, 0))
         self.assertEqual((lab.free, lab.goblin, lab.regular_free), (1, True, 0))  # only the gem-paid researcher
-        (builders, lab) = bp.read_chips(_vision(), Config(), canvas(('chips_hv_goblins', 860, 1640)))
+        (builders, lab) = bp.read_chips(_vision(), Config(), canvas(('chips_hv_goblins.jpg', 1640, 860), size=WAYDROID))
         self.assertEqual((builders.free, builders.goblin, builders.regular_free), (1, True, 0))
-        (builders, lab) = bp.read_chips(_vision(), Config(), canvas(('chips_bb', 860, 1640)))
+        (builders, lab) = bp.read_chips(_vision(), Config(), canvas(('chips_bb.jpg', 1640, 860), size=WAYDROID))
         self.assertEqual(((builders.free, builders.total), (lab.free, lab.total)), ((0, 3), (0, 1)))
 
     def test_the_chip_reader_crops_the_box_read_chips_anchors(self):
@@ -80,7 +67,7 @@ class ReaderTests(unittest.TestCase):
         self.assertEqual(crops, [(h, w) for (_x, _y, w, h) in boxes])
 
     def test_upgrade_dialog_resource_button(self):
-        frame = canvas(('dialog_hv_title', 0, 230), ('dialog_hv_bottom', 730, 150))
+        frame = canvas(('dialog_hv_title.jpg', 230, 0), ('dialog_hv_bottom.jpg', 150, 730), size=WAYDROID)
         self.assertTrue(bp.dialog_title_ok(_vision(), frame))
         (x, y) = bp.find_confirm_button(_vision(), frame, RESOURCE_ELIXIR)
         self.assertTrue(1250 < x < 1530 and 970 < y < 1100)  # the elixir Confirm, not the grey Hammer one
@@ -88,14 +75,14 @@ class ReaderTests(unittest.TestCase):
         self.assertFalse(bp.gem_prompt_visible(_vision(), frame))
 
     def test_gem_prompt(self):
-        frame = canvas(('gem_prompt', 330, 520))
+        frame = canvas(('gem_prompt.jpg', 520, 330), size=WAYDROID)
         self.assertTrue(bp.gem_prompt_visible(_vision(), frame))
         self.assertIsNone(bp.find_confirm_button(_vision(), frame))  # its green button carries the gem
         self.assertFalse(bp.dialog_title_ok(_vision(), frame))
         self.assertIsNotNone(bp.find_close(_vision(), frame))
 
     def test_wall_upgrade_button_prefers_elixir(self):
-        (point, resource) = bp.wall_upgrade_button(_vision(), canvas(('wall_grid_bb', 680, 380)))
+        (point, resource) = bp.wall_upgrade_button(_vision(), canvas(('wall_grid_bb.jpg', 380, 680), size=WAYDROID))
         self.assertEqual(resource, RESOURCE_ELIXIR)
         self.assertTrue(600 < point[0] < 680)
 

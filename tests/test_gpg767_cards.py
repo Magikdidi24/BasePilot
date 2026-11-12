@@ -1,26 +1,13 @@
 """Build panel cards in GPG's default 1227x767 window (1920x1200 screen), on live crops."""
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-import cv2
 import numpy as np
 
-from app.config import Config
 from app.core import build_panel as bp
 from app.core.upgrade_menu import RESOURCE_DARK, RESOURCE_ELIXIR, RESOURCE_GOLD
-
-FIXTURES = Path(__file__).parent / 'fixtures'
-
-
-def canvas(name, x, y):
-    """A live 1227x767 crop (no player name in it) pasted back at (x, y)."""
-    frame = np.zeros((767, 1227, 3), np.uint8)
-    img = cv2.imread(str(FIXTURES / f'{name}.png'))
-    frame[y:y + img.shape[0], x:x + img.shape[1]] = img
-    Config().set_target_size_from_frame(frame)
-    return frame
+from tests.helpers import canvas
 
 
 def word(text, left, top, width, height):
@@ -34,14 +21,14 @@ def _vision():
 
 class CardTests(unittest.TestCase):
     def test_running_upgrades_have_no_cost(self):
-        rows = bp.parse_cards(_vision(), canvas('gpg767_panel_hv_buildings', 824, 0))
+        rows = bp.parse_cards(_vision(), canvas(('gpg767_panel_hv_buildings.png', 824, 0)))
         # the six running upgrades sit above "Suggested upgrades" (y 345): a time and a stopwatch, no cost
         self.assertEqual([(r.cost, r.resource) for r in rows if r.center[1] < 340 and (r.cost or r.resource)], [])
         self.assertEqual({(r.cost, r.resource) for r in rows if r.cost},
                          {(4000, RESOURCE_DARK), (2480000, RESOURCE_ELIXIR), (1120000, RESOURCE_GOLD)})
 
     def test_lab_costs_keep_every_digit(self):
-        rows = bp.parse_cards(_vision(), canvas('gpg767_panel_hv_lab', 824, 0))
+        rows = bp.parse_cards(_vision(), canvas(('gpg767_panel_hv_lab.png', 824, 0)))
         # top to bottom: Skeleton Spell, Wall Breaker ("1 520 000", once read 320 000), Stone Slammer, Clone Spell
         self.assertEqual([(r.cost, r.resource) for r in rows if r.cost],
                          [(10000, RESOURCE_DARK), (1520000, RESOURCE_ELIXIR), (1400000, RESOURCE_ELIXIR),

@@ -10,29 +10,17 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-import cv2
-import numpy as np
-
 from app.config import Config
 from app.core.bot import Bot
 from app.services import ppocr
 from app.core.upgrade_menu import RESOURCE_ELIXIR, RESOURCE_GOLD
 from app.services.vision import VisionService
 from app.utils import profile_settings_store as store
-
-FIXTURES = Path(__file__).parent / 'fixtures'
-
-
-def frame_with(name, y, x):
-    frame = np.zeros((767, 1227, 3), np.uint8)
-    img = cv2.imread(str(FIXTURES / name))
-    frame[y:y + img.shape[0], x:x + img.shape[1]] = img
-    Config().set_target_size_from_frame(frame)
-    return frame
+from tests.helpers import canvas
 
 
-HOME = frame_with('gpg767_builder_base_home_bottom.jpg', 383, 0)
-PANEL = frame_with('gpg767_panel_bb_buildings.png', 0, 824)
+HOME = canvas(('gpg767_builder_base_home_bottom.jpg', 0, 383))
+PANEL = canvas(('gpg767_panel_bb_buildings.png', 824, 0))
 
 
 def make_bot(frames=()):

@@ -21,7 +21,9 @@ class CaptureNamingTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def save_as(self, typed=None, pick=None):
-        out = Path(tempfile.mkdtemp())
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        out = Path(folder.name)
         dlg = TemplateCaptureDialog()
         dlg._frame = np.zeros((731, 1299, 3), dtype=np.uint8)
         dlg._aspect_key = '16_9'

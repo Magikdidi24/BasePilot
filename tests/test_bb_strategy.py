@@ -4,7 +4,6 @@ import itertools
 import math
 import random
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -16,18 +15,9 @@ from app.core import bb_scout, bb_strategy
 from app.core.bot import Bot
 from app.core.build_panel import find_close
 from app.services.vision import VisionService
+from tests.helpers import FIXTURES, canvas
 
-FIXTURES = Path(__file__).parent / 'fixtures'
 LIFT = 44  # px from a swap button up to its card's tap at 767p
-
-
-def canvas(name, x, y):
-    """A live 1227x767 crop pasted back where it was taken."""
-    frame = np.zeros((767, 1227, 3), np.uint8)
-    img = cv2.imread(str(FIXTURES / f'{name}.png'))
-    frame[y:y + img.shape[0], x:x + img.shape[1]] = img
-    Config().set_target_size_from_frame(frame)
-    return frame
 
 
 def make_bot(vision=None):
@@ -59,19 +49,19 @@ def bar(frame, machine_template=None):
 
 class BarTests(unittest.TestCase):
     def test_each_card_is_matched_to_its_troop(self):
-        frame = canvas('gpg767_bb_bar', 100, 640)  # Battle Machine, five Power P.E.K.K.As, a Bomber
+        frame = canvas(('gpg767_bb_bar.png', 100, 640))  # Battle Machine, five Power P.E.K.K.As, a Bomber
         swaps = sorted(VisionService.find_all_template_centers(frame, 'bbswap.png', region=VisionService.bottom_half_region(frame),
                                                                max_matches=12, suppress_pad_frac=0.1))
         self.assertEqual([bb_strategy.identify(VisionService, frame, s) for s in swaps], ['pekka'] * 5 + ['bomber'])
 
     def test_six_witches_even_the_selected_card_without_its_swap_button(self):
-        cards = bar(canvas('gpg767_bb_witch_bar', 100, 640), 'battlemachine.png')
+        cards = bar(canvas(('gpg767_bb_witch_bar.png', 100, 640)), 'battlemachine.png')
         self.assertEqual([c.troop for c in cards], ['witch'] * 6)
 
     def test_next_stage_the_survivor_and_the_reinforcement_not_the_dead(self):
         # stage 2: five witches died (grey cards), one came back without a swap button,
         # a Bomber came as reinforcement; the machine card is the Battle Copter now
-        frame = canvas('gpg767_bb_stage2_bar', 100, 640)
+        frame = canvas(('gpg767_bb_stage2_bar.png', 100, 640))
         (mx, my) = VisionService.find_template(frame, 'flyingmachine.png', region=VisionService.bottom_half_region(frame))
         self.assertTrue(mx and bb_strategy.alive(frame, (mx, my)))
         cards = bar(frame, 'flyingmachine.png')
@@ -81,25 +71,25 @@ class BarTests(unittest.TestCase):
     def test_next_stage_the_survivors_whose_health_bar_covers_their_portrait(self):
         # stage 2 live: five P.E.K.K.As survived (a health bar over each portrait, no swap
         # button), the Bomber died, a P.E.K.K.A came as reinforcement
-        cards = bar(canvas('gpg767_bb_stage2_pekka_bar', 100, 640), 'battlemachine.png')
+        cards = bar(canvas(('gpg767_bb_stage2_pekka_bar.png', 100, 640)), 'battlemachine.png')
         self.assertEqual([c.troop for c in cards], ['pekka'] * 6)
         self.assertEqual([c.tap for c in cards], [(275, 688), (365, 688), (455, 688), (545, 688), (634, 688), (814, 691)])
 
     def test_deployed_cards_are_not_on_the_bar_any_more(self):
         # mid-fight their portraits still match, but their cards are green, red or grey
         for name in ('gpg767_bb_pekka_fight_bar', 'gpg767_bb_witch_fight_bar', 'gpg767_bb_ability_states_bar'):
-            self.assertEqual(bar(canvas(name, 100, 640), 'battlemachine.png'), [], name)
+            self.assertEqual(bar(canvas((f'{name}.png', 100, 640)), 'battlemachine.png'), [], name)
 
     def test_every_troop_of_the_change_troops_menu(self):
         # the menu draws the portraits at the bar's scale: each card is read as a bar card
         # whose swap button would sit under it
-        frame = canvas('gpg767_bb_change_troops', 300, 470)
+        frame = canvas(('gpg767_bb_change_troops.png', 300, 470))
         troops = ['barbarian', 'archer', 'boxer', 'minion', 'bomber', 'babydragon', 'cannoncart', 'witch', 'dropship', 'pekka']
         swaps = [(round(360.2 + 86.2 * i) + 14, 587) for i in range(len(troops))]
         self.assertEqual([bb_strategy.identify(VisionService, frame, s) for s in swaps], troops)
 
     def test_an_unknown_card_is_no_troop(self):
-        frame = canvas('gpg767_bb_bar', 100, 640)
+        frame = canvas(('gpg767_bb_bar.png', 100, 640))
         self.assertEqual(bb_strategy.identify(VisionService, frame, (900, 732)), '')  # an empty reinforcement slot
 
 
@@ -263,9 +253,9 @@ class ScoutTests(unittest.TestCase):
 class FightTests(unittest.TestCase):
     def test_return_home_of_the_results_screen(self):
         bot = make_bot(VisionService)
-        (x, y) = bot._bb_return_home_point(canvas('gpg767_bb_results', 400, 560), ocr=False)  # the art at the bot's own scale
+        (x, y) = bot._bb_return_home_point(canvas(('gpg767_bb_results.png', 400, 560)), ocr=False)  # the art at the bot's own scale
         self.assertTrue(abs(x - 613) <= 15 and abs(y - 648) <= 15)
-        self.assertIsNone(bot._bb_return_home_point(canvas('gpg767_bb_fight_bar', 100, 640), ocr=False))
+        self.assertIsNone(bot._bb_return_home_point(canvas(('gpg767_bb_fight_bar.png', 100, 640)), ocr=False))
 
     def test_return_home_waits_for_the_results_screen_to_go(self):
         bot = make_bot()
@@ -285,11 +275,11 @@ class FightTests(unittest.TestCase):
 
     def test_the_speed_button_while_it_reads_1x(self):
         bot = make_bot(VisionService)
-        (x, y) = bot._bb_speed_point(canvas('gpg767_bb_speed_070216', 1080, 400))  # 1:00 left: "1x"
+        (x, y) = bot._bb_speed_point(canvas(('gpg767_bb_speed_070216.png', 1080, 400)))  # 1:00 left: "1x"
         self.assertTrue(abs(x - 1181) <= 5 and abs(y - 492) <= 5)
-        self.assertEqual(bot._bb_speed_point(canvas('gpg767_bb_speed_070606', 1080, 400)), (x, y))  # another battle's
-        self.assertIsNone(bot._bb_speed_point(canvas('gpg767_bb_speed_070220', 1080, 400)))  # "4x" already
-        self.assertIsNone(bot._bb_speed_point(canvas('gpg767_bb_speed_070146', 1080, 400)))  # earlier: no button
+        self.assertEqual(bot._bb_speed_point(canvas(('gpg767_bb_speed_070606.png', 1080, 400))), (x, y))  # another battle's
+        self.assertIsNone(bot._bb_speed_point(canvas(('gpg767_bb_speed_070220.png', 1080, 400))))  # "4x" already
+        self.assertIsNone(bot._bb_speed_point(canvas(('gpg767_bb_speed_070146.png', 1080, 400))))  # earlier: no button
 
     def test_the_last_minute_is_sped_up_and_a_lost_tap_tried_again(self):
         bot = make_bot()
@@ -435,32 +425,32 @@ class CardTests(unittest.TestCase):
                 self.assertAlmostEqual(g, w, delta=0.1)
 
     def test_health_bars_of_a_live_fight(self):
-        pekkas = canvas('gpg767_bb_pekka_fight_bar', 100, 640)  # five P.E.K.K.As and a Bomber, mid-fight
+        pekkas = canvas(('gpg767_bb_pekka_fight_bar.png', 100, 640))  # five P.E.K.K.As and a Bomber, mid-fight
         self.assertHealth([bb_strategy.health(pekkas, t) for t in self.TAPS], [0.65, 0.35, 1.0, 1.0, 0.45, 0.9])
-        witches = canvas('gpg767_bb_witch_fight_bar', 100, 640)  # two in the red, two dead, two untouched
+        witches = canvas(('gpg767_bb_witch_fight_bar.png', 100, 640))  # two in the red, two dead, two untouched
         self.assertHealth([bb_strategy.health(witches, t) for t in self.TAPS], [0.13, 1.0, 0.15, None, None, 1.0])
         self.assertEqual([bb_strategy.alive(witches, t) for t in self.TAPS], [True, True, True, False, False, True])
-        before = canvas('gpg767_bb_bar', 100, 640)  # not deployed yet: no bar
+        before = canvas(('gpg767_bb_bar.png', 100, 640))  # not deployed yet: no bar
         self.assertEqual([bb_strategy.health(before, t) for t in self.TAPS], [None] * 6)
 
     def test_health_whatever_the_card_anchor(self):
         # live: P.E.K.K.As under fire 18 s in, their cards green (Overcharge ready). A swap
         # button's tap sits 3 px lower than a portrait's, and a fixed band read there took
         # the green card under the bar for a full bar: 100 % for every one of them.
-        frame = canvas('gpg767_bb_pekka_engaged_bar', 100, 640)
+        frame = canvas(('gpg767_bb_pekka_engaged_bar.png', 100, 640))
         for dy in (-2, 0, 2, 3, 4):
             taps = [(x, y + dy) for (x, y) in self.TAPS]
             self.assertHealth([bb_strategy.health(frame, t) for t in taps], [0.89, 0.79, 0.89, 0.89, 0.92, 1.0])
-        witches = canvas('gpg767_bb_witch_fight_bar', 100, 640)  # a dark portrait under the bar is no edge
+        witches = canvas(('gpg767_bb_witch_fight_bar.png', 100, 640))  # a dark portrait under the bar is no edge
         self.assertHealth([bb_strategy.health(witches, (x, y + 3)) for (x, y) in self.TAPS], [0.13, 1.0, 0.15, None, None, 1.0])
 
     def test_ability_states_read_on_the_cards(self):
         # 19 s into a live fight: P.E.K.K.A 1 used its Overcharge (grey), the others' are ready
         # (green), the Bomber's Bouncing Bomb recharges (red); before the deploy: blue
-        frame = canvas('gpg767_bb_ability_states_bar', 100, 640)
+        frame = canvas(('gpg767_bb_ability_states_bar.png', 100, 640))
         (ready, used, recharging) = (bb_strategy.READY, bb_strategy.USED, bb_strategy.RECHARGING)
         self.assertEqual([bb_strategy.ability_state(frame, t) for t in self.TAPS], [used, ready, ready, ready, ready, recharging])
-        before = canvas('gpg767_bb_bar', 100, 640)
+        before = canvas(('gpg767_bb_bar.png', 100, 640))
         self.assertEqual([bb_strategy.ability_state(before, t) for t in self.TAPS], [None] * 6)
         self.assertEqual([bb_strategy.waiting(before, t) for t in self.TAPS], [True] * 6)
         self.assertEqual([bb_strategy.waiting(frame, t) for t in self.TAPS], [False] * 6)

@@ -1,7 +1,6 @@
 """Which village is on screen at Start, so the bot takes the boat when the other one was
 picked: the bottom half of both live home screens at 1227x767 (no names in it)."""
 import unittest
-from pathlib import Path
 from unittest.mock import Mock, patch
 
 import cv2
@@ -10,15 +9,11 @@ import numpy as np
 from app.config import Config
 from app.core.bot import Bot
 from app.services.vision import VisionService
-
-FIXTURES = Path(__file__).parent / 'fixtures'
+from tests.helpers import FIXTURES, canvas
 
 
 def home(name):
-    frame = np.zeros((767, 1227, 3), np.uint8)
-    frame[383:767] = cv2.imread(str(FIXTURES / name))
-    Config().set_target_size_from_frame(frame)
-    return frame
+    return canvas((name, 0, 383))
 
 
 def make_bot():

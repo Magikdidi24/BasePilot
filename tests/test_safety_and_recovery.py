@@ -4,7 +4,6 @@ import ast
 import inspect
 import textwrap
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -17,18 +16,7 @@ from app.core.bot import Bot, reconnect_button
 from app.core.upgrade_menu import UpgradeRow, is_town_hall_row
 from app.core.village_state import storages_full
 from app.services.vision import VisionService
-
-FIXTURES = Path(__file__).parent / 'fixtures'
-
-
-def canvas(*parts):
-    """Live 1920x1200 crops pasted back where they were taken (black elsewhere)."""
-    frame = np.zeros((1200, 1920, 3), np.uint8)
-    for (name, y, x) in parts:
-        img = cv2.imread(str(FIXTURES / f'{name}.jpg'))
-        frame[y:y + img.shape[0], x:x + img.shape[1]] = img
-    Config().set_target_size_from_frame(frame)
-    return frame
+from tests.helpers import FIXTURES, WAYDROID, canvas
 
 
 def make_bot():
@@ -57,14 +45,14 @@ class HallTests(unittest.TestCase):
 
 class StorageTests(unittest.TestCase):
     def test_full_means_the_left_end_of_the_bar_is_coloured(self):
-        chips = ('chips_hv_goblins', 860, 1640)  # brings the Build button: the October home screen
-        self.assertEqual(storages_full(canvas(('hud_gold_full', 0, 1480), chips)), (True, False))  # 14.0M gold, 12.7M elixir
-        self.assertEqual(storages_full(canvas(('hud_not_full', 0, 1480), chips)), (False, False))  # 10.9M, 12.5M
+        chips = ('chips_hv_goblins.jpg', 1640, 860)  # brings the Build button: the October home screen
+        self.assertEqual(storages_full(canvas(('hud_gold_full.jpg', 1480, 0), chips, size=WAYDROID)), (True, False))  # 14.0M gold, 12.7M elixir
+        self.assertEqual(storages_full(canvas(('hud_not_full.jpg', 1480, 0), chips, size=WAYDROID)), (False, False))  # 10.9M, 12.5M
         # no Build button (a panel or a dialog is up): unknown, never "full"
-        self.assertEqual(storages_full(canvas(('hud_gold_full', 0, 1480))), (False, False))
+        self.assertEqual(storages_full(canvas(('hud_gold_full.jpg', 1480, 0), size=WAYDROID)), (False, False))
 
     def test_grass_behind_an_empty_bar_end_is_not_gold(self):
-        frame = canvas(('hud_not_full', 0, 1480), ('chips_hv_goblins', 860, 1640))
+        frame = canvas(('hud_not_full.jpg', 1480, 0), ('chips_hv_goblins.jpg', 1640, 860), size=WAYDROID)
         grass = cv2.cvtColor(np.full((1, 1, 3), (35, 120, 160), np.uint8), cv2.COLOR_HSV2BGR)[0, 0]
         frame[40:64, 1524:1548] = grass  # the translucent empty end of the gold bar, over the village
         self.assertEqual(storages_full(frame), (False, False))
@@ -86,7 +74,7 @@ class SixteenByNineTests(unittest.TestCase):
 class WallResourceTests(unittest.TestCase):
     def test_walls_pay_only_with_the_resource_that_triggered_the_pass(self):
         from app.core.upgrade_menu import RESOURCE_ELIXIR, RESOURCE_GOLD
-        frame = canvas(('wall_grid_bb', 680, 380))
+        frame = canvas(('wall_grid_bb.jpg', 380, 680), size=WAYDROID)
         self.assertEqual(bp.wall_upgrade_button(VisionService, frame, (RESOURCE_GOLD,))[1], RESOURCE_GOLD)
         self.assertEqual(bp.wall_upgrade_button(VisionService, frame)[1], RESOURCE_ELIXIR)
         self.assertIsNone(bp.wall_upgrade_button(VisionService, frame, ()))
@@ -116,12 +104,12 @@ class ReconnectTests(unittest.TestCase):
 
     def test_reconnect_buttons_of_both_dialogs(self):
         for (name, word_x) in (('dialog_connection_lost', 640), ('dialog_anyone_there', 655)):
-            (x, y) = reconnect_button(VisionService, canvas((name, 430, 520)))
+            (x, y) = reconnect_button(VisionService, canvas((f'{name}.jpg', 520, 430), size=WAYDROID))
             self.assertTrue(abs(x - word_x) < 40 and 600 < y < 640, (name, x, y))
 
     def test_no_reconnect_button_elsewhere(self):
-        self.assertIsNone(reconnect_button(VisionService, canvas(('gem_prompt', 330, 520))))
-        self.assertIsNone(reconnect_button(VisionService, canvas(('dialog_hv_title', 0, 230), ('dialog_hv_bottom', 730, 150))))
+        self.assertIsNone(reconnect_button(VisionService, canvas(('gem_prompt.jpg', 520, 330), size=WAYDROID)))
+        self.assertIsNone(reconnect_button(VisionService, canvas(('dialog_hv_title.jpg', 230, 0), ('dialog_hv_bottom.jpg', 150, 730), size=WAYDROID)))
 
 
 class PopupTests(unittest.TestCase):

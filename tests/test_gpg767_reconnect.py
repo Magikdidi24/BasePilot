@@ -1,28 +1,16 @@
 """The real "Connection lost" dialog, on GPG's 1227x767 window (its default on a 1920x1200 screen)."""
 import unittest
-from pathlib import Path
 
 import cv2
 import numpy as np
 
-from app.config import Config
 from app.core.bot import reconnect_button
 from app.services.vision import VisionService
+from tests.helpers import canvas
 
-FIXTURES = Path(__file__).parent / 'fixtures'
-DIALOG = ('gpg767_dialog_connection_lost', 280, 180)  # its box: x 322-905, y 296-469
+DIALOG = ('gpg767_dialog_connection_lost.png', 180, 280)  # its box: x 322-905, y 296-469
 LIGHT_BLUE = (230, 210, 140)  # BGR, game art that passes the button's cyan test
 DARK = (20, 20, 20)
-
-
-def canvas(*parts):
-    """Live 1227x767 crops (no player name in them) pasted back where they were taken."""
-    frame = np.zeros((767, 1227, 3), np.uint8)
-    for (name, y, x) in parts:
-        img = cv2.imread(str(FIXTURES / f'{name}.png'))
-        frame[y:y + img.shape[0], x:x + img.shape[1]] = img
-    Config().set_target_size_from_frame(frame)
-    return frame
 
 
 def on_try_again(point, dy=0):

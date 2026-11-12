@@ -4,23 +4,17 @@ and a step that does not show fails the switch with the windows closed. The home
 the bottom half of a live 1227x767 Home Village (no names in it)."""
 import itertools
 import unittest
-from pathlib import Path
 from unittest.mock import Mock, patch
 
-import cv2
 import numpy as np
 
 from app.config import Config
 from app.core.bot import Bot
-
-FIXTURES = Path(__file__).parent / 'fixtures'
+from tests.helpers import canvas
 
 
 def home():
-    frame = np.zeros((767, 1227, 3), np.uint8)
-    frame[383:767] = cv2.imread(str(FIXTURES / 'gpg767_home_village_bottom.jpg'))
-    Config().set_target_size_from_frame(frame)
-    return frame
+    return canvas(('gpg767_home_village_bottom.jpg', 0, 383))
 
 
 def make_bot(frame):

@@ -1,6 +1,7 @@
 """Regression tests for the October 2026 UI fixes (efebolukbasi/BasePilot#6-#9)."""
 import ctypes
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -208,12 +209,22 @@ class WindowTests(unittest.TestCase):
 
 class LoggerTests(unittest.TestCase):
     def test_module_loggers_share_one_rotating_file_handler(self):
+        import logging
         import tempfile
         from logging.handlers import RotatingFileHandler
-        from app.utils.logger import setup_logger
-        path = tempfile.mkstemp(suffix='.log')[1]
-        a = setup_logger('ShareTestA', log_file=path)
-        b = setup_logger('ShareTestB', log_file=path)
+        from app.utils import logger as log_setup
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)  # last: the log file is closed by then
+        path = str(Path(folder.name) / 'share.log')
+
+        def forget():
+            for handler in log_setup._shared_handlers.pop(path, ()):
+                for name in ('ShareTestA', 'ShareTestB'):
+                    logging.getLogger(name).removeHandler(handler)
+                handler.close()
+        self.addCleanup(forget)  # even if a setup_logger call fails
+        a = log_setup.setup_logger('ShareTestA', log_file=path)
+        b = log_setup.setup_logger('ShareTestB', log_file=path)
         fa = [h for h in a.handlers if isinstance(h, RotatingFileHandler)]
         fb = [h for h in b.handlers if isinstance(h, RotatingFileHandler)]
         self.assertEqual(len(fa), 1)

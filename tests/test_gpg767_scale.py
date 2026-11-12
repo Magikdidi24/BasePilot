@@ -1,11 +1,9 @@
 """GPG's default 1227x767 window: art drawn at another size than the bot's height-proportional
 template scale (the Build panel's X, a selected wall's Upgrade tiles)."""
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-import cv2
 import numpy as np
 
 from app.config import Config
@@ -13,18 +11,7 @@ from app.core import build_panel as bp
 from app.core.bot import Bot
 from app.core.upgrade_menu import RESOURCE_ELIXIR
 from app.services.vision import VisionService
-
-FIXTURES = Path(__file__).parent / 'fixtures'
-
-
-def canvas(*parts):
-    """Live 1227x767 crops (PNG, no player name in them) pasted back where they were taken."""
-    frame = np.zeros((767, 1227, 3), np.uint8)
-    for (name, y, x) in parts:
-        img = cv2.imread(str(FIXTURES / f'{name}.png'))
-        frame[y:y + img.shape[0], x:x + img.shape[1]] = img
-    Config().set_target_size_from_frame(frame)
-    return frame
+from tests.helpers import canvas
 
 
 class PanelCloseTests(unittest.TestCase):
@@ -32,7 +19,7 @@ class PanelCloseTests(unittest.TestCase):
         # exit.png matches the panel's X at 0.9 and 0.8 of the bot's scale, not at it (0.58);
         # the 'empty' point (647, 753) lands on the box button while the panel is open. The
         # panel never goes away here: every tap, the dialog pass's and the close loop's, is its X
-        panel = canvas(('gpg767_panel_hv_buildings', 0, 824))
+        panel = canvas(('gpg767_panel_hv_buildings.png', 824, 0))
         tap = Mock()
         bp.BuildPanelUpgrader(Mock(screenshot=Mock(return_value=panel)), Mock(click=tap), VisionService, Config(), Mock())._close_panel()
         taps = [c.args[:2] for c in tap.call_args_list]
@@ -43,7 +30,7 @@ class PanelCloseTests(unittest.TestCase):
         # no Wall card read: the pass leaves the panel open, and its cleanup tap must not be
         # the 'empty' point (the box button while the panel is open)
         bot = Bot.__new__(Bot)
-        bot.window = Mock(screenshot=Mock(return_value=canvas(('gpg767_panel_hv_buildings', 0, 824))))
+        bot.window = Mock(screenshot=Mock(return_value=canvas(('gpg767_panel_hv_buildings.png', 824, 0))))
         (bot.input, bot.vision, bot.config) = (Mock(), VisionService, Config())
         bot._deselect_wall_ui()
         self.assertEqual(bot.input.click.call_count, 1)
@@ -51,7 +38,7 @@ class PanelCloseTests(unittest.TestCase):
         self.assertTrue(abs(x - 1201) <= 5 and abs(y - 27) <= 5, (x, y))
 
     def test_nothing_else_in_the_panel_reads_as_an_x(self):
-        frame = canvas(('gpg767_panel_hv_buildings', 0, 824))
+        frame = canvas(('gpg767_panel_hv_buildings.png', 824, 0))
         frame[:60, 1165:] = 0  # the panel's X
         self.assertIsNone(bp.find_close(VisionService, frame))
 
@@ -74,7 +61,7 @@ class WallTileTests(unittest.TestCase):
     def test_the_selected_wall_is_upgraded_with_elixir(self):
         # "Wall (Level 14)": wallhammer.png matches its Upgrade tiles at 1.1 (0.72 at the bot's
         # scale). The name check's OCR is stubbed: at this size it reads "Wall" only just.
-        frame = canvas(('gpg767_wall_grid_hv', 525, 380))
+        frame = canvas(('gpg767_wall_grid_hv.png', 380, 525))
         with patch.object(VisionService, 'find_words_ocr', return_value=[SimpleNamespace(text='Wall')]):
             tile = bp.wall_upgrade_button(VisionService, frame)
         self.assertIsNotNone(tile)
@@ -83,7 +70,7 @@ class WallTileTests(unittest.TestCase):
         self.assertTrue(abs(x - 772) <= 8 and abs(y - 609) <= 8, (x, y))
 
     def test_no_wall_tile_on_the_panel(self):
-        self.assertIsNone(bp.wall_upgrade_button(VisionService, canvas(('gpg767_panel_hv_buildings', 0, 824))))
+        self.assertIsNone(bp.wall_upgrade_button(VisionService, canvas(('gpg767_panel_hv_buildings.png', 824, 0))))
 
 
 if __name__ == '__main__':
