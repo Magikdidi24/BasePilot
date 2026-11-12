@@ -6,6 +6,7 @@ from app.config import ASPECT_16_9
 from app.utils.logger import setup_logger
 from app.utils.profile_settings_store import EARTHQUAKE_METHOD_CURVE, EARTHQUAKE_METHOD_RANDOM
 logger = setup_logger('Strategies')
+_EARTHQUAKE_COUNT = 11  # Earthquake drop points per raid, on the curve or at random in the region
 _EARTHQUAKE_REGION_ARC_SAMPLES = 49
 _EARTHQUAKE_RANDOM_LINE_FROM_BOTTOM = (4, 10)
 _EDRAG_COUNT = 12
@@ -341,7 +342,7 @@ If L,T,R are collinear, uses a quadratic Bezier with control point chosen so t=0
 
     
     def _earthquake_curve_points_with_jitter(self, ltr):
-        points = self._sample_arc_through_three(ltr, 11)
+        points = self._sample_arc_through_three(ltr, _EARTHQUAKE_COUNT)
         if random.choice((True, False)):
             points.reverse()
         jitter_px = self.config.scale_scalar(100)
@@ -406,7 +407,7 @@ If L,T,R are collinear, uses a quadratic Bezier with control point chosen so t=0
         if not bx:
             logger.info('Spells: no Earthquake in the bar — none cast')
         if bx:  # [recovered: decompiler turned `if` into `while`, causing endless earthquake spam after spells ran out]
-            logger.info('Spells: Earthquake on %d points (%s placement)', 11, 'random' if self.earthquake_method == EARTHQUAKE_METHOD_RANDOM else 'curve')
+            logger.info('Spells: Earthquake on %d points (%s placement)', _EARTHQUAKE_COUNT, 'random' if self.earthquake_method == EARTHQUAKE_METHOD_RANDOM else 'curve')
             self.quakes_cast = True
             self.input.click(bx, by, pause = 0.2)
             offset = int(self.config.get_scaled('earthquake', 400))
@@ -423,7 +424,7 @@ If L,T,R are collinear, uses a quadratic Bezier with control point chosen so t=0
                     logger.warning('Earthquake random region degenerate; using curve placement with jitter.')
                     points = self._earthquake_curve_points_with_jitter(ltr)
                 else:
-                    points = self._random_points_in_polygon(poly, fw, fh, 11)
+                    points = self._random_points_in_polygon(poly, fw, fh, _EARTHQUAKE_COUNT)
             else:
                 points = self._earthquake_curve_points_with_jitter(ltr)
             for cx, cy in points:

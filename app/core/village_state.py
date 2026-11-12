@@ -1,15 +1,16 @@
 '''Home-village state snapshot for the auto-maxer's idle gate and the UI status panel.
 
 Reads everything the home screen shows about "is there anything productive to do":
-free builders (top-HUD builder chip), laboratory research slots (flask chip left of
-it), and full gold/elixir storages (the hero-bar full-storage icons). All fields are
-Optional — a chip that is absent or unreadable yields ``None``, never a guess, so the
-caller can be conservative. TH-agnostic by construction: villages without a lab (or
+free builders and laboratory research slots (the x/6 and x/2 chips above the Build
+button), and full gold/elixir storages (the left end of each HUD bar coloured). The chip
+fields are Optional — a chip that is absent or unreadable yields ``None``, never a guess,
+so the caller can be conservative. TH-agnostic by construction: villages without a lab (or
 with fewer builders) simply read as ``None`` / smaller totals.
 
-The Pet House has NO home-screen indicator (verified on live TH15 frames: a busy pet
-upgrade appears neither as a HUD chip nor as a builder-popup in-progress row), so pet
-state is not tracked here — pets remain a manual job and never block idling.
+The Pet House has NO home-screen indicator (verified on live TH15 frames before the
+October 2026 UI: a busy pet upgrade showed neither as a HUD chip nor as a row of the old
+builder popup), so pet state is not tracked here — pets remain a manual job and never
+block idling.
 '''
 import time
 from dataclasses import dataclass
@@ -34,7 +35,7 @@ _IMPLAUSIBLE_HUD_MAIN = 30000000
 class VillageState:
     builders: Optional[Tuple[int, int]]  # (free, total) from the builder chip
     lab: Optional[Tuple[int, int]]  # (free, total) research slots from the lab chip
-    gold_full: bool  # hero-bar full-storage icon visible
+    gold_full: bool  # the left end of the gold bar coloured (~96%+)
     elixir_full: bool
     captured_at: float  # time.monotonic() of the frame
 
@@ -45,7 +46,7 @@ class VillageState:
     @property
     def storages_full(self):
         '''Both main storages at cap — farming would earn (almost) nothing.
-        Dark elixir has no full-storage icon; DE overflow alone never blocks idling.'''
+        Dark elixir is not read: DE overflow alone never blocks idling.'''
         return self.gold_full and self.elixir_full
 
     @property
@@ -54,8 +55,8 @@ class VillageState:
         return bool(self.lab) and self.lab[0] > 0
 
     def summary(self):
-        # The full-storage templates are flat bar-fill swatches — they fire from
-        # ~90% up, not at exactly 100% — so phrase it honestly as "~full".
+        # A storage reads full from ~96% up (the left end of its bar coloured), not
+        # at exactly 100%, so phrase it honestly as "~full".
         b = f'{self.builders[0]}/{self.builders[1]}' if self.builders else '?'
         l = f'{self.lab[0]}/{self.lab[1]}' if self.lab else '?'
         s = '~full' if self.storages_full else ('gold ~full' if self.gold_full else ('elixir ~full' if self.elixir_full else 'filling'))
@@ -155,7 +156,7 @@ def read_hud_triplet_stable(capture, wait, attempts = 4):
 def read_village_state_stable(capture, wait, attempts = 3):
     '''Multi-frame :func:`read_village_state`: the translucent HUD chips flicker against
     the animated village, so single-frame chip reads drop out (live repro). Merges up
-    to ``attempts`` frames — first readable value per field wins; full-storage icons
+    to ``attempts`` frames — first readable value per field wins; the full-storage flags
     OR across frames. ``capture()`` → frame or None; ``wait(seconds)`` → True to abort
     (stop-event semantics).'''
     merged = None

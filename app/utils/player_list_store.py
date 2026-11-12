@@ -9,7 +9,7 @@ from app.utils.common import ensure_dir, get_user_app_data_dir
 
 @dataclass
 class PlayerEntry:
-    name: str = 15  # NOTE: original shipped this odd default (verified in bytecode, not corruption); name is always passed explicitly
+    name: str = ''
     enabled: bool = True
 
 

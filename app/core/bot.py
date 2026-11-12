@@ -55,18 +55,19 @@ _TROOP_FAILURE_LIMIT = 4
 _TROOP_RETRY_WAIT_SECONDS = 15  # training is instant since the Mar 2025 "Clash Anytime" update — this only lets the UI settle
 _RELOAD_GRACE_SECONDS = 180  # let a quick phone check finish before reconnecting over it
 _WALL_SINGLE_MAX = 5  # walls bought one by one per wall pass (loot is re-checked before each)
-# How deep the Wall row sits depends on the village: it is the last entry of "Other
-# upgrades", and that list grows with every building the village owns. A fixed cap of 8
-# stops was two nudges short on a TH15 account (live: the row first appeared at stop 9,
-# and the list ended at stop 10) — 705 passes in one log gave up with "OCR missed at all
-# scroll positions" without ever reaching it. Scrolling now stops when the list stops
-# moving, and this is only the safety cap.
+# How deep the Wall row sits depends on the village. In the old builder popup it was the
+# last entry of "Other upgrades", and that list grows with every building the village
+# owns. A fixed cap of 8 stops was two nudges short on a TH15 account (live: the row first
+# appeared at stop 9, and the list ended at stop 10) — 705 passes in one log gave up with
+# "OCR missed at all scroll positions" without ever reaching it. Scrolling now stops when
+# the list stops moving, and this is only the safety cap.
 _WALL_MENU_SCROLL_STEPS = 20
-# Mean absolute pixel difference over the menu ROI between two stops. Live separation is
-# wide: 9.7-23.8 while the list is still travelling, 0.9-1.5 once it has hit the bottom.
+# Mean absolute pixel difference over the menu ROI between two stops. Live separation (on
+# the old builder popup) is wide: 9.7-23.8 while the list is still travelling, 0.9-1.5 once
+# it has hit the bottom.
 _WALL_MENU_BOTTOM_DIFF = 4.0
-_WALL_MENU_OPEN_SECONDS = 1.2  # the builder popup renders ~1s after the click (0.8s frames are still empty)
-_WALL_MENU_WHEEL_CLICKS = 2  # ~3-4 rows per nudge; the OCR band spans the whole popup so a nudge cannot jump the Wall row past it
+_WALL_MENU_OPEN_SECONDS = 1.2  # settle time once the Buildings tab shows (or after tapping it), before the cards are read; the old builder popup was still empty at 0.8s, not re-measured on the Build panel
+_WALL_MENU_WHEEL_CLICKS = 2  # ~3-4 rows per nudge in the old builder popup; the OCR band spans the whole visible list, so a nudge shorter than a page cannot jump the Wall card past it (rows per nudge not re-measured on the Build panel)
 _WALL_ROW_STABLE_TOL = 30  # ref px: max y drift between consecutive frames before the row is trusted for a click
 _AUTO_UPGRADE_SCAN_INTERVAL_SECONDS = 600  # a Build panel pass is OCR-heavy; keep it rare vs the ~35s attack cycle
 _WALL_RETRY_SECONDS = 600  # a wall pass that bought nothing fails the same way next raid; wait before paying for another
@@ -330,8 +331,8 @@ wall upgrades for the first pre-Attack snapshot that would otherwise count as an
         # Cap detection without TH-specific numbers: at a TRUE cap, consecutive
         # stable pre-attack reads pin to the identical value (raids refill the
         # entry fee back to cap); below cap every battle moves the number. The
-        # full-storage icons fire from ~85% up, so they alone must not idle the
-        # bot away from real remaining headroom.
+        # full-storage read fires from ~96% up (the left end of each bar), so it
+        # alone must not idle the bot away from real remaining headroom.
         if prev is not None:
             self._gold_pinned = cur_g == prev[0]
             self._elixir_pinned = cur_el == prev[1]
@@ -487,9 +488,9 @@ wall upgrades for the first pre-Attack snapshot that would otherwise count as an
         '''A thumbnail of the builder-menu ROI, for telling "the list moved" from "the
         list is at its end". None when there is no frame.
 
-        The same ROI the row OCR reads, so no new geometry: the village animating behind
-        the translucent popup is the only thing that changes once the list has stopped,
-        and that is worth about 1.5 in mean abs difference against 10-24 for a nudge.
+        The same ROI the row OCR reads, so no new geometry. On the old builder popup the
+        village animating behind it was the only thing that changed once the list had
+        stopped, worth about 1.5 in mean abs difference against 10-24 for a nudge.
         '''
         if frame is None:
             return None
@@ -511,34 +512,34 @@ wall upgrades for the first pre-Attack snapshot that would otherwise count as an
         when the pass is not worth what it costs). Only those pay: walls bought with elixir
         because gold was full would drain the elixir the laboratory needs.
 
-        A pass is expensive: it opens the builder menu, OCR-scrolls to find the Wall row,
-        batches walls and confirms — far longer than a raid cycle. So the threshold the
-        user set (*Settings → Wall upgrade threshold*) is the gate, and the HUD numbers
-        decide against it. ``threshold``: the Builder Base's, else the Home Village's.
+        A pass is expensive: it opens the Build panel, OCR-scrolls to find the Wall card,
+        buys walls one at a time and confirms — far longer than a raid cycle. So the
+        threshold the user set (*Settings → Wall upgrade threshold*) is the gate, and the
+        HUD numbers decide against it. ``threshold``: the Builder Base's, else the Home Village's.
 
-        A full-storage icon on its own is NOT enough to spend that time: those fire from
-        ~85% of a storage and say nothing about what a wall costs. The icons only stand
-        in when the HUD cannot be read, and when the threshold is 0 — which the UI
-        defines as "only upgrade when storages are full".
+        A full storage on its own (the left end of its bar coloured, ~96%+) is NOT enough
+        to spend that time: it says nothing about what a wall costs. It only stands in
+        when the HUD cannot be read, and when the threshold is 0 — which the UI defines
+        as "only upgrade when storages are full".
         '''
         frame = self.window.screenshot()
         if frame is None:
             return frozenset()
         self._update_config_size(frame)
         full = frozenset(r for (r, on) in zip((RESOURCE_GOLD, RESOURCE_ELIXIR), storages_full(frame)) if on)
-        icons_full = bool(full)
+        any_full = bool(full)
         if threshold is None:
             threshold = getattr(self, '_wall_upgrade_threshold', 0)
         threshold = int(threshold or 0)
         if threshold <= 0:
-            if icons_full:
+            if any_full:
                 logger.info('Wall upgrades: full storage (%s), threshold is 0', ', '.join(sorted(full)))
             return full
         # Consecutive-frame agreement: a single HUD read is corrupted often enough that
         # acting on one costs a whole pointless pass either way.
         triplet = self._read_hud_triplet_stable()
         if triplet is None:
-            if icons_full:
+            if any_full:
                 logger.info('Wall upgrades: HUD unreadable but a storage is full (%s) — running the pass', ', '.join(sorted(full)))
             return full
         (gold, elixir, _dark) = triplet
@@ -547,7 +548,7 @@ wall upgrades for the first pre-Attack snapshot that would otherwise count as an
             logger.info('Wall upgrades: loot gold=%s elixir=%s reached threshold %s (paying with %s)', gold, elixir, threshold, ', '.join(sorted(enough)))
             return enough
         logger.info('Wall upgrades: gold=%s elixir=%s below threshold %s — skipping the pass%s',
-                    gold, elixir, threshold, ' (full-storage icon ignored)' if icons_full else '')
+                    gold, elixir, threshold, ' (full storage ignored)' if any_full else '')
         return frozenset()
 
 
@@ -786,11 +787,11 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         in place (game session kept alive via recovery on each wake) until a builder
         frees up or loot is spent, instead of stopping or attacking pointlessly.
 
-        Dark elixir has no full-storage indicator; while gold/elixir still have room
-        the normal farm loop is what fills DE. Pet House state is invisible on the
-        home screen (no HUD chip, no builder-popup row — verified live), so pets are
+        Dark elixir's bar is not read; while gold/elixir still have room the normal
+        farm loop is what fills DE. Pet House state is invisible on the home screen (no
+        HUD chip, and no row in the old builder popup — verified live), so pets are
         the user's manual job and never block idling; the status line calls out an
-        idle LAB so research (also manual for now) is never silently forgotten.'''
+        idle LAB so research is never silently forgotten.'''
         if getattr(self, '_auto_upgrade_mode', MODE_OFF) not in LIVE_UPGRADE_MODES:
             return None
         frame = self.window.screenshot()
@@ -920,11 +921,10 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             return None
         if not self._open_build_panel(frame):
             return None
-        # TH15+ overflows the builder popup ('Suggested upgrades' grows and 'Other upgrades'
-        # continues past the fold), so the Wall row can start below the visible area. The
-        # popup scrolls with the mouse wheel without closing; touch-drags scroll too but
-        # overshoot past Wall (it now sits mid-list, not at the end). Poll the OCR at each
-        # position and wheel down a notch between misses.
+        # The Build panel's list runs past its fold, so the Wall card can start below the
+        # visible area. The old builder popup scrolled with the mouse wheel without closing
+        # (touch-drags overshot past Wall); not re-measured on the Build panel. Poll the OCR
+        # at each position and wheel down a notch between misses.
         wall_pt = None
         candidate = None
         scrolls = 0
@@ -968,7 +968,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                 return None
         if not wall_pt:
             logger.info('Wall upgrade: no Wall row in the builder list — skipping this pass')
-            # The builder popup is still open at this point, and an open popup swallows
+            # The Build panel is still open at this point, and an open panel swallows
             # the next tap — including the Attack one.
             self._deselect_wall_ui()
             return None

@@ -878,7 +878,7 @@ Returns the center ``(x, y)`` of the best OCR match for ``word_or_phrase``, or
 Among all tokens that pass filters, picks by: (0) **the exact name**, (1) **full alnum name
 inside OCR token**, (2) plain substring, (3) long name fragment, (4) fuzzy; then **longest** OCR token,
 then OCR confidence — so a short side label does not beat the full username.
-Extra kwargs are forwarded (e.g. ``min_confidence``, ``preprocess``).
+Extra kwargs go to :meth:`find_words_ocr` (e.g. ``match_alnum_only``, ``fuzzy_min_ratio``).
 '''
         matches = VisionService.find_words_ocr(screen_img, region = region, query = word_or_phrase, **kwargs)  # [recovered: pycdc dropped the **kwargs merge -> the name search ran without white_text, match_alnum_only or fuzzy_min_ratio]
         if not matches:
