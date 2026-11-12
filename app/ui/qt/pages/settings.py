@@ -616,26 +616,23 @@ class SettingsPage(QWidget):
             self._window_status.setText('Could not read the window size. Is the game minimized?')
             return None
         sub_size = None
-        
         try:
             for d in ws.enumerate_descendants(cand.top_hwnd):
-                if not d.cls.lower() == 'subwin':
-                    continue
-                sub_size = (d.width, d.height)
-                ws.enumerate_descendants(cand.top_hwnd)
-            (sw, sh) = surface_size
-            lines = [
-                f'''Capture target {cand.child_class}: {self._aspect_label(sw, sh)}''']
-            if not sub_size is None:
-                lines.append(f'''Inner subWin: {self._aspect_label(*sub_size)}''')
-            if resolve_aspect_key(sw, sh) is None:
-                lines.append('Surface aspect unsupported — try resizing the game window.')
-            else:
-                lines.append('Surface OK to use.')
-            self._window_status.setText('\n'.join(lines))
-            return None
-        except Exception as exc:
+                if d.cls.lower() == 'subwin':
+                    sub_size = (d.width, d.height)
+                    break
+        except Exception as exc:  # the surface's own size is still worth showing
             logger.warning(f'''Could not inspect subWin: {exc}''')
+        (sw, sh) = surface_size
+        lines = [
+            f'''Capture target {cand.child_class}: {self._aspect_label(sw, sh)}''']
+        if sub_size is not None:
+            lines.append(f'''Inner subWin: {self._aspect_label(*sub_size)}''')
+        if resolve_aspect_key(sw, sh) is None:
+            lines.append('Surface aspect unsupported — try resizing the game window.')
+        else:
+            lines.append('Surface OK to use.')
+        self._window_status.setText('\n'.join(lines))
 
     
     def _on_switch_display_169(self):
@@ -669,11 +666,10 @@ class SettingsPage(QWidget):
 
         try:
             descendants = WindowService().enumerate_descendants(cand.top_hwnd)
-            WindowInfoDialog(self.window(), cand, descendants).exec()
-            return None
-        except Exception as exc:
+        except Exception as exc:  # the dialog still shows the window itself
             logger.warning(f'''Could not enumerate descendants: {exc}''')
             descendants = []
+        WindowInfoDialog(self.window(), cand, descendants).exec()
 
     
     def _on_use_window(self):
