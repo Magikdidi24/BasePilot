@@ -61,7 +61,8 @@ A brand-new profile starts as a copy of your main settings, so you are not setti
 option again — **except the window pin**, which it never inherits. That one is the whole
 point: each session has to be pointed at its own client, so the second window opens
 unpinned and asks you to choose (*Settings → Game window*). Templates you captured on the
-main profile are still found, so there is nothing to re-capture.
+main profile are still found, so there is nothing to re-capture. The Run page's choices and its
+scheduled start times are kept per profile too: a new profile's Run page starts from the defaults.
 
 The window title carries the profile (`BasePilot — second`) so you can tell the two
 windows apart on the taskbar. No profile means the main directory, exactly as before, so

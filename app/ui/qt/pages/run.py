@@ -10,6 +10,7 @@ from app.ui.qt._constants import ATTACK_STRATEGIES, BUILDER_BASE_ATTACK_STRATEGI
 from app.ui.qt.dialogs import show_error, show_under_development
 from app.ui.qt.theme import SPACING, TOKENS
 from app.ui.qt.widgets import Card, SectionTitle, StepperButton, ToggleSwitch, chip_button, danger_button, neutral_button, primary_button, segment_button
+from app.utils.common import ui_settings_name
 from app.utils.player_list_store import load_players
 from app.utils.logger import setup_logger
 from app.utils.profile_settings_store import ATTACK_MIN_DARK_K_MAX, ATTACK_MIN_LOOT_K_MAX, load_profile_settings, save_profile_settings
@@ -44,7 +45,7 @@ class RunPage(QWidget):
         super().__init__(parent)
         self._controller = controller
         self._navigate_to = navigate_to
-        self._settings = QSettings('BasePilot', 'UI')
+        self._settings = QSettings('BasePilot', ui_settings_name())  # per profile, as the main window's
         outer = QVBoxLayout(self)
         outer.setContentsMargins(SPACING['lg'], SPACING['lg'], SPACING['lg'], SPACING['lg'])
         outer.setSpacing(SPACING['md'])

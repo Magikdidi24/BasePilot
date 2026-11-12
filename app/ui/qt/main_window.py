@@ -41,13 +41,13 @@ class MainWindow(QMainWindow):
         super().__init__()
         # The profile is in the title because two BasePilot windows on one desktop are
         # otherwise indistinguishable, and each one is driving a different account.
-        from app.utils.common import get_profile_name
+        from app.utils.common import get_profile_name, ui_settings_name
         profile = get_profile_name()
         self.setWindowTitle(f'''BasePilot — {profile}''' if profile else 'BasePilot')
         self.resize(*WINDOW_DEFAULT)
         self.setMinimumSize(*WINDOW_MIN)
         # Window geometry, the last open tab and other UI state are per profile too.
-        self._settings = QSettings('BasePilot', f'''UI-{profile}''' if profile else 'UI')
+        self._settings = QSettings('BasePilot', ui_settings_name())
         self._migrate_legacy_ui_settings()
         self._controller = BotController()
         self._taskbar = None

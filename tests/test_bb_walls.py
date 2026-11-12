@@ -1,7 +1,8 @@
 """Builder Base walls: the Home Village's wall pass on the Builder Base's Build panel (it
 opens on Buildings & Heroes, its title read; no tab art), a tap that a selection ate going
-again (Build, Battle), the pass's own threshold, and the Run page's switch. Live 1227x767
-crops: the panel alone and the bottom half of the home screen (no names in them)."""
+again (Build, Battle), the pass's own threshold, and the Run page's switch (and the per-profile
+store the page keeps its choices in). Live 1227x767 crops: the panel alone and the bottom half of
+the home screen (no names in them)."""
 import json
 import os
 import tempfile
@@ -170,6 +171,20 @@ class RunPageTests(unittest.TestCase):
         kwargs = controller.start.call_args.kwargs
         self.assertEqual((kwargs['builder_base'], kwargs['upgrade_walls']), (True, True))
         self.assertTrue(settings.value('run/bbUpgradeWalls', type=bool))
+
+    def test_the_run_page_keeps_its_choices_per_profile(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        settings = QSettings(os.path.join(tmp.name, 'ui.ini'), QSettings.Format.IniFormat)
+        controller = Mock(**{'is_running.return_value': False})
+        for (profile, ui_store) in (('', 'UI'), ('alt', 'UI-alt')):  # the main window's store names
+            # the page reads the profile's settings.json: keep the data dir in the temp folder
+            # (LOCALAPPDATA on Windows, HOME on the Linux CI), never the user's
+            env = {'BASEPILOT_PROFILE': profile, 'LOCALAPPDATA': tmp.name, 'HOME': tmp.name}
+            with (self.subTest(profile=profile), patch.dict(os.environ, env),
+                  patch('app.ui.qt.pages.run.QSettings', return_value=settings) as opened):
+                RunPage(controller, lambda name: None)
+                opened.assert_called_once_with('BasePilot', ui_store)
 
 
 if __name__ == '__main__':

@@ -81,6 +81,12 @@ def get_profile_name():
     return _sanitise_profile(os.environ.get(PROFILE_ENV, ''))
 
 
+def ui_settings_name():
+    '''The QSettings store of this profile's UI state: ``UI``, or ``UI-<profile>``.'''
+    profile = get_profile_name()
+    return f'UI-{profile}' if profile else 'UI'
+
+
 def _sanitise_profile(name):
     '''A profile name reduced to something safe to put in a path (``''`` if nothing is left).'''
     keep = [ c for c in str(name or '').strip() if c.isalnum() or c in ' -_' ]
