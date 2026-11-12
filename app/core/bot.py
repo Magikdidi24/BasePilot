@@ -185,7 +185,7 @@ class Bot:
         self.finish_reason = None  # why the last run ended on its own ("storages full"), for the UI
 
 
-    def start(self, method, run_time_minutes, star_bonus = False, status_callback = None, loot_callback = None, multi_run_players = None, upgrade_walls = False, earthquake_method = EARTHQUAKE_METHOD_CURVE, builder_base = False, loot_prioritise = 'both', wall_upgrade_threshold = 0, auto_upgrade = MODE_OFF, reserve_builders = 1, state_callback = None, upgrade_order = None, clan_options = None, loot_filter = None, bb_wall_threshold = 0, stop_when_full = False):
+    def start(self, method, run_time_minutes, star_bonus = False, status_callback = None, loot_callback = None, multi_run_players = None, upgrade_walls = False, earthquake_method = EARTHQUAKE_METHOD_CURVE, builder_base = False, wall_upgrade_threshold = 0, auto_upgrade = MODE_OFF, reserve_builders = 1, state_callback = None, upgrade_order = None, clan_options = None, loot_filter = None, bb_wall_threshold = 0, stop_when_full = False):
         '''Starts the bot loop. With ``multi_run_players``, runs a full session per enabled player.
         ``run_time_minutes <= 0`` (single runs, either village) means ENDLESS: battles go on
         until the user stops the bot (with Maxer or Rusher, full storages with nothing to
@@ -228,7 +228,7 @@ class Bot:
         # Donate/request on the FIRST home visit of the session, then on their intervals.
         self._clan_last_donate = _CLAN_CLOCK_NEVER
         self._clan_last_request = _CLAN_CLOCK_NEVER
-        logger.info(f'''Bot started. Method: {method}, Time: {'endless' if unlimited else f'{duration // 60}m'}, StopWhenFull: {self._stop_when_full}, StarBonus: {star_bonus}, MultiRun: {mr}, UpgradeWalls: {upgrade_walls}, WallThreshold: {self._wall_upgrade_threshold}, AutoUpgrade: {self._auto_upgrade_mode}, ReserveBuilders: {self._reserve_builders}, Earthquake: {earthquake_method}, BuilderBase: {builder_base}, LootPrioritise: {loot_prioritise}, ClanDonate: {self._clan_options.donate}, ClanRequest: {self._clan_options.request}, ClanDryRun: {self._clan_options.dry_run}, LootFilter: {self._loot_filter.summary() if self._loot_filter.enabled else 'off'}''')
+        logger.info(f'''Bot started. Method: {method}, Time: {'endless' if unlimited else f'{duration // 60}m'}, StopWhenFull: {self._stop_when_full}, StarBonus: {star_bonus}, MultiRun: {mr}, UpgradeWalls: {upgrade_walls}, WallThreshold: {self._wall_upgrade_threshold}, AutoUpgrade: {self._auto_upgrade_mode}, ReserveBuilders: {self._reserve_builders}, Earthquake: {earthquake_method}, BuilderBase: {builder_base}, ClanDonate: {self._clan_options.donate}, ClanRequest: {self._clan_options.request}, ClanDryRun: {self._clan_options.dry_run}, LootFilter: {self._loot_filter.summary() if self._loot_filter.enabled else 'off'}''')
 
         try:
 
