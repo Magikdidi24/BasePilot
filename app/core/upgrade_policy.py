@@ -1,5 +1,5 @@
-'''Upgrade policy for the auto-maxer: which upgrade to start, given the parsed
-builder menu, OCR'd resources, and free builders.
+'''Upgrade policy for the auto-maxer: which upgrade to start, given the Build panel's
+cards, OCR'd resources, and free builders.
 
 Maxer and rusher are one engine with different rules — not two bots:
 - maxer: never touches the hall (Town Hall, Builder Hall); spends on everything else,
@@ -26,6 +26,10 @@ logger = setup_logger('UpgradePolicy')
 
 MODE_MAXER = 'maxer'
 MODE_RUSHER = 'rusher'
+MODE_OFF = 'off'
+MODE_DRY = 'dry'  # open the Build panel and log the pick, start nothing
+AUTO_UPGRADE_MODES = (MODE_OFF, MODE_DRY, MODE_MAXER, MODE_RUSHER)
+LIVE_UPGRADE_MODES = (MODE_MAXER, MODE_RUSHER)
 
 ORDER_PRICIEST = 'priciest'
 ORDER_CHEAPEST = 'cheapest'
@@ -65,20 +69,15 @@ def can_pay(row, resources, policy):
 def choose_upgrade(rows, resources, free_builders, policy):
     '''Pick the upgrade to start now, or ``None``.
 
-    ``rows``: merged :class:`UpgradeRow` list from the builder menu scan.
+    ``rows``: the :class:`UpgradeRow` cards read from the Build panel.
     ``resources``: OCR'd ``(gold, elixir, dark)`` HUD triplet.
     ``free_builders``: from the builder chip; ``None`` means unknown → do nothing.
     '''
     if free_builders is None or free_builders <= policy.reserve_builders:
         return None
-    # An unread section header must not disqualify a row. The popup only draws
-    # 'Suggested upgrades:' / 'Other upgrades:' once, so every view scrolled past them
-    # has no header to read, and a missed header read blanks the section for the whole
-    # descent — live repro: 51 rows scanned, every one section '', "nothing to start"
-    # with two builders free and a 5,000-gold Bomb sitting there affordable. What
-    # actually disqualifies a row is being IN PROGRESS, and those never carry a parsed
-    # cost (they show remaining time), so the cost/affordability gates below already
-    # exclude them; the section check is kept only to reject them explicitly.
+    # A running upgrade never carries a parsed cost (it shows the time left), so the
+    # cost and affordability gates below already exclude it; the section check only
+    # rejects one explicitly.
     candidates = [
         r for r in rows
         if r.section != SECTION_IN_PROGRESS

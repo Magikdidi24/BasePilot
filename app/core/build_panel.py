@@ -34,7 +34,7 @@ from app.core.upgrade_menu import (
     UpgradeRow,
     _parse_fraction_chip,
 )
-from app.core.upgrade_policy import UpgradePolicy, choose_upgrade
+from app.core.upgrade_policy import MODE_DRY, UpgradePolicy, choose_upgrade
 from app.core.village_state import read_hud_triplet_stable
 from app.utils.logger import setup_logger
 
@@ -293,7 +293,7 @@ def parse_cards(vision, frame):
 def _row(name_tokens, cost, resource, affordable):
     (x0, y0, x1, y1) = _box(name_tokens)
     return UpgradeRow(label = ' '.join(t.text for t in name_tokens), section = '', cost = cost, resource = resource,
-                      affordable = affordable, center = ((x0 + x1) // 2, (y0 + y1) // 2), line_y = (y0 + y1) // 2)
+                      affordable = affordable, center = ((x0 + x1) // 2, (y0 + y1) // 2))
 
 
 def gem_prompt_visible(vision, frame):
@@ -471,7 +471,7 @@ class BuildPanelUpgrader:
             logger.info('Build panel %s: %d cards, pick %s', what, len(rows), pick and (pick.label, pick.cost, pick.resource))
             if pick is None:
                 return f'{what}: nothing affordable'
-            if mode == 'dry':
+            if mode == MODE_DRY:
                 return f'{what}: would start {pick.label} ({pick.cost})'
             result = self._start(pick)
             if result != 'started':

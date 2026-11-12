@@ -142,7 +142,7 @@ class CooldownTests(unittest.TestCase):
         up._open = Mock(return_value=True)
         up._close_panel = Mock()
         up._start = Mock(return_value='no Confirm button, not started:')
-        row = UpgradeRow('Blacksmith', '', 2480000, 'elixir', True, (1480, 700), 700)
+        row = UpgradeRow('Blacksmith', '', 2480000, 'elixir', True, (1480, 700))
         policy = bp.UpgradePolicy(reserve_builders=0)
         with patch.object(bp, 'parse_cards', return_value=[row]):
             self.assertIn('not started', up._one(bp.TAB_BUILDINGS, (10 ** 8, 10 ** 8, 10 ** 6), 1, policy, 'maxer'))

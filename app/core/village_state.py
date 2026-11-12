@@ -15,7 +15,6 @@ import time
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
-from app.core.upgrade_menu import parse_builder_chip, parse_lab_chip
 from app.services.vision import VisionService
 from app.utils.logger import setup_logger
 
@@ -114,7 +113,7 @@ def read_village_state(frame, config = None):
         chips = read_chips(VisionService, config or Config(), frame)
         (builders, lab) = ((c.regular_free, c.total) if c is not None else None for c in chips)
     else:
-        (builders, lab) = (parse_builder_chip(frame), parse_lab_chip(frame))
+        (builders, lab) = (None, None)  # not the home screen: no chip to read
     state = VillageState(
         builders = builders,
         lab = lab,

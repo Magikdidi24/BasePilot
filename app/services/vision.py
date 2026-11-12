@@ -117,9 +117,6 @@ CONTROL_LABELS = {
 # readers looking at one poll's frame share them. Holding the frame keeps its id from being reused.
 _OCR_CACHE = {'frame': None, 'reads': {}}
 _WHITE_TEXT_BRIGHTNESS_FLOOR = 190
-_TOP_CENTER_MENU_SQUARE_SIDE_AT_BASELINE: Dict[str, int] = {
-    ASPECT_16_9: 1000,
-    ASPECT_16_10: 1000 }
 
 class VisionService:
     '''Handles image recognition and processing.'''
@@ -435,21 +432,6 @@ Normalize high-contrast UI text to **black glyphs on white** (single channel, 0 
 
     
     @staticmethod
-    def scaled_top_center_menu_side(screen_w, screen_h, *, aspect_key = None):
-        '''
-Square side length (px) for :meth:`top_middle_square_roi` / builder-menu OCR, scaled from
-the aspect baseline by **width** (``1000`` @ 2560 for both 16:10 and 16:9).
-'''
-        key = aspect_key or resolve_aspect_key(int(screen_w), int(screen_h))
-        if key is None or key not in ASPECT_BASELINE:
-            key = ASPECT_16_10
-        base_side = int(_TOP_CENTER_MENU_SQUARE_SIDE_AT_BASELINE.get(key, 1000))
-        (ref_w, _ref_h) = ASPECT_BASELINE[key]
-        sw = max(1, int(screen_w))
-        return max(1, int(round(base_side * sw / float(ref_w))))
-
-    
-    @staticmethod
     def _ocr_query_matches(raw, query_norm, *, case_sensitive, match_alnum_only, fuzzy_min_ratio):
         if not query_norm:
             return False
@@ -572,7 +554,7 @@ Args:
         and allow substring match either way on the compact strings.
     fuzzy_min_ratio: If set (e.g. ``0.8``), also accept words whose string similarity to the
         query reaches this ratio (SequenceMatcher).
-    charset: The characters the text may hold (e.g. :data:`DIGITS`): nothing else is read.
+    charset: The characters the text may hold (e.g. ``'0123456789'``): nothing else is read.
     single_line: Read the whole region as one line of text, without the detector (a cost, a
         counter cut out around its text).
     roi_upscale: Enlarge the region this much for the detector (small text in a small window).
@@ -595,9 +577,6 @@ Returns:
         return words
 
 
-    DIGITS = '0123456789'
-    LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
-    
     @staticmethod
     def numbers_hud_roi_top_right(screen_w, screen_h):
         '''
@@ -618,84 +597,6 @@ Returns ``(x, y, w, h)`` in screen pixels, anchored to the top-right corner.
         x = max(0, sw - rw)
         y = 0
         return (x, y, rw, rh)
-
-    
-    @staticmethod
-    def top_middle_square_roi(screen_w, screen_h, side = None, *, aspect_key = None):
-        '''
-A square anchored to the **top center**: ``y = 0``, horizontal centering,
-width/height at most ``side`` (clamped to the frame).
-
-``side`` omitted → :meth:`scaled_top_center_menu_side` (~1000 px @ 2560 wide for 16:10 / 16:9).
-'''
-        sw = max(1, int(screen_w))
-        sh = max(1, int(screen_h))
-        s = int(side) if not side is None else VisionService.scaled_top_center_menu_side(sw, sh, aspect_key = aspect_key)
-        rw = max(1, min(int(s), sw))
-        rh = max(1, min(int(s), sh))
-        x = max(0, (sw - rw) // 2)
-        y = 0
-        return (x, y, rw, rh)
-
-    
-    @staticmethod
-    def ocr_letters_top_center(screen_img, *, side = None):
-        '''
-**Builder-menu style OCR:** the letter-only words of a :meth:`top_middle_square_roi` (``side``
-omitted: the resolution-scaled menu square, ~1000 @ 2560), in **full-frame** coordinates.
-'''
-        if screen_img is None or screen_img.size == 0:
-            return []
-        (h_s, w_s) = screen_img.shape[:2]
-        roi = VisionService.top_middle_square_roi(w_s, h_s, side = side, aspect_key = resolve_aspect_key(w_s, h_s))
-        letter_only = re.compile('^[A-Za-z]+$')
-        return [b for b in VisionService.find_words_ocr(screen_img, region = roi, charset = VisionService.LETTERS)
-                if letter_only.fullmatch(b.text.strip())]
-    @staticmethod
-    def _ocr_word_y_center(box):
-        return box.top + box.height * 0.5
-
-    
-    @staticmethod
-    def cluster_ocr_boxes_by_y(boxes, y_tolerance):
-        '''
-Group OCR boxes that share a text line: union on pairs whose vertical centers
-differ by at most ``y_tolerance`` px.
-'''
-        if not boxes:
-            return []
-        n = len(boxes)
-        cy = [ VisionService._ocr_word_y_center(boxes[i]) for i in range(n) ]
-        parent = list(range(n))
-        
-        def find(i):
-            while parent[i] != i:
-                parent[i] = parent[parent[i]]
-                i = parent[i]
-            return i
-
-        
-        def union(i, j):
-            (pi, pj) = (find(i), find(j))  # [recovered: pycdc reversed STORE_FAST_STORE_FAST pairs]
-            if pi != pj:
-                parent[pi] = pj
-                return None
-
-        tol = float(y_tolerance)
-        for i in range(n):
-            for j in range(i + 1, n):
-                if not abs(cy[i] - cy[j]) <= tol:
-                    continue
-                union(i, j)
-        groups = { }
-        for i in range(n):
-            r = find(i)
-            groups.setdefault(r, []).append(boxes[i])
-        out = list(groups.values())
-        for cl in out:
-            cl.sort(key = (lambda b: b.left))
-        out.sort(key = (lambda cl: VisionService._ocr_word_y_center(cl[0])))
-        return out
 
     
     @staticmethod
@@ -746,7 +647,7 @@ Sort left-to-right and union bounding boxes into one :class:`GroupedNumber`.
 
     
     @staticmethod
-    def extract_grouped_numbers_in_region(screen_img, region, *, roi_upscale = 1, single_line = False, char_clusters_out = None):
+    def extract_grouped_numbers_in_region(screen_img, region, *, roi_upscale = 1, single_line = False):
         '''
 The numbers of ``region``, each a :class:`GroupedNumber` of digits only. In each line of text,
 the words holding a digit count (the letters a digit is read as are mapped back, see
@@ -754,12 +655,7 @@ the words holding a digit count (the letters a digit is read as are mapped back,
 apart than :data:`_NUMBER_RUN_GAP_WIDTHS` digit widths: a thousands space stays inside a
 number, while a "+385,306" loot floater beside the HUD, a lamp post behind a bar or an icon
 edge read as a digit does not join it (live: elixir 16,256,996 read as 116,256,996 once).
-
-``char_clusters_out``: when a list, it is cleared and filled with each run's digits
-(:class:`OcrWordBox`, left to right).
 '''
-        if char_clusters_out is not None:
-            char_clusters_out.clear()
         out = []
         for line in VisionService._ocr_lines(screen_img, region, single_line = single_line, roi_upscale = roi_upscale):
             (_x0, y0, _x1, y1) = line.box
@@ -780,8 +676,6 @@ edge read as a digit does not join it (live: elixir 16,256,996 read as 116,256,9
                 continue
             med_w = float(np.median([d.width for d in digits])) or 1.0
             for run in VisionService.split_cluster_on_gaps(digits, max(3.0, med_w * _NUMBER_RUN_GAP_WIDTHS)):
-                if char_clusters_out is not None:
-                    char_clusters_out.append(run)
                 out.append(VisionService.merge_numeric_cluster(run, join_separator = ''))
         return out
 

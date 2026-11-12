@@ -7,7 +7,7 @@ from app.core.upgrade_policy import (ORDER_CHEAPEST, ORDER_PRICIEST, MODE_MAXER,
 
 
 def card(label, cost, resource):
-    return UpgradeRow(label=label, section='', cost=cost, resource=resource, affordable=True, center=(900, 100), line_y=100)
+    return UpgradeRow(label=label, section='', cost=cost, resource=resource, affordable=True, center=(900, 100))
 
 
 HUD = (12122547, 10365793, 168213)  # gold, elixir, dark elixir on that frame

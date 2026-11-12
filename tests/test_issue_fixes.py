@@ -7,7 +7,6 @@ from unittest.mock import Mock, patch
 import numpy as np
 
 from app.core.bot import Bot
-from app.core.upgrader import UpgradeAdvisor
 from app.services.window import WindowService, bgra_dib_to_bgr
 
 FRAME = np.zeros((731, 1299, 3), dtype=np.uint8)
@@ -125,14 +124,31 @@ class IdleGateTests(unittest.TestCase):
 
 
 class AutoUpgradeGateTests(unittest.TestCase):
-    def test_scan_refuses_the_october_build_panel(self):
-        advisor = UpgradeAdvisor(Mock(), Mock(), Mock(), Mock(), Mock())
-        advisor._frame = Mock(return_value=FRAME)
-        advisor.vision.find_control.return_value = (100, 650)  # Battle
-        advisor.vision.find_template.side_effect = lambda f, name, **kw: (1200, 650) if name == 'build.png' else (None, None)
-        self.assertIsNone(advisor.scan())
-        self.assertFalse(advisor._open_builder_popup())
-        advisor.input.click.assert_not_called()
+    def test_no_upgrade_pass_without_the_build_button(self):
+        bot = Bot.__new__(Bot)
+        bot._auto_upgrade_mode = 'maxer'
+        bot.window = Mock(**{'screenshot.return_value': FRAME})
+        # everything shows but Build: the old popup reader that took over here tapped away
+        bot.vision = Mock(**{'find_template.side_effect': lambda f, name, **kw: (None, None) if name == 'build.png' else (640, 100),
+                             'find_control.return_value': (100, 650)})
+        bot.input = Mock()
+        bot.config = Mock()
+        bot.stop_event = Mock(**{'wait.return_value': False})
+        bot._build_panel_pass = Mock()
+        with self.assertLogs('BotCore', 'INFO') as logs:
+            self.assertIsNone(bot._maybe_auto_upgrade(force=True))
+        bot._build_panel_pass.assert_not_called()
+        self.assertEqual(bot.input.mock_calls, [])  # nothing tapped, nothing scrolled
+        self.assertIn('Build button not found', logs.output[-1])
+
+    def test_the_build_button_starts_a_build_panel_pass(self):
+        bot = Bot.__new__(Bot)
+        bot._auto_upgrade_mode = 'maxer'
+        bot.window = Mock(**{'screenshot.return_value': FRAME})
+        bot.vision = Mock(**{'find_template.return_value': (1200, 650)})
+        bot._build_panel_pass = Mock(return_value=None)
+        bot._maybe_auto_upgrade(force=True)
+        bot._build_panel_pass.assert_called_once_with('maxer')
 
 
 class CoarseToFineTests(unittest.TestCase):

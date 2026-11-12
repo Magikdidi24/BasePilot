@@ -12,7 +12,7 @@ from app.core.strategies import EdragStrategy, TroopSpamStrategy, _EDRAG_DELAY
 from app.core import bb_learning, bb_results, bb_scout, bb_strategy, hv_results
 from app.core.build_panel import TAB_BUILDINGS, BuildPanelUpgrader, find_close, gem_prompt_visible, panel_tab, wall_upgrade_button
 from app.core.upgrade_menu import RESOURCE_ELIXIR, RESOURCE_GOLD
-from app.core.upgrader import AUTO_UPGRADE_MODES, LIVE_UPGRADE_MODES, MODE_OFF, UpgradeAdvisor
+from app.core.upgrade_policy import AUTO_UPGRADE_MODES, LIVE_UPGRADE_MODES, MODE_OFF
 from app.core.village_state import is_october_hud, read_hud_triplet_stable, read_village_state, read_village_state_stable, storages_full
 from app.services.input import InputService
 from app.services.vision import BOTTOM_HALF_BOT_TEMPLATES, TOP_HALF_BOT_TEMPLATES, VisionService
@@ -68,7 +68,7 @@ _WALL_MENU_BOTTOM_DIFF = 4.0
 _WALL_MENU_OPEN_SECONDS = 1.2  # the builder popup renders ~1s after the click (0.8s frames are still empty)
 _WALL_MENU_WHEEL_CLICKS = 2  # ~3-4 rows per nudge; the OCR band spans the whole popup so a nudge cannot jump the Wall row past it
 _WALL_ROW_STABLE_TOL = 30  # ref px: max y drift between consecutive frames before the row is trusted for a click
-_AUTO_UPGRADE_SCAN_INTERVAL_SECONDS = 600  # full popup scan is OCR-heavy (~15-25s); keep it rare vs the ~35s attack cycle
+_AUTO_UPGRADE_SCAN_INTERVAL_SECONDS = 600  # a Build panel pass is OCR-heavy; keep it rare vs the ~35s attack cycle
 _WALL_RETRY_SECONDS = 600  # a wall pass that bought nothing fails the same way next raid; wait before paying for another
 _BUILD_PANEL_POLLS = 6  # ~3 s for the Build panel to slide in (its title read, or its tab art)
 _TAP_EATEN_AFTER = 3.0  # s without the next screen: a tap a selection on screen ate (it deselects); tapped again
@@ -219,7 +219,6 @@ class Bot:
         self._panel_upgrader = None
         self._reload_first_seen = None  # a dialog seen before an earlier Stop must not skip this session's grace
         self._upgrade_order = upgrade_order
-        self._advisor = None  # one UpgradeAdvisor per session (it holds execution cooldowns)
         self._clan_options = clan_options if clan_options is not None else ClanOptions()
         self._loot_filter = loot_filter if loot_filter is not None else LootFilter()
         self._loot_filter_off = False
@@ -591,10 +590,10 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
 
 
     def _maybe_auto_upgrade(self, force = False):
-        '''Interval-gated builder-popup scan + upgrade decision/execution (see
-        UpgradeAdvisor). ``force=True`` bypasses the interval (used when storages fill
-        up — the idle gate needs a spend attempt NOW, not in 10 minutes). A failure
-        here must never take down the farm loop. Returns the PassResult or None.'''
+        '''Interval-gated Build panel pass (:meth:`_build_panel_pass`). ``force=True``
+        bypasses the interval (used when storages fill up — the idle gate needs a spend
+        attempt NOW, not in 10 minutes). A failure here must never take down the farm
+        loop. Returns None.'''
         mode = getattr(self, '_auto_upgrade_mode', MODE_OFF)
         if mode == MODE_OFF:
             return None
@@ -606,16 +605,10 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             frame = self.window.screenshot()
             if frame is not None and self.vision.find_template(frame, 'build.png', region = VisionService.bottom_half_region(frame))[0]:
                 return self._build_panel_pass(mode)
-            if getattr(self, '_advisor', None) is None:
-                self._advisor = UpgradeAdvisor(self.window, self.input, self.vision, self.config, self.stop_event)
-            result = self._advisor.run_pass(mode, reserve_builders = getattr(self, '_reserve_builders', 1),
-                                            order = getattr(self, '_upgrade_order', None))
-            cb = getattr(self, '_status_callback', None)
-            if cb and result is not None and result.pick is not None:
-                cb(f'''Upgrades: {result.note}''')
-            self._emit_state(note = result.note if result else None,
-                             builders = result.scan.chip if result and result.scan else None)
-            return result
+            # Not home, or the Build button is covered. The pre-October 2026 builder-popup
+            # reader that took over here drove the new HUD blind: nothing is tapped instead.
+            logger.info('Upgrades: no capture or Build button not found — no upgrade pass this time')
+            return None
         except InterruptedError:
             raise
         except Exception:
