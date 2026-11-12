@@ -87,7 +87,9 @@ class _Model:
             self.runtime = f'onnxruntime {ort.__version__}'
         except Exception as e:  # not installed, or its DLLs did not load
             logger.info('OCR: ONNX Runtime unavailable (%s) — OpenCV DNN runs the models', e)
-            cv2.dnn.readNetFromONNX(path)  # raises now on a bad model, not at the first read
+            # the model's bytes, not its path: OpenCV cannot open a non-ASCII path on Windows
+            self.onnx = np.fromfile(path, np.uint8)
+            cv2.dnn.readNetFromONNX(self.onnx)  # raises now on a bad model, not at the first read
             self.runtime = f'OpenCV DNN {cv2.__version__}'
 
     def run(self, x):
@@ -98,7 +100,7 @@ class _Model:
             nets = _local.nets = {}
         net = nets.get(self.path)
         if net is None:
-            net = nets[self.path] = cv2.dnn.readNetFromONNX(self.path)
+            net = nets[self.path] = cv2.dnn.readNetFromONNX(self.onnx)
         net.setInput(x)
         return net.forward()
 

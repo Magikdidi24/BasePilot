@@ -7,7 +7,7 @@ import numpy as np
 from typing import Dict, Tuple
 from app.config import ASPECT_BASELINE, ASPECT_16_10, ASPECT_16_9, Config, resolve_aspect_key
 from app.services import ppocr
-from app.utils.common import get_template_path
+from app.utils.common import get_template_path, read_image
 from app.utils.logger import setup_logger
 
 logger = setup_logger('VisionService')
@@ -220,7 +220,7 @@ Returns (center_x, center_y) or (None, None).
         
         try:
             template_path = str(get_template_path(template_name))
-            template = cv2.imread(template_path)
+            template = read_image(template_path)
             if template is None:
                 logger.error(f'''Template not found: {template_path}''')
                 return (None, None)
@@ -264,7 +264,7 @@ Returns (None, None, confidence) if not found above threshold.
         
         try:
             template_path = str(get_template_path(template_name))
-            template = cv2.imread(template_path)
+            template = read_image(template_path)
             if template is None:
                 logger.error(f'''Template not found: {template_path}''')
                 return (None, None, 0)
@@ -364,7 +364,7 @@ with saturation and value at least ``sat_floor`` / ``val_floor``.
         
         try:
             template_path = str(get_template_path(template_name))
-            template = cv2.imread(template_path)
+            template = read_image(template_path)
             if template is None:
                 logger.error(f'''Template not found: {template_path}''')
                 return []

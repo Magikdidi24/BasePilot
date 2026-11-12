@@ -65,7 +65,7 @@ import numpy as np
 
 from app.core.build_panel import gem_prompt_visible
 from app.services.vision import VisionService
-from app.utils.common import get_template_path, save_debug_frame
+from app.utils.common import get_template_path, read_image, save_debug_frame
 from app.utils.logger import setup_logger
 
 logger = setup_logger('ClanAssist')
@@ -431,7 +431,7 @@ class ClanAssistant:
         '''How big ``name`` is drawn on this capture — the template's own size scaled the
         way :meth:`VisionService.find_template` scales it before matching.'''
         try:
-            template = cv2.imread(str(get_template_path(name)))
+            template = read_image(get_template_path(name))
         except Exception:
             template = None
         if template is None:

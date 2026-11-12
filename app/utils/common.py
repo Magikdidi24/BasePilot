@@ -162,15 +162,35 @@ def get_log_path():
     return get_user_app_data_dir() / 'basepilot.log'
 
 
+def read_image(path, flags = None):
+    '''``cv2.imread`` that also opens a non-ASCII path: OpenCV's own file functions cannot on
+    Windows, and the exe unpacks its templates under the user's folder, which may hold an
+    accent. The image (BGR, or ``flags`` such as cv2.IMREAD_GRAYSCALE), or None when the file
+    is missing or not an image.'''
+    import cv2  # lazy: importing this module must not load OpenCV (setup_logger imports it)
+    import numpy as np
+    try:
+        data = np.fromfile(str(path), np.uint8)
+    except OSError:
+        return None
+    if data.size == 0:
+        return None
+    return cv2.imdecode(data, cv2.IMREAD_COLOR if flags is None else flags)
+
+
 def save_debug_frame(frame, prefix):
     '''Write ``frame`` to ``debug/<prefix>_<unix time>.jpg`` in the data dir (JPEG quality 88),
-    the frames a bug report comes with, and return the path. Raises when OpenCV or the folder
-    fails; cv2.imwrite's False is not checked.'''
+    the frames a bug report comes with, and return the path. Raises when it cannot. Encoded
+    here and written by Python, as :func:`read_image` reads: cv2.imwrite cannot open a
+    non-ASCII path on Windows, and only returns False.'''
     import cv2  # lazy: importing this module must not load OpenCV (setup_logger imports it)
     folder = get_user_app_data_dir() / 'debug'
     folder.mkdir(parents = True, exist_ok = True)
     path = folder / f'{prefix}_{int(time.time())}.jpg'
-    cv2.imwrite(str(path), frame, [cv2.IMWRITE_JPEG_QUALITY, 88])
+    (ok, jpeg) = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 88])
+    if not ok:
+        raise ValueError(f'could not encode {path.name}')
+    path.write_bytes(jpeg.tobytes())
     return path
 
 

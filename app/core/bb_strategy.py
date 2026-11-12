@@ -45,7 +45,7 @@ from typing import Optional
 import cv2
 import numpy as np
 
-from app.utils.common import get_template_path
+from app.utils.common import get_template_path, read_image
 
 MACHINE = 'machine'
 # Roles, in their deploy order (see the module doc)
@@ -170,7 +170,7 @@ def _portrait_hits(vision, frame, template, region, limit = 1, threshold = -1.0)
     matches, at ``threshold`` or above, best first and a portrait apart:
     ``(score, (x, y))``, the portrait's centre. Only its part under
     :data:`_PORTRAIT_FROM` is matched (a survivor's health bar covers the top).'''
-    full = cv2.imread(str(get_template_path(template)))
+    full = read_image(get_template_path(template))
     (x, y, w, h) = region
     if full is None:
         return []

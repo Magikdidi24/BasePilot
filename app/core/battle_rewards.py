@@ -2,7 +2,7 @@
 from functools import lru_cache
 import time
 import cv2
-from app.utils.common import get_resource_path
+from app.utils.common import get_resource_path, read_image
 from app.utils.logger import setup_logger
 
 logger = setup_logger('BattleRewards')
@@ -10,7 +10,7 @@ logger = setup_logger('BattleRewards')
 
 @lru_cache(maxsize=1)
 def _header():
-    return cv2.imread(str(get_resource_path('templates/events/reward_header.png')), 0)
+    return read_image(get_resource_path('templates/events/reward_header.png'), cv2.IMREAD_GRAYSCALE)
 
 
 def reward_visible(frame):

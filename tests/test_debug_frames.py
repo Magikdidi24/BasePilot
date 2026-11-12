@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 
 from app.core import bot, clan
+from app.utils.common import read_image
 
 FRAME = np.full((40, 60, 3), 200, np.uint8)
 DUMPERS = (('bot', bot._dump_debug_frame), ('clan', clan._dump_debug_frame))
@@ -26,13 +27,13 @@ class DebugFrameTests(unittest.TestCase):
 
     def test_a_frame_goes_to_the_debug_dir_as_a_jpeg(self):
         for (name, dump) in DUMPERS:
-            with self.subTest(name), patch('cv2.imwrite', wraps=cv2.imwrite) as write:
+            with self.subTest(name), patch('cv2.imencode', wraps=cv2.imencode) as encode:
                 path = dump(FRAME, 'probe')
                 (prefix, stamp) = path.stem.split('_')
                 self.assertEqual((path.parent.name, prefix, stamp.isdigit(), path.suffix), ('debug', 'probe', True, '.jpg'))
                 self.assertTrue(path.is_relative_to(self.data))  # the data dir, here the temporary one
-                self.assertEqual(write.call_args.args[2], [cv2.IMWRITE_JPEG_QUALITY, 88])
-                self.assertEqual(cv2.imread(str(path)).shape, FRAME.shape)
+                self.assertEqual(encode.call_args.args[2], [cv2.IMWRITE_JPEG_QUALITY, 88])
+                self.assertEqual(read_image(path).shape, FRAME.shape)
 
     def test_no_frame_gives_no_file(self):
         for (name, dump) in DUMPERS:
@@ -41,7 +42,9 @@ class DebugFrameTests(unittest.TestCase):
 
     def test_a_failed_write_gives_none(self):
         for (name, dump) in DUMPERS:
-            with self.subTest(name), patch('cv2.imwrite', side_effect=OSError('disk full')):
+            with self.subTest(name, failure='write'), patch('pathlib.Path.write_bytes', side_effect=OSError('disk full')):
+                self.assertIsNone(dump(FRAME, 'probe'))
+            with self.subTest(name, failure='encode'), patch('cv2.imencode', return_value=(False, None)):
                 self.assertIsNone(dump(FRAME, 'probe'))
 
 
