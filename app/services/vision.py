@@ -212,6 +212,36 @@ under 24 px or small search areas are matched directly.'''
         return (best_val, best_loc)
 
     @staticmethod
+    def _load_and_crop(screen_img, template_name, region, scale, *, warn_out_of_bounds = False):
+        '''What the template finders share: ``template_name`` read and sized for ``screen_img``
+        (times ``scale``; None keeps it as authored), and the part of the screen to search,
+        ``region`` or all of it. ``(template, search_img, offset_x, offset_y)``, or None when the
+        template is missing (logged), the region runs past the screen or the template is bigger
+        than the search.'''
+        template_path = str(get_template_path(template_name))
+        template = read_image(template_path)
+        if template is None:
+            logger.error(f'''Template not found: {template_path}''')
+            return None
+        if scale is not None:
+            template = VisionService._resize_template_for_screen(template, screen_img, scale)
+        (search_img, offset_x, offset_y) = (screen_img, 0, 0)
+        if region:
+            (x, y, w, h) = region
+            (h_screen, w_screen) = screen_img.shape[:2]
+            if x + w > w_screen or y + h > h_screen:
+                if warn_out_of_bounds:
+                    logger.warning(f'''Region {region} out of bounds for image size {w_screen}x{h_screen}''')
+                return None
+            search_img = screen_img[y:y + h, x:x + w]
+            (offset_x, offset_y) = (x, y)  # [fix: x/y offsets were swapped -> every region search returned wrong coords]
+        (t_h, t_w) = template.shape[:2]
+        (s_h, s_w) = search_img.shape[:2]
+        if t_w > s_w or t_h > s_h:
+            return None
+        return (template, search_img, offset_x, offset_y)
+
+    @staticmethod
     def find_template(screen_img, template_name, threshold = 0.8, region = None, *, scale_template = True):
         '''
 Finds a single occurrence of a template in the screen image.
@@ -219,28 +249,11 @@ Returns (center_x, center_y) or (None, None).
 '''
         
         try:
-            template_path = str(get_template_path(template_name))
-            template = read_image(template_path)
-            if template is None:
-                logger.error(f'''Template not found: {template_path}''')
+            found = VisionService._load_and_crop(screen_img, template_name, region, scale = 1 if scale_template else None, warn_out_of_bounds = True)
+            if found is None:
                 return (None, None)
-            if scale_template:
-                template = VisionService._resize_template_for_screen(template, screen_img)
-            if region:
-                (x, y, w, h) = region
-                (h_screen, w_screen) = screen_img.shape[:2]
-                if x + w > w_screen or y + h > h_screen:
-                    logger.warning(f'''Region {region} out of bounds for image size {w_screen}x{h_screen}''')
-                    return (None, None)
-                search_img = screen_img[y:y + h, x:x + w]
-                (offset_x, offset_y) = (x, y)  # [fix: x/y offsets were swapped -> every region search returned wrong coords]
-            else:
-                search_img = screen_img
-                (offset_x, offset_y) = (0, 0)
+            (template, search_img, offset_x, offset_y) = found
             (t_h, t_w) = template.shape[:2]
-            (s_h, s_w) = search_img.shape[:2]
-            if t_w > s_w or t_h > s_h:
-                return (None, None)
             (max_val, max_loc) = VisionService._match_best(search_img, template)
             if max_val < threshold:
                 return (None, None)
@@ -263,26 +276,11 @@ Returns (None, None, confidence) if not found above threshold.
 '''
         
         try:
-            template_path = str(get_template_path(template_name))
-            template = read_image(template_path)
-            if template is None:
-                logger.error(f'''Template not found: {template_path}''')
+            found = VisionService._load_and_crop(screen_img, template_name, region, scale)
+            if found is None:
                 return (None, None, 0)
-            template = VisionService._resize_template_for_screen(template, screen_img, scale)
-            if region:
-                (x, y, w, h) = region
-                (h_screen, w_screen) = screen_img.shape[:2]
-                if x + w > w_screen or y + h > h_screen:
-                    return (None, None, 0)
-                search_img = screen_img[y:y + h, x:x + w]
-                (offset_x, offset_y) = (x, y)  # [fix: x/y offsets were swapped -> every region search returned wrong coords]
-            else:
-                search_img = screen_img
-                (offset_x, offset_y) = (0, 0)
+            (template, search_img, offset_x, offset_y) = found
             (t_h, t_w) = template.shape[:2]
-            (s_h, s_w) = search_img.shape[:2]
-            if t_w > s_w or t_h > s_h:
-                return (None, None, 0)
             (max_val, max_loc) = VisionService._match_best(search_img, template)
             if max_val < threshold:
                 return (None, None, float(max_val))
@@ -350,27 +348,11 @@ with saturation and value at least ``sat_floor`` / ``val_floor``.
         '''Up to ``max_matches`` non-overlapping ``matchTemplate`` hits: ``(left, top, t_w, t_h, score)``.'''
         
         try:
-            template_path = str(get_template_path(template_name))
-            template = read_image(template_path)
-            if template is None:
-                logger.error(f'''Template not found: {template_path}''')
+            found = VisionService._load_and_crop(screen_img, template_name, region, scale)
+            if found is None:
                 return []
-            template = VisionService._resize_template_for_screen(template, screen_img, scale)
-            if region:
-                (x, y, w, h) = region
-                (h_screen, w_screen) = screen_img.shape[:2]
-                if x + w > w_screen or y + h > h_screen:
-                    return []
-                search_img = screen_img[y:y + h, x:x + w]
-                offset_y = y
-                offset_x = x
-            else:
-                search_img = screen_img
-                (offset_x, offset_y) = (0, 0)
+            (template, search_img, offset_x, offset_y) = found
             (t_h, t_w) = template.shape[:2]
-            (s_h, s_w) = search_img.shape[:2]
-            if t_w > s_w or t_h > s_h:
-                return []
             result = cv2.matchTemplate(search_img, template, cv2.TM_CCOEFF_NORMED)
             work = result.copy()
             matches = []
