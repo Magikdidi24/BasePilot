@@ -75,16 +75,13 @@ _CHIP_LINE_MARGIN = 0.3  # blank around the glyphs in the OCR line, in glyph hei
 _CHIP_INK_MIN_PEAK = 235
 
 
-def _parse_fraction_chip(frame, roi_frac, max_total):
-    '''Read a "free/total" chip (above Build) → ``(free, total)`` or ``None``: the chip's line read
-    whole, digits and the slash only (:mod:`app.services.ppocr`). When the ink shows the three
-    glyphs, the line is cut on them, and a narrow one is a 1 from its shape whatever OCR made
-    of it.'''
+def _parse_fraction_chip(frame, roi, max_total):
+    '''Read a "free/total" chip (above Build) in ``roi``, frame px ``(x, y, w, h)`` →
+    ``(free, total)`` or ``None``: the chip's line read whole, digits and the slash only
+    (:mod:`app.services.ppocr`). When the ink shows the three glyphs, the line is cut on them,
+    and a narrow one is a 1 from its shape whatever OCR made of it.'''
     if frame is None or frame.size == 0:
         return None
-    (fh, fw) = frame.shape[:2]
-    (rx, ry, rw, rh) = roi_frac
-    roi = (int(fw * rx), int(fh * ry), int(fw * rw), int(fh * rh))
     glyphs = _chip_glyphs(frame, roi)
     if glyphs is not None:
         roi = _chip_line(frame, glyphs)

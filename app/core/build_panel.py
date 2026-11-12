@@ -111,8 +111,7 @@ def read_chips(vision, config, frame):
         return (None, None)
     chips = []
     for (text, face, top) in ((_BUILDER_TEXT, _BUILDER_FACE, 6), (_LAB_TEXT, _LAB_FACE, 2)):
-        (x, y, rw, rh) = _anchored(frame, config, bx, by, text)
-        parsed = _parse_fraction_chip(frame, (x / w, y / h, rw / w, rh / h), max_total = top)
+        parsed = _parse_fraction_chip(frame, _anchored(frame, config, bx, by, text), max_total = top)
         if parsed is None:
             chips.append(None)
             continue

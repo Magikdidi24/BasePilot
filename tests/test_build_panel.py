@@ -9,6 +9,7 @@ import numpy as np
 
 from app.config import Config
 from app.core import build_panel as bp
+from app.core import upgrade_menu
 from app.core.bot import Bot
 from app.core.upgrade_menu import RESOURCE_DARK, RESOURCE_ELIXIR, RESOURCE_GOLD, UpgradeRow
 from app.core.upgrade_policy import UpgradePolicy
@@ -65,6 +66,18 @@ class ReaderTests(unittest.TestCase):
         self.assertEqual((builders.free, builders.goblin, builders.regular_free), (1, True, 0))
         (builders, lab) = bp.read_chips(_vision(), Config(), canvas(('chips_bb', 860, 1640)))
         self.assertEqual(((builders.free, builders.total), (lab.free, lab.total)), ((0, 3), (0, 1)))
+
+    def test_the_chip_reader_crops_the_box_read_chips_anchors(self):
+        # the box went through frame fractions and int() back: the builders' text 27 px tall
+        # instead of 28 at this size and spot
+        frame = np.zeros((767, 1227, 3), np.uint8)
+        vision = Mock(**{'find_template.return_value': (1100, 700)})
+        crops = []
+        with (patch.object(upgrade_menu, '_chip_glyphs', return_value=None),
+              patch.object(upgrade_menu.ppocr, 'read_line', side_effect=lambda img, **kw: crops.append(img.shape[:2]) or '')):
+            bp.read_chips(vision, Mock(), frame)
+        boxes = [bp._anchored(frame, None, 1100, 700, box) for box in (bp._BUILDER_TEXT, bp._LAB_TEXT)]
+        self.assertEqual(crops, [(h, w) for (_x, _y, w, h) in boxes])
 
     def test_upgrade_dialog_resource_button(self):
         frame = canvas(('dialog_hv_title', 0, 230), ('dialog_hv_bottom', 730, 150))
