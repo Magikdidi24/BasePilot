@@ -24,10 +24,12 @@ class TemplateReaderErrorTests(unittest.TestCase):
                     self.assertEqual(read(), miss)
                 self.assertIn(f'Error in {name}: disk gone', logs.output[0])
 
-    def test_a_failing_multi_match_logs_its_error(self):
+    def test_a_failing_multi_match_logs_its_error_and_finds_nothing(self):
         with patch('app.services.vision.get_template_path', side_effect=RuntimeError('disk gone')), \
                 self.assertLogs('VisionService', 'ERROR') as logs:
-            self.assertIsNone(VisionService._find_template_matches(FRAME, 'build.png', 0.8))
+            self.assertEqual(VisionService._find_template_matches(FRAME, 'build.png', 0.8), [])
+            # callers iterate over the hits: a failed read must come back as nothing found
+            self.assertEqual(VisionService.find_all_template_centers(FRAME, 'build.png'), [])
         self.assertIn('Error in _find_template_matches (build.png): disk gone', logs.output[0])
 
 

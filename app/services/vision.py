@@ -410,7 +410,7 @@ with saturation and value at least ``sat_floor`` / ``val_floor``.
             return matches
         except Exception as e:
             logger.error(f'''Error in _find_template_matches ({template_name}): {e}''')
-            return None
+            return []
 
 
     
