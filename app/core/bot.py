@@ -367,6 +367,12 @@ wall upgrades for the first pre-Attack snapshot that would otherwise count as an
         self._suppress_loot_negative_error_once = False
 
     
+    def _status(self, msg):
+        '''Show ``msg`` on the Run page's status line, when a callback listens.'''
+        cb = getattr(self, '_status_callback', None)  # Bot.__new__ in tests sets none
+        if cb:
+            cb(msg)
+
     def _check_stop(self):
         if self.stop_event.is_set():
             raise InterruptedError('Bot stopped by user')
@@ -564,9 +570,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         resources = self._should_upgrade_walls()
         if not resources:  # [recovered: decompiler dropped the second `not`, so it upgraded only when storages were NOT full]
             return None
-        cb = getattr(self, '_status_callback', None)
-        if cb:
-            cb('Upgrading walls...')
+        self._status('Upgrading walls...')
         self._loot_snapshot_before_attack()
         for i in range(_WALL_SINGLE_MAX):
             self._check_stop()
@@ -578,8 +582,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             self._deselect_wall_ui()
             if not bought:
                 self._wall_retry_at = time.monotonic() + _WALL_RETRY_SECONDS
-                if cb:
-                    cb(f'Walls: nothing bought this pass — next try in {_WALL_RETRY_SECONDS // 60} min (see Logs)')
+                self._status(f'Walls: nothing bought this pass — next try in {_WALL_RETRY_SECONDS // 60} min (see Logs)')
                 break
         self._suppress_loot_negative_error_once = True
 
@@ -627,9 +630,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         note = upgrader.run_pass(mode, reserve_builders = self._effective_reserve(), order = getattr(self, '_upgrade_order', None),
                                  builder_base = getattr(self, '_builder_base', False))
         logger.info('Upgrades: %s', note)
-        cb = getattr(self, '_status_callback', None)
-        if cb:
-            cb(f'''Upgrades: {note}''')
+        self._status(f'''Upgrades: {note}''')
         return upgrader.started > 0
 
     def _clan_assistant(self):
@@ -662,9 +663,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         if elixir >= floor:
             return True
         logger.info('Clan assist: elixir %s is below the %s floor — skipping donations this pass', elixir, floor)
-        cb = getattr(self, '_status_callback', None)
-        if cb:
-            cb(f'''Clan: elixir {self._fmt_resource(elixir)} below {self._fmt_resource(floor)} — not donating yet''')
+        self._status(f'''Clan: elixir {self._fmt_resource(elixir)} below {self._fmt_resource(floor)} — not donating yet''')
         return False
 
     def _maybe_clan_assist(self):
@@ -697,9 +696,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             self._clan_last_request = now + _CLAN_UNCALIBRATED_BACKOFF_SECONDS
             msg = f'''Clan assist: missing template(s) {', '.join(missing)} — capture them in Settings → Clan assist.'''
             logger.warning(msg)
-            cb = getattr(self, '_status_callback', None)
-            if cb:
-                cb(msg)
+            self._status(msg)
             return None
         if donate_due and not self._clan_elixir_ok(opts):
             donate_due = False
@@ -710,9 +707,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             assistant = self._clan_assistant()
             if assistant.disabled:
                 return None
-            cb = getattr(self, '_status_callback', None)
-            if cb:
-                cb('Clan chat: donating...' if donate_due else 'Clan chat: requesting troops...')
+            self._status('Clan chat: donating...' if donate_due else 'Clan chat: requesting troops...')
             result = assistant.run_pass(donate = donate_due, request = request_due)
             # Only the errands actually attempted reset their clock: a pass that could
             # not open the chat retries on the next lap instead of waiting out the
@@ -722,8 +717,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                     self._clan_last_donate = now
                 if request_due:
                     self._clan_last_request = now
-            if cb:
-                cb(f'''Clan: {result.note}''')
+            self._status(f'''Clan: {result.note}''')
             return result
         except InterruptedError:
             raise
@@ -841,7 +835,6 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             logger.info('Idle gate: storages ~full but still filling (gold pinned=%s, elixir pinned=%s) — farming on', getattr(self, '_gold_pinned', False), getattr(self, '_elixir_pinned', False))
             return None
         reserve = self._effective_reserve()
-        cb = getattr(self, '_status_callback', None)
         logger.info('Idle gate: nothing startable with storages full (%s) — pausing attacks, rechecking every %ds', state.summary(), _IDLE_RECHECK_SECONDS)
         while True:
             self._check_stop()
@@ -850,8 +843,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             msg = f'''Idling — {state.summary() if state else 'state unreadable'}; recheck in {_IDLE_RECHECK_SECONDS // 60}m'''
             if state is not None and state.lab_idle:
                 msg += ' — LAB IS IDLE: start a research!'
-            if cb:
-                cb(msg)
+            self._status(msg)
             self._emit_village_state(state, 'idling')
             if self.stop_event.wait(_IDLE_RECHECK_SECONDS):
                 return None
@@ -882,8 +874,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                 logger.info('Idle over: %d builder(s) free (%s)', free, state.summary())
                 break
         self._auto_upgrade_last_scan = 0  # resume with an immediate scan so the freed builder is used
-        if cb:
-            cb('Resuming — ' + state.summary())
+        self._status('Resuming — ' + state.summary())
         self._emit_village_state(state, 'farming')
 
     def _storages_full_now(self):
@@ -910,9 +901,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         multi = getattr(self, '_multi_run', False)
         msg = f'''Storages full (gold and elixir) — {'this account is done' if multi else 'stopping the run'}.'''
         logger.info(msg)
-        cb = getattr(self, '_status_callback', None)
-        if cb:
-            cb(msg)
+        self._status(msg)
         if not multi:
             self.finish_reason = 'storages full'
         return True
@@ -1121,7 +1110,6 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         self._safely('Idle gate', self._maybe_idle, deadline)
         if self._safely('Full storages', self._stop_if_storages_full):
             return None
-        cb = getattr(self, '_status_callback', None)
         troop_failures = 0
         while deadline is None or time.time() < deadline:
             self._check_stop()
@@ -1147,8 +1135,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                         # recovery runs again on the next attempt).
                         msg = f'''{what} {troop_failures} times in a row — backing off {_IDLE_RECHECK_SECONDS // 60}m, then retrying (endless run).'''
                         logger.warning(msg)
-                        if cb:
-                            cb(msg)
+                        self._status(msg)
                         troop_failures = 0
                         if self.stop_event.wait(_IDLE_RECHECK_SECONDS):
                             return None
@@ -1156,13 +1143,11 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                         continue
                     msg = f'''{what} {troop_failures} times in a row — stopping. Check the army / saved recipe, and that the game shows the home village.'''
                     logger.warning(msg)
-                    if cb:
-                        cb(msg)
+                    self._status(msg)
                     return None
                 msg = f'''{what} ({troop_failures}/{_TROOP_FAILURE_LIMIT}) — retrying in {_TROOP_RETRY_WAIT_SECONDS}s.'''
                 logger.warning(msg)
-                if cb:
-                    cb(msg)
+                self._status(msg)
                 # Tap any collect bubbles while we are home — if the failure was really the
                 # need-more-gold dialog (entry fee unaffordable), mine gold un-wedges it.
                 self._multi_run_collect_home_village_resources()
@@ -1190,7 +1175,6 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         Home. ``duration_seconds == 0``: endless, until the user's Stop (or full storages with
         "Stop when storages are full"); a stuck screen backs off instead of ending the run.'''
         start_time = time.time()
-        cb = getattr(self, '_status_callback', None)
         if self.stop_event.wait(1):
             return None
         frame = self.window.screenshot()
@@ -1203,8 +1187,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         if star_bonus and self._is_bb_star_bonus_finished():
             msg = 'Builder Base star bonus: bstar.png not visible — nothing to collect. Finishing without attacks.'
             logger.info(msg)
-            if cb:
-                cb(msg)
+            self._status(msg)
             return None
         self._maybe_auto_upgrade()
         self._safely('Walls', self._bb_maybe_upgrade_walls)
@@ -1215,7 +1198,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         while not duration_seconds or time.time() - start_time < duration_seconds:
             self._check_stop()
             try:
-                attacked = self._bb_attack_once(cb)
+                attacked = self._bb_attack_once()
             except InterruptedError:
                 raise
             except Exception:
@@ -1232,8 +1215,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                         # the way usually clears, and recovery runs again after the back-off.
                         msg = f'''Builder Base: {failures} cycles in a row without a battle — backing off {_IDLE_RECHECK_SECONDS // 60}m, then retrying (endless run).'''
                         logger.warning(msg)
-                        if cb:
-                            cb(msg)
+                        self._status(msg)
                         failures = 0
                         if self.stop_event.wait(_IDLE_RECHECK_SECONDS):
                             return None
@@ -1241,8 +1223,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                         continue
                     msg = f'''Builder Base: {failures} cycles in a row without a battle — stopping. Check that the Builder Base is on screen.'''
                     logger.warning(msg)
-                    if cb:
-                        cb(msg)
+                    self._status(msg)
                     return None
                 if self.stop_event.wait(_TROOP_RETRY_WAIT_SECONDS):
                     return None
@@ -1274,9 +1255,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         resources = self._should_upgrade_walls(threshold)
         if not resources:
             return None
-        cb = getattr(self, '_status_callback', None)
-        if cb:
-            cb('Builder Base: upgrading walls...')
+        self._status('Builder Base: upgrading walls...')
         bought = 0
         for i in range(_WALL_SINGLE_MAX):
             self._check_stop()
@@ -1287,8 +1266,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             if not self._upgrade_walls(resources):
                 if not bought:
                     self._wall_retry_at = time.monotonic() + _WALL_RETRY_SECONDS
-                    if cb:
-                        cb(f'Builder Base walls: nothing bought this pass — next try in {_WALL_RETRY_SECONDS // 60} min (see Logs)')
+                    self._status(f'Builder Base walls: nothing bought this pass — next try in {_WALL_RETRY_SECONDS // 60} min (see Logs)')
                 break
             bought += 1
         frame = self.window.screenshot()
@@ -1311,7 +1289,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         self._record_loot((gold, elixir, 0), village = 'builder')
         self._emit_state(state = 'Builder Base', storages = f'{self._fmt_resource(gold)} / {self._fmt_resource(elixir)}')
 
-    def _bb_attack_once(self, cb):
+    def _bb_attack_once(self):
         '''One Builder Base battle: Battle → Find Now → deploy → play it to its end (never
         End Battle nor Surrender). False when no battle was played (a control never showed up).'''
         self._bb_stage_plans = {}  # a new battle draws the attack plan of each stage
@@ -1340,8 +1318,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         if not bx:
             msg = 'Builder Base: troop cards not found after Find Now'
             logger.warning(msg)
-            if cb:
-                cb(msg)
+            self._status(msg)
             return False
         frame = self.window.screenshot()
         if frame is None:
@@ -1779,9 +1756,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             # bailing out here would leave the Find a Match screen open with nothing to recover it.
             msg = 'Valkyrie army not confirmed (slow screen or missing saved recipe) — attacking with current army'
             logger.warning(msg)
-            cb = getattr(self, '_status_callback', None)
-            if cb:
-                cb(msg)
+            self._status(msg)
         if a2x:
             self.input.click(a2x, a2y, pause = 0.1)
         (bsx, _bsy) = self._wait_for_any_image(('surrender.png', 'endbattle.png'), timeout = 60, label_after = _BATTLE_LABEL_AFTER)
@@ -1834,9 +1809,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             self._loot_filter_off = True  # say it once, not once per raid
             msg = f'''Loot filter: {TEMPLATE_NEXT_BASE} not captured — attacking every base. Capture it in Settings → Clan assist → Capture templates.'''
             logger.warning(msg)
-            cb = getattr(self, '_status_callback', None)
-            if cb:
-                cb(msg)
+            self._status(msg)
             return None
         for _ in range(max(1, int(lf.max_skips))):
             self._check_stop()
@@ -1867,9 +1840,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                 return None
             self._bases_skipped = getattr(self, '_bases_skipped', 0) + 1
             logger.info('Loot filter: skipping a base with %s gold / %s elixir (want %s) — %d skipped this session', gold, elixir, lf.summary(), self._bases_skipped)
-            cb = getattr(self, '_status_callback', None)
-            if cb:
-                cb(f'''Skipping base: {self._fmt_resource(gold)} gold / {self._fmt_resource(elixir)} elixir''')
+            self._status(f'''Skipping base: {self._fmt_resource(gold)} gold / {self._fmt_resource(elixir)} elixir''')
             self._emit_state(skipped = self._bases_skipped)
             self.input.click(nx, ny, pause = 0.4)
             if not self._wait_for_next_base():
@@ -2296,11 +2267,9 @@ Returns (``"return"`` | ``"chest"``, x, y) or (None, None, None) on timeout.
     
     def _switch_account_and_load_home(self, username):
         '''Open Settings → Change user, OCR-click username, wait for home. Raises on failure.'''
-        cb = getattr(self, '_status_callback', None)
         msg = f'''Multi-run: switching to {username!r}'''
         logger.info(msg)
-        if cb:
-            cb(msg)
+        self._status(msg)
         if not self._open_game_settings():
             raise RuntimeError('Multi-run: Settings not found (the profile at the top left, then its Settings tab)')
         (cux, cuy) = self._wait_for_image('changeuser.png', timeout = 10, error = False)
@@ -2313,8 +2282,7 @@ Returns (``"return"`` | ``"chest"``, x, y) or (None, None, None) on timeout.
         if not ucx:
             err = f'''Multi-run: could not find username "{username}" on screen (OCR)'''
             logger.error(err)
-            if cb:
-                cb(err)
+            self._status(err)
             raise RuntimeError(err)
         self.input.click(ucx, ucy, pause = 0.2)
         if self.stop_event.wait(1):
@@ -2323,8 +2291,7 @@ Returns (``"return"`` | ``"chest"``, x, y) or (None, None, None) on timeout.
         if not ax:
             err = f'''Multi-run: Home Village not ready after loading {username!r} (builder.png|gbuilder.png / attack.png timeout after login / leaving Builder Base)'''
             logger.error(err)
-            if cb:
-                cb(err)
+            self._status(err)
             raise RuntimeError(err)
         self._loot_prev_resources = None
 
@@ -2403,9 +2370,7 @@ Each iteration dismisses ``okay.png`` / ``exit.png`` if present, then village / 
                 (mx, my) = self.vision.find_template(frame, 'mbuilder.png', region = chip_roi)
                 if mx:
                     logger.info('Account loaded in Builder Base (mbuilder.png); leaving to Home Village')
-                    cb = getattr(self, '_status_callback', None)
-                    if cb:
-                        cb('Multi-run: Builder Base on login — leaving (nboat)')
+                    self._status('Multi-run: Builder Base on login — leaving (nboat)')
                     self._leave_builder_base_with_nboat(settle_before_drag = False)
                     if self.stop_event.wait(1):
                         return (None, None)
@@ -2513,9 +2478,7 @@ dimensions and dragging.
         if settle_before_drag and self.stop_event.wait(0.75):
             self._check_stop()
         logger.info('Leaving Builder Base (drag + nboat)')
-        cb = getattr(self, '_status_callback', None)
-        if cb:
-            cb('Multi-run: leaving Builder Base (nboat)')
+        self._status('Multi-run: leaving Builder Base (nboat)')
         self._zoom_out_max()
         self._bb_pan_down_left_from_center()
         (nx, ny) = self._wait_for_image('nboat.png', timeout = 12, error = False)
@@ -2527,10 +2490,8 @@ dimensions and dragging.
     
     def _multi_run_collect_home_village_resources(self):
         '''Multi-run: tap Home Village collect bubbles if visible, before taking the boat to Builder Base.'''
-        cb = getattr(self, '_status_callback', None)
         logger.info('Multi-run: Home Village collect (hgold, helixir, hdelixir)')
-        if cb:
-            cb('Multi-run: Home Village collect')
+        self._status('Multi-run: Home Village collect')
         self._zoom_out_max()
         for tpl in ('hgold.png', 'helixir.png', 'hdelixir.png'):
             self._check_stop()
@@ -2547,11 +2508,9 @@ appear, open the secondary base via boat, collect builder resources if icons app
 optionally run the clock boost chain, then leave Builder Base.
 """
         self._multi_run_collect_home_village_resources()
-        cb = getattr(self, '_status_callback', None)
         msg = 'Multi-run: Builder Base (boat → collect)'
         logger.info(msg)
-        if cb:
-            cb(msg)
+        self._status(msg)
         self._zoom_out_max()
         (bx, by) = self._wait_for_image('boat.png', timeout = 15, error = False)
         if not bx:
@@ -2636,9 +2595,7 @@ OCR is limited to the right half of the window unless ``region`` is passed expli
             if self._frame_shows_supercell_login_prompt(frame):
                 msg = f'''Multi-run: "Log in to Supercell ID" is showing and {text!r} was not found — log in or dismiss that screen, then retry.'''
                 logger.warning(msg)
-                cb = getattr(self, '_status_callback', None)
-                if cb:
-                    cb(msg)
+                self._status(msg)
                 raise RuntimeError(msg)
             self._scroll_player_list_with_drag(frame)
             if self.stop_event.wait(0.45):

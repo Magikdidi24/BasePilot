@@ -126,7 +126,7 @@ class BattleTapTests(unittest.TestCase):
         waits = {'attack.png': [(75, 734)], 'findnow.png': [(None, None), (900, 600)]}
         bot._wait_for_image = Mock(side_effect=lambda name, **kw: waits[name].pop(0) if name in waits else (None, None))
         bot._find_template_once = Mock(return_value=(75, 734))  # still home
-        self.assertFalse(bot._bb_attack_once(None))  # no troop cards here: the test stops at them
+        self.assertFalse(bot._bb_attack_once())  # no troop cards here: the test stops at them
         self.assertEqual([c.args[:2] for c in bot.input.click.call_args_list], [(75, 734), (75, 734), (900, 600)])
 
 
