@@ -5,22 +5,21 @@ The screen is laid out around the window's middle and scales with its height (li
 the gold, elixir and dark elixir won, each number right-aligned against its icon. A star
 is lit when won (live: silver) and dark when not. The numbers are read by the PP-OCR line
 model (:mod:`app.services.ppocr`). The screen animates in (the damage and the loot count up
-from 0), so :func:`app.core.bb_results.settled_result` reads it until two reads agree.
+from 0), so :func:`app.core.results_screen.settled_result` reads it until two reads agree.
 '''
-import re
 from dataclasses import asdict, dataclass
 from typing import Optional
 
 import cv2
 import numpy as np
 
+from app.core.results_screen import crop, digits, lit_stars
 from app.services import ppocr
 
 # Where each star is sampled: (x from the middle, y) and the half side, in screen heights.
 # Live 1227x767: the side stars at (485, 160) and (740, 160); the middle one is sampled on
 # its lower body (613, 158), under "Total damage: N%".
 _STARS = (((-0.167, 0.209), 0.029), ((0.0, 0.206), 0.016), ((0.166, 0.209), 0.029))
-_STAR_LIT = 0.6  # share of a star's box over V 170 (live: 1.00 won, 0.00 not)
 # (x0, x1) from the middle and (y0, y1), in screen heights
 _DAMAGE = ((-0.07, 0.075), (0.141, 0.183))
 _LOOT_X = (-0.2, 0.045)  # the numbers end at the icons (+0.05)
@@ -41,25 +40,14 @@ class HomeResult:
         return asdict(self)
 
 
-def _crop(frame, box):
-    (h, w) = frame.shape[:2]
-    ((x0, x1), (y0, y1)) = box
-    return frame[max(0, int(y0 * h)):min(h, int(y1 * h)), max(0, int(w / 2 + x0 * h)):min(w, int(w / 2 + x1 * h))]
-
-
-def _digits(text):
-    digits = re.sub(r'\D', '', text or '')
-    return int(digits) if digits else None
-
-
-def _number_on_the_right(crop, h):
-    '''The white number right-aligned in ``crop``, cut out of the base behind it (live: a
+def _number_on_the_right(part, h):
+    '''The white number right-aligned in ``part``, cut out of the base behind it (live: a
     gold-coloured building left of it read as a "U") and read; None when none shows.'''
-    if crop.size == 0:
+    if part.size == 0:
         return None
-    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+    hsv = cv2.cvtColor(part, cv2.COLOR_BGR2HSV)
     white = (hsv[..., 2] >= 200) & (hsv[..., 1] <= 60)
-    cols = np.flatnonzero(white.sum(axis = 0) >= max(2, crop.shape[0] // 10))
+    cols = np.flatnonzero(white.sum(axis = 0) >= max(2, part.shape[0] // 10))
     if cols.size == 0:
         return None
     (gap, pad) = (max(3, int(_DIGIT_GAP * h)), max(2, int(_PAD * h)))
@@ -68,30 +56,23 @@ def _number_on_the_right(crop, h):
         if left - int(c) > gap:
             break
         left = int(c)
-    return _digits(ppocr.read_line(crop[:, max(0, left - pad):right + pad + 1]))
+    return digits(ppocr.read_line(part[:, max(0, left - pad):right + pad + 1]))
 
 
 def stars(frame):
     '''How many of the three stars are lit.'''
-    (h, w) = frame.shape[:2]
-    lit = 0
-    for ((dx, y), half) in _STARS:
-        (cx, cy, r) = (int(w / 2 + dx * h), int(y * h), max(2, int(half * h)))
-        patch = frame[max(0, cy - r):cy + r, max(0, cx - r):cx + r]
-        if patch.size and (cv2.cvtColor(patch, cv2.COLOR_BGR2HSV)[..., 2] >= 170).mean() >= _STAR_LIT:
-            lit += 1
-    return lit
+    return lit_stars(frame, _STARS, min_half_px = 2)
 
 
 def read_result(frame):
     ''':class:`HomeResult` of the results screen on ``frame``, or None when its damage does
     not read (another screen, or no OCR model).'''
-    crop = _crop(frame, _DAMAGE)
-    damage = _digits(ppocr.read_line(crop)) if crop.size else None
+    part = crop(frame, _DAMAGE)
+    damage = digits(ppocr.read_line(part)) if part.size else None
     if damage is None or damage > 100:
         return None
     h = frame.shape[0]
-    loot = {k: _number_on_the_right(_crop(frame, (_LOOT_X, rows)), h) for (k, rows) in _LOOT_ROWS.items()}
+    loot = {k: _number_on_the_right(crop(frame, (_LOOT_X, rows)), h) for (k, rows) in _LOOT_ROWS.items()}
     return HomeResult(stars(frame), damage, **loot)
 
 

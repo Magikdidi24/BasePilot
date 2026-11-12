@@ -13,13 +13,14 @@ import numpy as np
 from app.config import Config
 from app.core import bb_learning, bb_results, bb_scout
 from app.core.bot import Bot
+from app.core.results_screen import settled_result
 from app.services import ppocr
 from app.utils import battle_history
 
 FIXTURES = Path(__file__).parent / 'fixtures'
 
 
-def results_screen(name):
+def results_frame(name):
     frame = np.zeros((767, 1227, 3), np.uint8)
     frame[75:700] = cv2.imread(str(FIXTURES / f'gpg767_bb_result_{name}.jpg'))
     Config().set_target_size_from_frame(frame)
@@ -32,7 +33,7 @@ class ResultsScreenTests(unittest.TestCase):
         want = {'75_1': (1, 75, 30000, 9), '93_2': (2, 93, 72000, 20), '142_3': (3, 142, 122000, 31),
                 '158_3': (3, 158, 142000, 37)}  # the 158 % one has two silver stars and a gold one
         for (name, (stars, damage, gold, trophies)) in want.items():
-            self.assertEqual(bb_results.read_result(results_screen(name)), bb_results.BattleResult(stars, damage, gold, trophies), name)
+            self.assertEqual(bb_results.read_result(results_frame(name)), bb_results.BattleResult(stars, damage, gold, trophies), name)
 
     def test_the_screen_is_read_once_its_animation_is_over(self):
         # the damage counts up from 0 % and the stars come one by one: two reads must agree
@@ -41,12 +42,12 @@ class ResultsScreenTests(unittest.TestCase):
         def wait(seconds):
             now[0] += seconds
             return False
-        frames = [results_screen('counting')] * 2 + [results_screen('142_3')] * 8
-        result = bb_results.settled_result(lambda: frames.pop(0), wait, monotonic=lambda: now[0])
+        frames = [results_frame('counting')] * 2 + [results_frame('142_3')] * 8
+        result = settled_result(lambda: frames.pop(0), wait, bb_results.read_result, monotonic=lambda: now[0])
         self.assertEqual((result.stars, result.damage), (3, 142))
         self.assertGreaterEqual(now[0], 2.0)  # 0 % twice at first sight is no result
-        still = [results_screen('counting')] * 30  # a battle that really ends at 0 %
-        self.assertEqual(bb_results.settled_result(lambda: still.pop(0), wait, monotonic=lambda: now[0]).damage, 0)
+        still = [results_frame('counting')] * 30  # a battle that really ends at 0 %
+        self.assertEqual(settled_result(lambda: still.pop(0), wait, bb_results.read_result, monotonic=lambda: now[0]).damage, 0)
 
     def test_another_screen_reads_as_none(self):
         self.assertIsNone(bb_results.read_result(np.zeros((767, 1227, 3), np.uint8)))
@@ -153,7 +154,7 @@ class BotPlanTests(unittest.TestCase):
         bot._bb_plans = bb_learning.PlanLearner()
         bot._bb_stage_plans = {1: ('pekka', 'mortar'), 2: ('pekka', 'core')}
         result = bb_results.BattleResult(3, 158, 142000, 37)
-        with patch('app.core.bot.bb_results.settled_result', return_value=result), \
+        with patch('app.core.bot.results_screen.settled_result', return_value=result), \
                 patch('app.core.bot.battle_history.append') as append:
             bot._bb_record_result(0.0)
         record = append.call_args.args[0]

@@ -10,8 +10,9 @@ from unittest.mock import Mock, patch
 import cv2
 import numpy as np
 
-from app.core import bb_learning, bb_results, hv_results
+from app.core import bb_learning, hv_results
 from app.core.bot import Bot
+from app.core.results_screen import settled_result
 from app.services import ppocr
 from app.utils.profile_settings_store import (EARTHQUAKE_METHOD_CURVE, EARTHQUAKE_METHOD_LEARN, EARTHQUAKE_METHOD_RANDOM,
                                               _normalize_earthquake_method)
@@ -19,7 +20,7 @@ from app.utils.profile_settings_store import (EARTHQUAKE_METHOD_CURVE, EARTHQUAK
 FIXTURES = Path(__file__).parent / 'fixtures'
 
 
-def results_screen(name):
+def results_frame(name):
     frame = np.zeros((767, 1227, 3), np.uint8)
     frame[20:480, 380:860] = cv2.imread(str(FIXTURES / f'gpg767_hv_result_{name}.jpg'))
     return frame
@@ -28,14 +29,14 @@ def results_screen(name):
 @unittest.skipUnless(ppocr.available(), 'needs OpenCV DNN and the model in app/data/ocr')
 class ResultsScreenTests(unittest.TestCase):
     def test_stars_damage_and_loot(self):
-        self.assertEqual(hv_results.read_result(results_screen('54_1')), hv_results.HomeResult(1, 54, 283551, 347568, 2758))
+        self.assertEqual(hv_results.read_result(results_frame('54_1')), hv_results.HomeResult(1, 54, 283551, 347568, 2758))
 
     def test_the_numbers_are_cut_out_of_the_base(self):
         # live: a gold-coloured building left of the gold read as a "U" in a wider crop
-        self.assertEqual(hv_results.read_result(results_screen('counting')), hv_results.HomeResult(1, 0, 0, 0, 0))
+        self.assertEqual(hv_results.read_result(results_frame('counting')), hv_results.HomeResult(1, 0, 0, 0, 0))
 
     def test_other_window_sizes(self):
-        frame = results_screen('54_1')
+        frame = results_frame('54_1')
         for size in ((1440, 900), (1920, 1200)):
             big = cv2.resize(frame, size, interpolation=cv2.INTER_CUBIC)
             self.assertEqual(hv_results.read_result(big), hv_results.HomeResult(1, 54, 283551, 347568, 2758), size)
@@ -46,8 +47,8 @@ class ResultsScreenTests(unittest.TestCase):
         def wait(seconds):
             now[0] += seconds
             return False
-        frames = [results_screen('counting')] * 2 + [results_screen('54_1')] * 8
-        result = bb_results.settled_result(lambda: frames.pop(0), wait, monotonic=lambda: now[0], read=hv_results.read_result)
+        frames = [results_frame('counting')] * 2 + [results_frame('54_1')] * 8
+        result = settled_result(lambda: frames.pop(0), wait, hv_results.read_result, monotonic=lambda: now[0])
         self.assertEqual((result.damage, result.gold), (54, 283551))
 
     def test_another_screen_reads_as_none(self):
@@ -145,7 +146,7 @@ class BotTests(unittest.TestCase):
         bot._hv_loot_left = (300000, 200000, 6000)
         bot._hv_quakes = bb_learning.QuakeLearner()
         with patch('app.core.bot.hv_results.read_result', return_value=result), \
-                patch('app.core.bot.bb_results.settled_result', return_value=result):
+                patch('app.core.bot.results_screen.settled_result', return_value=result):
             self.assertEqual(bot._hv_record_result(), result)
         record = append.call_args.args[0]
         self.assertEqual({k: record[k] for k in ('village', 'stars', 'damage', 'gold', 'elixir', 'dark', 'army', 'plan', 'loot')},

@@ -9,7 +9,7 @@ from app.config import ASPECT_16_10, Config
 from app.core.clan import ClanAssistant, ClanOptions, missing_templates
 from app.core.loot_filter import TEMPLATE_NEXT_BASE, LootFilter, combine_reads, meets, read_enemy_loot
 from app.core.strategies import EdragStrategy, TroopSpamStrategy, _EDRAG_DELAY
-from app.core import bb_learning, bb_results, bb_scout, bb_strategy, hv_results
+from app.core import bb_learning, bb_results, bb_scout, bb_strategy, hv_results, results_screen
 from app.core.build_panel import TAB_BUILDINGS, BuildPanelUpgrader, find_close, gem_prompt_visible, panel_tab, wall_upgrade_button
 from app.core.upgrade_menu import RESOURCE_ELIXIR, RESOURCE_GOLD
 from app.core.upgrade_policy import AUTO_UPGRADE_MODES, LIVE_UPGRADE_MODES, MODE_OFF
@@ -1568,7 +1568,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             if frame is not None:
                 self._update_config_size(frame)
             return frame
-        result = bb_results.settled_result(capture, self.stop_event.wait)
+        result = results_screen.settled_result(capture, self.stop_event.wait, bb_results.read_result)
         if result is None:
             logger.info('Builder Base: results screen not read')
             return None
@@ -2087,7 +2087,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             if look or self.stop_event.wait(0.5):
                 logger.info('Battle: results screen not read')
                 return None
-        result = bb_results.settled_result(capture, self.stop_event.wait, read = hv_results.read_result)
+        result = results_screen.settled_result(capture, self.stop_event.wait, hv_results.read_result)
         if result is None:
             logger.info('Battle: results screen not read')
             return None
