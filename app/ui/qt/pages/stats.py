@@ -2,10 +2,10 @@
 from __future__ import annotations
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
-from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QHeaderView, QLabel, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QHeaderView, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 from app.core import stats
 from app.ui.qt.theme import SPACING, TOKENS
-from app.ui.qt.widgets import Card, PageTitle, SectionTitle, neutral_button
+from app.ui.qt.widgets import Card, PageTitle, SectionTitle, hint_label, neutral_button
 from app.utils import battle_history
 
 _STAR_COLOURS = {0: TOKENS['danger'], 1: TOKENS['warning'], 2: '#84CC16', 3: TOKENS['success']}
@@ -67,9 +67,7 @@ class StatsPage(QWidget):
         buttons.addWidget(export)
         buttons.addStretch()
         layout.addLayout(buttons)
-        self._summary = QLabel('')
-        self._summary.setWordWrap(True)
-        self._summary.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
+        self._summary = hint_label('')
         layout.addWidget(self._summary)
         chart_card = Card()
         chart_card.card_layout.addWidget(SectionTitle('Builder Base: damage of the last battles (bar colour: stars)'))

@@ -1,9 +1,8 @@
 '''Players page — multi-run account list.'''
 from __future__ import annotations
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QHBoxLayout, QLineEdit, QScrollArea, QVBoxLayout, QWidget
-from app.ui.qt.theme import SPACING, TOKENS
-from app.ui.qt.widgets import PageTitle, chip_button, danger_button, neutral_button, primary_button
+from PySide6.QtWidgets import QHBoxLayout, QLineEdit, QVBoxLayout, QWidget
+from app.ui.qt.theme import SPACING
+from app.ui.qt.widgets import PageTitle, chip_button, danger_button, hint_label, neutral_button, primary_button, scroll_page
 from app.utils.player_list_store import PlayerEntry, load_players, save_players
 
 class _PlayerRow(QWidget):
@@ -70,21 +69,13 @@ class PlayersPage(QWidget):
         hint = QWidget()
         hint_layout = QVBoxLayout(hint)
         hint_layout.setContentsMargins(0, 0, 0, 0)
-        from PySide6.QtWidgets import QLabel
-        hint_label = QLabel('Order is rotation order (↑↓). Run (green) = farm this account; Skip (red) = ignore.')
-        hint_label.setWordWrap(True)
-        hint_label.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
-        hint_layout.addWidget(hint_label)
+        hint_layout.addWidget(hint_label('Order is rotation order (↑↓). Run (green) = farm this account; Skip (red) = ignore.'))
         outer.addWidget(hint)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._list_host = QWidget()
         self._list_layout = QVBoxLayout(self._list_host)
         self._list_layout.setSpacing(SPACING['sm'])
         self._list_layout.addStretch()
-        scroll.setWidget(self._list_host)
-        outer.addWidget(scroll, stretch = 1)
+        outer.addWidget(scroll_page(self._list_host), stretch = 1)
         add_btn = neutral_button('Add player')
         add_btn.clicked.connect((lambda : self._add_row(PlayerEntry(name = '', enabled = True))))
         outer.addWidget(add_btn)

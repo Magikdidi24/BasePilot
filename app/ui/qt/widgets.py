@@ -2,7 +2,7 @@
 from __future__ import annotations
 from PySide6.QtCore import Qt, QRectF, QSize, QPointF
 from PySide6.QtGui import QColor, QPainter, QPolygonF
-from PySide6.QtWidgets import QCheckBox, QFrame, QLabel, QPushButton, QSpinBox, QVBoxLayout
+from PySide6.QtWidgets import QCheckBox, QFrame, QLabel, QPushButton, QScrollArea, QSpinBox, QVBoxLayout
 from app.ui.qt.theme import SPACING, TOKENS
 
 class Card(QFrame):
@@ -187,3 +187,26 @@ def spin_box(low, high, *, step = 1, suffix = '', special = '', width = 88, tip 
     spin.setFixedWidth(width)
     spin.setToolTip(tip)
     return spin
+
+
+def muted_label(text, parent = None):
+    '''A label in the muted text colour: units and notes beside the controls.'''
+    label = QLabel(text, parent)
+    label.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
+    return label
+
+
+def hint_label(text, parent = None):
+    '''A muted label that wraps: the explanations under the controls.'''
+    label = muted_label(text, parent)
+    label.setWordWrap(True)
+    return label
+
+
+def scroll_page(content):
+    '''``content`` in a scroll area that sizes it to the page's width: vertical scrolling only.'''
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    scroll.setWidget(content)
+    return scroll

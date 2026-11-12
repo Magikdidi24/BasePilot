@@ -3,13 +3,13 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime
 from PySide6.QtCore import QSettings, Qt, QTimer, Signal
-from PySide6.QtWidgets import QButtonGroup, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QScrollArea, QSpinBox, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QButtonGroup, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QSpinBox, QVBoxLayout, QWidget
 from app.config import check_game_window_aspect_for_start
 from app.core import bb_strategy, schedule
 from app.ui.qt._constants import ATTACK_STRATEGIES, BUILDER_BASE_ATTACK_STRATEGIES
 from app.ui.qt.dialogs import show_error, show_under_development
 from app.ui.qt.theme import SPACING, TOKENS
-from app.ui.qt.widgets import Card, SectionTitle, StepperButton, ToggleSwitch, chip_button, danger_button, neutral_button, primary_button, segment_button, spin_box
+from app.ui.qt.widgets import Card, SectionTitle, StepperButton, ToggleSwitch, chip_button, danger_button, hint_label, muted_label, neutral_button, primary_button, scroll_page, segment_button, spin_box
 from app.utils.common import ui_settings_name
 from app.utils.player_list_store import load_players
 from app.utils.logger import setup_logger
@@ -50,9 +50,6 @@ class RunPage(QWidget):
         outer.setContentsMargins(SPACING['lg'], SPACING['lg'], SPACING['lg'], SPACING['lg'])
         outer.setSpacing(SPACING['md'])
         outer.addWidget(self._build_village_selector())
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         content = QWidget()
         layout = QVBoxLayout(content)
         layout.setSpacing(SPACING['md'])
@@ -69,8 +66,7 @@ class RunPage(QWidget):
         layout.addWidget(self._status_card)
         layout.addWidget(self._build_controls_card())
         layout.addStretch()
-        scroll.setWidget(content)
-        outer.addWidget(scroll)
+        outer.addWidget(scroll_page(content))
         self._apply_village_ui()
         self._restore_choices()
         self._restore_schedule()
@@ -135,21 +131,20 @@ class RunPage(QWidget):
         loot_row.addSpacing(SPACING['xs'])
         self._min_gold = self._min_loot_spin(card)
         loot_row.addWidget(self._min_gold)
-        loot_row.addWidget(self._muted('gold', card))
+        loot_row.addWidget(muted_label('gold', card))
         loot_row.addSpacing(SPACING['md'])
         self._min_elixir = self._min_loot_spin(card)
         loot_row.addWidget(self._min_elixir)
-        loot_row.addWidget(self._muted('elixir', card))
+        loot_row.addWidget(muted_label('elixir', card))
         loot_row.addSpacing(SPACING['md'])
         self._min_dark = self._min_loot_spin(card, ATTACK_MIN_DARK_K_MAX, 1)
         loot_row.addWidget(self._min_dark)
-        loot_row.addWidget(self._muted('dark', card))
+        loot_row.addWidget(muted_label('dark', card))
         loot_row.addStretch()
         card.card_layout.addLayout(loot_row)
-        loot_hint = self._muted('Home Village only. On the battle-prep screen a base holding less than this is skipped with Next '
-                                '(each Next costs a search fee; Settings → Minimum loot to attack caps the skips per raid). '
-                                '"any" attacks every base.', card)
-        loot_hint.setWordWrap(True)
+        loot_hint = hint_label('Home Village only. On the battle-prep screen a base holding less than this is skipped with Next '
+                               '(each Next costs a search fee; Settings → Minimum loot to attack caps the skips per raid). '
+                               '"any" attacks every base.', card)
         card.card_layout.addWidget(loot_hint)
         self._load_min_loot()
         self._min_gold.valueChanged.connect(self._save_min_loot)
@@ -160,12 +155,6 @@ class RunPage(QWidget):
     @staticmethod
     def _min_loot_spin(parent, maximum = ATTACK_MIN_LOOT_K_MAX, step = 50):
         return spin_box(0, maximum, step = step, suffix = 'k', special = 'any', parent = parent)
-
-    @staticmethod
-    def _muted(text, parent):
-        label = QLabel(text, parent)
-        label.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
-        return label
 
     def _load_min_loot(self):
         '''The loot filter's minimums from the profile (Settings edits them too).'''
@@ -218,18 +207,16 @@ class RunPage(QWidget):
         self._endless = ToggleSwitch('Endless (until you press Stop)', parent = card)
         self._endless.toggled.connect(self._on_endless_toggle)
         card.card_layout.addWidget(self._endless)
-        endless_hint = self._muted('Battles go on with no time limit, in either village, until you press Stop. A screen the bot '
-                                   'cannot get past makes it back off 5 minutes and retry instead of ending the run. Home Village '
-                                   'with Maxer or Rusher: when storages are full and nothing can be started, the attacks pause '
-                                   'and the bot rechecks every 5 minutes. A Multi-run keeps the duration, for each account.', card)
-        endless_hint.setWordWrap(True)
+        endless_hint = hint_label('Battles go on with no time limit, in either village, until you press Stop. A screen the bot '
+                                  'cannot get past makes it back off 5 minutes and retry instead of ending the run. Home Village '
+                                  'with Maxer or Rusher: when storages are full and nothing can be started, the attacks pause '
+                                  'and the bot rechecks every 5 minutes. A Multi-run keeps the duration, for each account.', card)
         card.card_layout.addWidget(endless_hint)
         self._stop_when_full = ToggleSwitch('Stop when storages are full', parent = card)
         card.card_layout.addWidget(self._stop_when_full)
-        full_hint = self._muted('Ends the run once the gold and elixir bars are both full, in either village. Checked between '
-                                'battles, after the walls and upgrades had their turn: what they spend keeps the run going. With '
-                                'a duration or Endless; in a Multi-run, that account is done and the next one starts.', card)
-        full_hint.setWordWrap(True)
+        full_hint = hint_label('Ends the run once the gold and elixir bars are both full, in either village. Checked between '
+                               'battles, after the walls and upgrades had their turn: what they spend keeps the run going. With '
+                               'a duration or Endless; in a Multi-run, that account is done and the next one starts.', card)
         card.card_layout.addWidget(full_hint)
         dur_row = QHBoxLayout()
         self._duration_label = SectionTitle('Duration')
@@ -283,14 +270,13 @@ class RunPage(QWidget):
         self._times_edit.setFixedWidth(220)
         times_row.addWidget(self._times_edit)
         times_row.addSpacing(SPACING['xs'])
-        self._times_note = self._muted('', card)
+        self._times_note = muted_label('', card)
         times_row.addWidget(self._times_note)
         times_row.addStretch()
         card.card_layout.addLayout(times_row)
-        timed_hint = self._muted('While BasePilot is open, it presses Start by itself at each time, with this page as it is set '
-                                 '(village, strategy, duration, modes). A run still going at that time is left alone: the start '
-                                 'goes once it ends, if that is within 10 minutes.', card)
-        timed_hint.setWordWrap(True)
+        timed_hint = hint_label('While BasePilot is open, it presses Start by itself at each time, with this page as it is set '
+                                '(village, strategy, duration, modes). A run still going at that time is left alone: the start '
+                                'goes once it ends, if that is within 10 minutes.', card)
         card.card_layout.addWidget(timed_hint)
         self._schedule_timer = QTimer(self)
         self._schedule_timer.setInterval(_SCHEDULE_CHECK_MS)
@@ -359,9 +345,7 @@ class RunPage(QWidget):
             upg_row.addWidget(btn)
         upg_row.addStretch()
         card.card_layout.addLayout(upg_row)
-        upg_hint = QLabel('When one of your regular builders is free, Maxer starts an affordable upgrade (never the Town Hall), and the laboratory starts a research; Rusher also grabs the Town Hall the moment it is affordable. The goblin builder and researcher are never used, and any gem prompt is closed at once. Dry run only logs what it would start. Reserve builders for walls in Settings (only applies with Upgrade walls on).')
-        upg_hint.setWordWrap(True)
-        upg_hint.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
+        upg_hint = hint_label('When one of your regular builders is free, Maxer starts an affordable upgrade (never the Town Hall), and the laboratory starts a research; Rusher also grabs the Town Hall the moment it is affordable. The goblin builder and researcher are never used, and any gem prompt is closed at once. Dry run only logs what it would start. Reserve builders for walls in Settings (only applies with Upgrade walls on).')
         card.card_layout.addWidget(upg_hint)
         self._upgrade_walls = ToggleSwitch('Upgrade walls', parent = card)
         card.card_layout.addWidget(self._upgrade_walls)
@@ -369,9 +353,7 @@ class RunPage(QWidget):
         card.card_layout.addWidget(self._auto_donate)
         self._auto_request = ToggleSwitch('Auto request troops', parent = card)
         card.card_layout.addWidget(self._auto_request)
-        clan_hint = QLabel('Between raids the bot opens the clan chat, donates to open requests, and asks for reinforcements. Pick the chat button once in Settings → Clan assist — dry run is on there by default, so the first run only logs what it would click.')
-        clan_hint.setWordWrap(True)
-        clan_hint.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
+        clan_hint = hint_label('Between raids the bot opens the clan chat, donates to open requests, and asks for reinforcements. Pick the chat button once in Settings → Clan assist — dry run is on there by default, so the first run only logs what it would click.')
         card.card_layout.addWidget(clan_hint)
         mr_row = QHBoxLayout()
         self._multi_run = ToggleSwitch('Multi-run', parent = card)
@@ -393,10 +375,9 @@ class RunPage(QWidget):
         card.card_layout.addWidget(self._bb_auto_upgrade)
         self._bb_upgrade_walls = ToggleSwitch('Upgrade walls', parent = card)
         card.card_layout.addWidget(self._bb_upgrade_walls)
-        bb_walls_hint = self._muted('Between battles, a wall at a time from the Build panel, paid with the gold or elixir over '
-                                    'the threshold in Settings → Wall upgrade threshold → Builder Base (full storages by default). '
-                                    'Never through a gem prompt, never the Wall Ring.', card)
-        bb_walls_hint.setWordWrap(True)
+        bb_walls_hint = hint_label('Between battles, a wall at a time from the Build panel, paid with the gold or elixir over '
+                                   'the threshold in Settings → Wall upgrade threshold → Builder Base (full storages by default). '
+                                   'Never through a gem prompt, never the Wall Ring.', card)
         card.card_layout.addWidget(bb_walls_hint)
         mr_row = QHBoxLayout()
         self._bb_multi_run = ToggleSwitch('Multi-run', parent = card, under_development = True)
@@ -443,9 +424,7 @@ class RunPage(QWidget):
         self._stat_loot = stat(1, 0, 'Loot this session')
         self._stat_loot_rate = stat(1, 1, 'Loot / hour')
         self._stat_skipped = stat(1, 2, 'Bases skipped')
-        self._stat_note = QLabel('Start the bot to see live village state here. Builders / lab / storages update while Auto upgrade is on.')
-        self._stat_note.setWordWrap(True)
-        self._stat_note.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
+        self._stat_note = hint_label('Start the bot to see live village state here. Builders / lab / storages update while Auto upgrade is on.')
         card.card_layout.addLayout(grid)
         card.card_layout.addWidget(self._stat_note)
         return card
