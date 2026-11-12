@@ -147,6 +147,29 @@ def _normalize_int(raw, default, low, high):
     return max(low, min(high, value))
 
 
+def _settings_from(get):
+    '''ProfileSettings with every field read through ``get(field, default)`` and brought into
+    range, for load (the file) and save alike.'''
+    return ProfileSettings(
+        earthquake_method = _normalize_earthquake_method(get('earthquake_method', None)),
+        wall_upgrade_threshold_m = _normalize_wall_threshold_m(get('wall_upgrade_threshold_m', WALL_UPGRADE_THRESHOLD_M_DEFAULT)),
+        reserve_builders = _normalize_reserve_builders(get('reserve_builders', RESERVE_BUILDERS_DEFAULT)),
+        upgrade_order = _normalize_upgrade_order(get('upgrade_order', UPGRADE_ORDER_PRICIEST)),
+        clan_dry_run = bool(get('clan_dry_run', True)),  # the one default get must supply: bool(None) is False
+        clan_chat_point = _normalize_clan_chat_point(get('clan_chat_point', None)),
+        clan_chat_point_aspect = _normalize_clan_chat_point_aspect(get('clan_chat_point_aspect', None)),
+        clan_donate_troop = _normalize_clan_donate_troop(get('clan_donate_troop', CLAN_DONATE_TROOP_AUTO)),
+        clan_donate_count = _normalize_int(get('clan_donate_count', None), CLAN_DONATE_COUNT_DEFAULT, 0, CLAN_DONATE_COUNT_MAX),
+        clan_min_elixir_k = _normalize_int(get('clan_min_elixir_k', None), CLAN_MIN_ELIXIR_K_DEFAULT, 0, CLAN_MIN_ELIXIR_K_MAX),
+        clan_donate_interval_m = _normalize_int(get('clan_donate_interval_m', None), CLAN_DONATE_INTERVAL_M_DEFAULT, CLAN_DONATE_INTERVAL_M_MIN, CLAN_DONATE_INTERVAL_M_MAX),
+        clan_request_interval_m = _normalize_int(get('clan_request_interval_m', None), CLAN_REQUEST_INTERVAL_M_DEFAULT, CLAN_REQUEST_INTERVAL_M_MIN, CLAN_REQUEST_INTERVAL_M_MAX),
+        attack_min_gold_k = _normalize_int(get('attack_min_gold_k', None), ATTACK_MIN_GOLD_K_DEFAULT, 0, ATTACK_MIN_LOOT_K_MAX),
+        attack_min_elixir_k = _normalize_int(get('attack_min_elixir_k', None), ATTACK_MIN_ELIXIR_K_DEFAULT, 0, ATTACK_MIN_LOOT_K_MAX),
+        attack_min_dark_k = _normalize_int(get('attack_min_dark_k', None), ATTACK_MIN_DARK_K_DEFAULT, 0, ATTACK_MIN_DARK_K_MAX),
+        attack_max_skips = _normalize_int(get('attack_max_skips', None), ATTACK_MAX_SKIPS_DEFAULT, 0, ATTACK_MAX_SKIPS_MAX),
+        bb_wall_threshold_k = _normalize_int(get('bb_wall_threshold_k', None), BB_WALL_THRESHOLD_K_DEFAULT, 0, BB_WALL_THRESHOLD_K_MAX))
+
+
 def load_profile_settings():
     path = get_settings_path()
     if not path.is_file():
@@ -156,24 +179,7 @@ def load_profile_settings():
         raw = json.loads(path.read_text(encoding = 'utf-8'))
         if not isinstance(raw, dict):
             return ProfileSettings()
-        return ProfileSettings(
-            earthquake_method = _normalize_earthquake_method(raw.get('earthquake_method')),
-            wall_upgrade_threshold_m = _normalize_wall_threshold_m(raw.get('wall_upgrade_threshold_m', WALL_UPGRADE_THRESHOLD_M_DEFAULT)),
-            reserve_builders = _normalize_reserve_builders(raw.get('reserve_builders', RESERVE_BUILDERS_DEFAULT)),
-            upgrade_order = _normalize_upgrade_order(raw.get('upgrade_order', UPGRADE_ORDER_PRICIEST)),
-            clan_dry_run = bool(raw.get('clan_dry_run', True)),
-            clan_chat_point = _normalize_clan_chat_point(raw.get('clan_chat_point')),
-            clan_chat_point_aspect = _normalize_clan_chat_point_aspect(raw.get('clan_chat_point_aspect')),
-            clan_donate_troop = _normalize_clan_donate_troop(raw.get('clan_donate_troop')),
-            clan_donate_count = _normalize_int(raw.get('clan_donate_count'), CLAN_DONATE_COUNT_DEFAULT, 0, CLAN_DONATE_COUNT_MAX),
-            clan_min_elixir_k = _normalize_int(raw.get('clan_min_elixir_k'), CLAN_MIN_ELIXIR_K_DEFAULT, 0, CLAN_MIN_ELIXIR_K_MAX),
-            clan_donate_interval_m = _normalize_int(raw.get('clan_donate_interval_m'), CLAN_DONATE_INTERVAL_M_DEFAULT, CLAN_DONATE_INTERVAL_M_MIN, CLAN_DONATE_INTERVAL_M_MAX),
-            clan_request_interval_m = _normalize_int(raw.get('clan_request_interval_m'), CLAN_REQUEST_INTERVAL_M_DEFAULT, CLAN_REQUEST_INTERVAL_M_MIN, CLAN_REQUEST_INTERVAL_M_MAX),
-            attack_min_gold_k = _normalize_int(raw.get('attack_min_gold_k'), ATTACK_MIN_GOLD_K_DEFAULT, 0, ATTACK_MIN_LOOT_K_MAX),
-            attack_min_elixir_k = _normalize_int(raw.get('attack_min_elixir_k'), ATTACK_MIN_ELIXIR_K_DEFAULT, 0, ATTACK_MIN_LOOT_K_MAX),
-            attack_min_dark_k = _normalize_int(raw.get('attack_min_dark_k'), ATTACK_MIN_DARK_K_DEFAULT, 0, ATTACK_MIN_DARK_K_MAX),
-            attack_max_skips = _normalize_int(raw.get('attack_max_skips'), ATTACK_MAX_SKIPS_DEFAULT, 0, ATTACK_MAX_SKIPS_MAX),
-            bb_wall_threshold_k = _normalize_int(raw.get('bb_wall_threshold_k'), BB_WALL_THRESHOLD_K_DEFAULT, 0, BB_WALL_THRESHOLD_K_MAX))
+        return _settings_from(raw.get)
     except (json.JSONDecodeError, OSError):
         return ProfileSettings()  # [recovered: decompiler turned this into `return None`, crashing every caller on a corrupt settings.json]
 
@@ -182,23 +188,6 @@ def load_profile_settings():
 def save_profile_settings(settings):
     path = get_settings_path()
     path.parent.mkdir(parents = True, exist_ok = True)
-    normalized = ProfileSettings(
-        earthquake_method = _normalize_earthquake_method(settings.earthquake_method),
-        wall_upgrade_threshold_m = _normalize_wall_threshold_m(getattr(settings, 'wall_upgrade_threshold_m', WALL_UPGRADE_THRESHOLD_M_DEFAULT)),
-        reserve_builders = _normalize_reserve_builders(getattr(settings, 'reserve_builders', RESERVE_BUILDERS_DEFAULT)),
-        upgrade_order = _normalize_upgrade_order(getattr(settings, 'upgrade_order', UPGRADE_ORDER_PRICIEST)),
-        clan_dry_run = bool(getattr(settings, 'clan_dry_run', True)),
-        clan_chat_point = _normalize_clan_chat_point(getattr(settings, 'clan_chat_point', None)),
-        clan_chat_point_aspect = _normalize_clan_chat_point_aspect(getattr(settings, 'clan_chat_point_aspect', None)),
-        clan_donate_troop = _normalize_clan_donate_troop(getattr(settings, 'clan_donate_troop', CLAN_DONATE_TROOP_AUTO)),
-        clan_donate_count = _normalize_int(getattr(settings, 'clan_donate_count', CLAN_DONATE_COUNT_DEFAULT), CLAN_DONATE_COUNT_DEFAULT, 0, CLAN_DONATE_COUNT_MAX),
-        clan_min_elixir_k = _normalize_int(getattr(settings, 'clan_min_elixir_k', CLAN_MIN_ELIXIR_K_DEFAULT), CLAN_MIN_ELIXIR_K_DEFAULT, 0, CLAN_MIN_ELIXIR_K_MAX),
-        clan_donate_interval_m = _normalize_int(getattr(settings, 'clan_donate_interval_m', CLAN_DONATE_INTERVAL_M_DEFAULT), CLAN_DONATE_INTERVAL_M_DEFAULT, CLAN_DONATE_INTERVAL_M_MIN, CLAN_DONATE_INTERVAL_M_MAX),
-        clan_request_interval_m = _normalize_int(getattr(settings, 'clan_request_interval_m', CLAN_REQUEST_INTERVAL_M_DEFAULT), CLAN_REQUEST_INTERVAL_M_DEFAULT, CLAN_REQUEST_INTERVAL_M_MIN, CLAN_REQUEST_INTERVAL_M_MAX),
-        attack_min_gold_k = _normalize_int(getattr(settings, 'attack_min_gold_k', ATTACK_MIN_GOLD_K_DEFAULT), ATTACK_MIN_GOLD_K_DEFAULT, 0, ATTACK_MIN_LOOT_K_MAX),
-        attack_min_elixir_k = _normalize_int(getattr(settings, 'attack_min_elixir_k', ATTACK_MIN_ELIXIR_K_DEFAULT), ATTACK_MIN_ELIXIR_K_DEFAULT, 0, ATTACK_MIN_LOOT_K_MAX),
-        attack_min_dark_k = _normalize_int(getattr(settings, 'attack_min_dark_k', ATTACK_MIN_DARK_K_DEFAULT), ATTACK_MIN_DARK_K_DEFAULT, 0, ATTACK_MIN_DARK_K_MAX),
-        attack_max_skips = _normalize_int(getattr(settings, 'attack_max_skips', ATTACK_MAX_SKIPS_DEFAULT), ATTACK_MAX_SKIPS_DEFAULT, 0, ATTACK_MAX_SKIPS_MAX),
-        bb_wall_threshold_k = _normalize_int(getattr(settings, 'bb_wall_threshold_k', BB_WALL_THRESHOLD_K_DEFAULT), BB_WALL_THRESHOLD_K_DEFAULT, 0, BB_WALL_THRESHOLD_K_MAX))
+    normalized = _settings_from(lambda field, default: getattr(settings, field, default))
     payload = asdict(normalized)
     path.write_text(json.dumps(payload, indent = 2), encoding = 'utf-8')
