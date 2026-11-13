@@ -31,6 +31,13 @@ class PlayerListLoadTests(unittest.TestCase):
         self.path.write_text('[{"name": "   "}, {"name": 5}, {}, "Farm_2", {"name": " Farm_1 ", "enabled": false}]', encoding='utf-8')
         self.assertEqual(store.load_players(), [PlayerEntry(name='Farm_1', enabled=False)])
 
+    def test_an_unreadable_file_is_reported_once(self):
+        self.path.write_bytes(b'not json')
+        with self.assertLogs('Settings', 'WARNING') as logs:
+            self.assertEqual((store.load_players(), store.load_players()), ([], []))
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn('Unreadable player list', logs.output[0])
+
     def test_an_unreadable_file_gives_an_empty_list(self):
         for (label, data) in (('not json', b'not json'), ('not UTF-8', b'[{"name": "Farm\xe9"}]'),
                               ('an int of over 4300 digits', b'[{"name": "Farm_1", "n": 1' + b'0' * 5000 + b'}]')):

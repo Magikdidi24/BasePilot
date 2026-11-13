@@ -3,16 +3,28 @@ Settings window list's preselection. The decompiled list check never compared th
 two same-title windows the last one was preselected, not the one the pin resolves to."""
 import importlib.util
 import os
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 from app.services.window import WindowCandidate, WindowService
-from app.utils.window_settings_store import WindowSelection
+from app.utils.window_settings_store import WindowSelection, load_window_selection
 
 HAVE_QT = importlib.util.find_spec('PySide6') is not None  # the CI test job installs no Qt
 GAME = WindowCandidate(top_hwnd=1, title='Clash of Clans', top_class='CROSVM_1', child_hwnd=11)
 GAME2 = WindowCandidate(top_hwnd=4, title='Clash of Clans', top_class='CROSVM_2', child_hwnd=41)  # a second client
 CHROME = WindowCandidate(top_hwnd=2, title='Clash of Clans', top_class='Chrome_WidgetWin_1')
 NOTEPAD = WindowCandidate(top_hwnd=3, title='Notepad', top_class='Notepad')
+
+
+class PinFileTests(unittest.TestCase):
+    def test_a_pin_saved_with_a_bom_is_read(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'window.json'
+            path.write_text('\ufeff{"title": "Clash of Clans", "top_class": "CROSVM_1"}', encoding='utf-8')  # Notepad's "UTF-8 with BOM"
+            with patch('app.utils.window_settings_store.get_window_selection_path', return_value=path):
+                self.assertEqual(load_window_selection(), WindowSelection(title='Clash of Clans', top_class='CROSVM_1'))
 
 
 class PinRuleTests(unittest.TestCase):

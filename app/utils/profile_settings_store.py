@@ -4,6 +4,7 @@ import json
 from dataclasses import asdict, dataclass
 from typing import List, Optional
 from app.utils.common import ensure_dir, get_user_app_data_dir
+from app.utils.logger import setup_logger
 EARTHQUAKE_METHOD_CURVE = 'Curve Placement'
 EARTHQUAKE_METHOD_RANDOM = 'Random Placement'
 EARTHQUAKE_METHOD_LEARN = 'Learn (the one that loots more)'  # drawn each raid: app.core.bb_learning.QuakeLearner
@@ -45,6 +46,9 @@ ATTACK_MIN_DARK_K_DEFAULT = 0
 ATTACK_MIN_DARK_K_MAX = 200  # dark elixir, in thousands too: a base holds 1-30k
 ATTACK_MAX_SKIPS_DEFAULT = 10
 ATTACK_MAX_SKIPS_MAX = 50
+
+logger = setup_logger('Settings')
+_warned_unreadable = set()  # paths already reported: the settings is read often
 
 @dataclass
 class ProfileSettings:
@@ -161,7 +165,10 @@ def load_profile_settings():
         if not isinstance(raw, dict):
             return ProfileSettings()
         return _settings_from(raw.get)
-    except (ValueError, OSError):  # bad JSON or UTF-8, an int of over 4300 digits: all ValueErrors
+    except (ValueError, OSError) as e:  # bad JSON or UTF-8, an int of over 4300 digits: all ValueErrors
+        if path not in _warned_unreadable:
+            _warned_unreadable.add(path)
+            logger.warning(f'''Unreadable settings {path} ({e}): using the defaults until it is saved again, which writes over it''')
         return ProfileSettings()  # [recovered: decompiler turned this into `return None`, crashing every caller on a corrupt settings.json]
 
 

@@ -3,7 +3,7 @@ or broken file read as the nearest valid settings (a temporary file, never the u
 import json
 import tempfile
 import unittest
-from dataclasses import asdict
+from dataclasses import asdict, fields
 from pathlib import Path
 from unittest.mock import patch
 
@@ -42,6 +42,27 @@ class ProfileSettingsTests(unittest.TestCase):
     def test_a_hand_edited_file_is_brought_into_range(self):
         self.path.write_text(json.dumps(WILD), encoding='utf-8')
         self.assertEqual(store.load_profile_settings(), TAMED)
+
+    def test_every_field_is_saved_and_loaded(self):
+        values = dict(earthquake_method=store.EARTHQUAKE_METHOD_LEARN, wall_upgrade_threshold_m=7, reserve_builders=2,
+                      upgrade_order=store.UPGRADE_ORDER_CHEAPEST, clan_dry_run=False, clan_chat_point=[0.25, 0.75],
+                      clan_chat_point_aspect='16_9', clan_donate_troop='edrags', clan_donate_count=4, clan_min_elixir_k=900,
+                      clan_donate_interval_m=15, clan_request_interval_m=45, attack_min_gold_k=300, attack_min_elixir_k=200,
+                      attack_min_dark_k=3, attack_max_skips=12, bb_wall_threshold_k=1500)
+        self.assertEqual(set(values), {f.name for f in fields(ProfileSettings)})  # a new field must join this test
+        for f in fields(ProfileSettings):
+            self.assertNotEqual(values[f.name], f.default, f.name)  # a field dropped on the way would read as its default
+        settings = ProfileSettings(**values)
+        store.save_profile_settings(settings)
+        self.assertEqual(store.load_profile_settings(), settings)
+
+    def test_an_unreadable_file_is_reported_once(self):
+        self.path.write_text('not json', encoding='utf-8')
+        with self.assertLogs('Settings', 'WARNING') as logs:
+            store.load_profile_settings()
+            store.load_profile_settings()
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn('Unreadable settings', logs.output[0])
 
     def test_missing_fields_take_their_defaults(self):
         self.path.write_text('{"attack_max_skips": 3}', encoding='utf-8')

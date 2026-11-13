@@ -6,6 +6,10 @@ import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from app.utils.common import ensure_dir, get_user_app_data_dir
+from app.utils.logger import setup_logger
+
+logger = setup_logger('Settings')
+_warned_unreadable = set()  # paths already reported: the player list is read often
 
 @dataclass
 class PlayerEntry:
@@ -60,7 +64,10 @@ def load_players():
             enabled = bool(item.get('enabled', True))
             out.append(PlayerEntry(name = name.strip(), enabled = enabled))
         return out
-    except (ValueError, OSError):  # bad JSON or UTF-8, an int of over 4300 digits: all ValueErrors
+    except (ValueError, OSError) as e:  # bad JSON or UTF-8, an int of over 4300 digits: all ValueErrors
+        if path not in _warned_unreadable:
+            _warned_unreadable.add(path)
+            logger.warning(f'''Unreadable player list {path} ({e}): using the defaults until it is saved again, which writes over it''')
         return []  # [recovered: returned None, which every caller iterates -> TypeError on a corrupt file]
 
 
