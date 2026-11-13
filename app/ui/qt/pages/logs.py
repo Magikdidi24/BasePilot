@@ -45,8 +45,9 @@ class LogsPage(QWidget):
     
     def showEvent(self, event):
         super().showEvent(event)
-        self._log_view.clear()  # it still holds the last visit's text
-        self._pos = None
+        if not event.spontaneous():  # a visit; the window coming back from the taskbar is not one
+            self._log_view.clear()  # it still holds the last visit's text
+            self._pos = None
         self._tail_log()
         self._tail_timer.start()
 

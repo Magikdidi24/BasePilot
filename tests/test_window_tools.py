@@ -2,7 +2,6 @@
 surface's size on screen and the info dialog open, and Test reports the first subWin (the
 decompiled handlers kept everything inside their try and lost the loop's break)."""
 import importlib.util
-import os
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -18,7 +17,6 @@ GAME = WindowCandidate(top_hwnd=1, title='Clash of Clans', top_class='CROSVM_1',
 class WindowToolTests(QtTestCase):
     @classmethod
     def setUpClass(cls):
-        os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
         super().setUpClass()
         from PySide6.QtWidgets import QLabel, QWidget
         from app.ui.qt.pages import settings
@@ -55,7 +53,7 @@ class WindowToolTests(QtTestCase):
         with (self.service(**{'enumerate_descendants.side_effect': OSError('denied')}),
               patch.object(self.settings, 'WindowInfoDialog') as dialog, self.assertLogs('SettingsPage', 'WARNING')):
             page._on_window_info()
-        dialog.assert_called_once_with(page, GAME, [])
+        dialog.assert_called_once_with(page, GAME, None)  # None: says the list could not be read, not that it is empty
         dialog.return_value.exec.assert_called_once_with()
 
 

@@ -18,6 +18,9 @@ logger = setup_logger('SettingsPage')
 CLAN_TROOP_CHOICES = tuple(('Auto (first troop found)' if key == CLAN_DONATE_TROOP_AUTO else key.title(), key)
                            for key in CLAN_DONATE_TROOP_OPTIONS)
 
+_NO_SUBWINDOW_LIST = 'Could not list the child windows (see the log).'
+
+
 class WindowInfoDialog(QDialog):
     '''Read-only view of every child window/surface under a selected top-level window.'''
     
@@ -33,9 +36,11 @@ class WindowInfoDialog(QDialog):
         header.setWordWrap(True)
         header.setStyleSheet(f'''color: {TOKENS['text']};''')
         layout.addWidget(header)
-        count = len(descendants)
-        surfaces = sum([ 1 for d in descendants if d.is_surface ])
-        summary = muted_label(f'''{count} child window(s), {surfaces} game surface(s). Surfaces are marked [surface].''')
+        if descendants is None:  # the sub-window list could not be read
+            summary = muted_label(_NO_SUBWINDOW_LIST)
+        else:
+            surfaces = sum([ 1 for d in descendants if d.is_surface ])
+            summary = muted_label(f'''{len(descendants)} child window(s), {surfaces} game surface(s). Surfaces are marked [surface].''')
         layout.addWidget(summary)
         listing = QListWidget()
         listing.setObjectName('WindowInfoList')
@@ -49,7 +54,7 @@ class WindowInfoDialog(QDialog):
                     item.setForeground(QColor(TOKENS['primary']))
                 listing.addItem(item)
         else:
-            listing.addItem(QListWidgetItem('No child windows found under this window.'))
+            listing.addItem(QListWidgetItem('No child windows found under this window.' if descendants is not None else _NO_SUBWINDOW_LIST))
         layout.addWidget(listing, stretch = 1)
         btn_row = QHBoxLayout()
         btn_row.addStretch()
@@ -515,7 +520,7 @@ class SettingsPage(QWidget):
             descendants = WindowService().enumerate_descendants(cand.top_hwnd)
         except Exception as exc:  # the dialog still shows the window itself
             logger.warning(f'''Could not enumerate descendants: {exc}''')
-            descendants = []
+            descendants = None
         WindowInfoDialog(self.window(), cand, descendants).exec()
 
     
