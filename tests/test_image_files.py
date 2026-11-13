@@ -1,6 +1,7 @@
 """Images under a folder with an accent: OpenCV's own file functions cannot open such a path on
 Windows (cv2.imread gives None, cv2.imwrite False), and the exe unpacks its templates under the
 user's folder, so a Windows user named with an accent had a bot that found no template."""
+import importlib.util
 import os
 import re
 import shutil
@@ -64,6 +65,12 @@ class AccentedFolderTests(unittest.TestCase):
             loaded = ppocr._Model(str(model))
         self.assertTrue(loaded.runtime.startswith('OpenCV DNN'), loaded.runtime)
         self.assertEqual(loaded.run(np.zeros((1, 3, 64, 64), np.float32)).shape, (1, 1, 64, 64))
+
+    @unittest.skipUnless(importlib.util.find_spec('onnxruntime'), 'needs ONNX Runtime')
+    def test_onnx_runtime_loads_the_model_there_by_its_path(self):
+        model = shutil.copy(next((ROOT / 'app' / 'data' / 'ocr').glob('*det*.onnx')), self.folder / 'det.onnx')
+        loaded = ppocr._Model(str(model))
+        self.assertTrue(loaded.runtime.startswith('onnxruntime'), loaded.runtime)
 
 
 class NoOpenCvFileCallTests(unittest.TestCase):
