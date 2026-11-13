@@ -119,19 +119,28 @@ class PlanTests(unittest.TestCase):
             self.assertAlmostEqual(got, want, delta=0.002)
         self.assertAlmostEqual(along[6], 0.0, delta=0.002)  # the Bomber behind them
 
-    def test_a_pekka_push_bombers_open_the_walls_then_pekkas_then_the_machine(self):
-        # the player's play: the Bomber first (its Bouncing Bomb opens the walls), the P.E.K.K.As
-        # go in right behind it, the machine follows them
+    def test_a_pekka_push_lands_one_pack_then_the_machine_then_the_bomber(self):
+        # live, a Bomber landed first died alone before any wall, and P.E.K.K.As 0.025 screen
+        # heights apart split between two outer buildings: the P.E.K.K.As now land as one pack
+        # (one first building), the machine with them, the Bomber once the defences are on them
         cards = [bb_strategy.Card('bomber', (724, 688))] + [bb_strategy.Card('pekka', (275 + 90 * k, 688)) for k in range(5)]
         steps = bb_strategy.plan(cards, (159, 705), bb_strategy.edge_front(self.EDGE, self.H, rng=self.STILL))
-        self.assertEqual([s.troop for s in steps], ['bomber'] + ['pekka'] * 5 + ['machine'])
-        self.assertEqual([s.wait for s in steps], [0.0, 0.3, 0.0, 0.0, 0.0, 0.0, 0.0])
-        (along, _off) = self.offsets(steps)
-        self.assertAlmostEqual(along[0], 0.0, delta=0.002)  # the Bomber at the entry
-        for (got, want) in zip(along[1:6], (0.0, 0.025, -0.025, 0.05, -0.05)):
+        self.assertEqual([s.troop for s in steps], ['pekka'] * 5 + ['machine', 'bomber'])
+        self.assertEqual([s.card for s in steps[:5]], [(275 + 90 * k, 688) for k in range(5)])  # left to right
+        self.assertEqual([s.wait for s in steps], [0.0] * 6 + [2.5])
+        (along, off) = self.offsets(steps)
+        self.assertTrue(all(d <= 1.5 for d in off), off)
+        for (got, want) in zip(along[:5], (0.0, 0.006, -0.006, 0.012, -0.012)):  # one pack, about a tile wide
             self.assertAlmostEqual(got, want, delta=0.002)
-        self.assertAlmostEqual(along[6], 0.0, delta=0.002)
-        self.assertTrue(bb_strategy.PROFILES['bomber'].ability_on_landing)  # the bomb for the first wall (the player's play)
+        self.assertAlmostEqual(along[5], 0.0, delta=0.002)  # the machine with them
+        self.assertAlmostEqual(along[6], 0.0, delta=0.002)  # the Bomber behind them, at the same spot
+        self.assertTrue(bb_strategy.PROFILES['bomber'].ability_on_landing)  # its bomb for the wall the pack stands at
+
+    def test_a_pekka_push_without_its_machine_or_bomber(self):
+        # a later stage: the machine is down, the Bomber died; the pack alone, no wait
+        cards = [bb_strategy.Card('pekka', (275 + 90 * k, 688)) for k in range(3)]
+        steps = bb_strategy.plan(cards, None, bb_strategy.edge_front(self.EDGE, self.H, rng=self.STILL))
+        self.assertEqual([(s.troop, s.wait) for s in steps], [('pekka', 0.0)] * 3)
 
     def test_flankers_out_on_both_sides_then_breakers_support_and_lone_dragons(self):
         cards = ([bb_strategy.Card('barbarian', (100 + 10 * k, 688)) for k in range(6)]
@@ -292,9 +301,10 @@ class FightTests(unittest.TestCase):
         abilities = bb_strategy.Abilities()
         abilities.add(bb_strategy.Step((275, 688), (0, 0), 0, bb_strategy.PROFILES['pekka'], 'pekka'), 0)
         abilities.add(bb_strategy.Step((709, 688), (0, 0), 0, bb_strategy.PROFILES['bomber'], 'bomber'), 0)
+        pekka = iter([1.0])  # she lands untouched, then the defences have her at 40 %
         with patch('app.core.bot.time.monotonic', side_effect=lambda: next(clock)), \
                 patch('app.core.bb_strategy.alive', return_value=True), \
-                patch('app.core.bb_strategy.health', return_value=0.5), \
+                patch('app.core.bb_strategy.health', side_effect=lambda frame, card: next(pekka, 0.4) if card == (275, 688) else 0.4), \
                 patch('app.core.bb_strategy.ability_state', return_value=bb_strategy.READY), \
                 patch.object(bot, '_bb_return_home_point', side_effect=[None] * 12 + [(613, 648), None]), \
                 patch('app.core.bot.VisionService.find_all_template_centers', return_value=[]):
@@ -452,45 +462,103 @@ class AbilityTests(unittest.TestCase):
 
     def test_engaged_troops_fire_one_at_a_time_the_most_hurt_first(self):
         cards = [(275, 688), (365, 688), (455, 688)]
-        hp = {(275, 688): 0.5, (365, 688): 0.2, (455, 688): 0.4}
+        hp = dict.fromkeys(cards, 0.2)
         used = set()
         state = lambda frame, card: bb_strategy.USED if card in used else bb_strategy.READY
         abilities = self.abilities('pekka', cards)
         with patch('app.core.bb_strategy.alive', return_value=True), \
                 patch('app.core.bb_strategy.ability_state', side_effect=state), \
                 patch('app.core.bb_strategy.health', side_effect=lambda frame, card: hp[card]):
-            self.assertIsNone(abilities.next_tap(5.0, 'frame'))  # engaged, but not before the earliest (6 s)
-            first = abilities.next_tap(7.0, 'frame')
+            self.assertIsNone(abilities.next_tap(1.0, 'frame'))  # not before the earliest (2 s)
+            hp.update(dict.fromkeys(cards, 1.0))
+            self.assertIsNone(abilities.next_tap(2.0, 'frame'))  # landed untouched
+            self.assertIsNone(abilities.next_tap(2.5, 'frame'))
+            hp.update({(275, 688): 0.45, (365, 688): 0.2, (455, 688): 0.4})
+            first = abilities.next_tap(3.0, 'frame')
             self.assertEqual((first.card, first.health), ((365, 688), 0.2))  # the most hurt
             used.add(first.card)
-            self.assertIsNone(abilities.next_tap(7.5, 'frame'))  # not two Overcharges at once
-            self.assertEqual(abilities.next_tap(8.3, 'frame').card, (455, 688))
+            self.assertIsNone(abilities.next_tap(3.5, 'frame'))  # not two Overcharges at once
+            self.assertEqual(abilities.next_tap(4.3, 'frame').card, (455, 688))
             used.add((455, 688))
-            self.assertEqual(abilities.next_tap(9.6, 'frame').card, (275, 688))
+            self.assertEqual(abilities.next_tap(5.6, 'frame').card, (275, 688))
             used.add((275, 688))
             self.assertIsNone(abilities.next_tap(30.0, 'frame'))  # their cards turned grey: each one once
             self.assertEqual(abilities.items, [])
 
-    def test_the_overcharge_waits_for_the_thick_of_it(self):
-        # a one-time blast around her, and she lives on: not while she walks in untouched
-        # (live, the old 16 s deadline fired all five at full health), but once the defences
-        # have her under 70 %, and by 30 s whatever her health
-        hp = {'now': 1.0}
+    def pekka_fight(self, readings):
+        """Overcharge taps of one P.E.K.K.A whose card reads ``readings`` ((s, health) per poll)."""
         abilities = self.abilities('pekka', [(275, 688)])
+        taps = []
         with patch('app.core.bb_strategy.alive', return_value=True), \
-                patch('app.core.bb_strategy.ability_state', return_value=bb_strategy.READY), \
-                patch('app.core.bb_strategy.health', side_effect=lambda frame, card: hp['now']):
-            self.assertIsNone(abilities.next_tap(16.0, 'frame'))
-            hp['now'] = 0.75
-            self.assertIsNone(abilities.next_tap(20.0, 'frame'))  # hit, not in the thick of it yet
-            hp['now'] = 0.65
-            self.assertEqual(abilities.next_tap(22.0, 'frame').health, 0.65)
-        late = self.abilities('pekka', [(275, 688)])
+                patch('app.core.bb_strategy.ability_state', return_value=bb_strategy.READY):
+            for (t, hp) in readings:
+                with patch('app.core.bb_strategy.health', return_value=hp):
+                    tap = abilities.next_tap(t, 'frame')
+                if tap is not None:
+                    taps.append((round(t, 2), tap.health, tap.why))
+        return taps
+
+    def test_the_overcharge_waits_for_the_thick_of_it(self):
+        # a one-time blast around her, and she lives on. Live, the old rule fired the five of
+        # them at 64-69 % on the first outer building, and at full health at 30 s: now it goes
+        # under heavy fire or under half her health, never on time alone
+        slow = [(2.0 + k, 1.0 - 0.02 * k) for k in range(20)]  # one outer building's fire: 100 % to 62 % in 19 s
+        self.assertEqual(self.pekka_fight(slow), [])
+        self.assertEqual(self.pekka_fight([(2.0 + 5 * k, 1.0) for k in range(30)]), [])  # untouched for 2.5 min
+        attrition = [(2.0 + k, 1.0 - 0.03 * k) for k in range(20)]
+        self.assertEqual([(t, round(hp, 2)) for (t, hp, _why) in self.pekka_fight(attrition)][:1], [(19.0, 0.49)])  # under half
+        thick = [(2.0, 1.0), (2.7, 0.97), (3.4, 0.86), (4.1, 0.74)]  # the Roaster and the Crusher on her
+        self.assertEqual(self.pekka_fight(thick)[:1], [(4.1, 0.74, 'lost 26% in 2.1 s')])
+        steep = [(2.0, 1.0), (2.7, 0.89), (3.4, 0.77), (4.1, 0.66)]  # a steep fall is no misread bar
+        self.assertEqual(self.pekka_fight(steep)[:1], [(4.1, 0.66, 'lost 34% in 2.1 s')])
+        blow = [(2.0, 1.0), (2.8, 0.7), (3.6, 0.6)]  # one big blow, then more
+        self.assertEqual(self.pekka_fight(blow)[:1], [(3.6, 0.6, 'lost 40% in 1.6 s')])
+
+    def test_heavy_fire_whatever_the_poll_cadence(self):
+        # a poll every ~0.8 s live, slower while taps go: 10 % of her health a second is heavy
+        # fire from 0.7 to 2 s between readings, measured from the last one before the window
+        for cadence in (0.7, 0.8, 1.0, 1.05, 1.1, 1.2, 1.5, 1.51, 2.0):
+            with self.subTest(cadence=cadence):
+                readings = [(2.0 + cadence * k, 1.0 - 0.1 * cadence * k) for k in range(int(8 / cadence))]
+                taps = self.pekka_fight(readings)
+                self.assertTrue(taps and taps[0][2].startswith('lost ') and taps[0][1] > 0.5, taps[:1])
+
+    def test_the_pack_under_fire_one_after_another(self):
+        # five P.E.K.K.As hit 1.5 s apart, 10 % a second: each one's under heavy fire,
+        # though the spacing between two Overcharges skips some of her readings
+        cards = [(275 + 90 * k, 688) for k in range(5)]
+        abilities = self.abilities('pekka', cards)
+        (clock, used, taps) = ([0.0], set(), [])
+        hp = lambda frame, card: max(0.0, 1.0 - 0.1 * max(0.0, clock[0] - 3.0 - 1.5 * cards.index(card)))
         with patch('app.core.bb_strategy.alive', return_value=True), \
-                patch('app.core.bb_strategy.ability_state', return_value=bb_strategy.READY), \
-                patch('app.core.bb_strategy.health', return_value=0.95):
-            self.assertIsNone(late.next_tap(29.0, 'frame'))
-            self.assertIsNotNone(late.next_tap(30.0, 'frame'))
+                patch('app.core.bb_strategy.ability_state', side_effect=lambda frame, card: bb_strategy.USED if card in used else bb_strategy.READY), \
+                patch('app.core.bb_strategy.health', side_effect=hp):
+            for k in range(24):
+                clock[0] = 2.0 + 0.8 * k
+                tap = abilities.next_tap(clock[0], 'frame')
+                if tap is not None:
+                    taps.append((tap.card, tap.why[:5], tap.health > 0.6))
+                    used.add(tap.card)
+        self.assertEqual(taps, [(card, 'lost ', True) for card in cards])
+
+    def test_one_bar_misread_high_is_no_heavy_fire(self):
+        misread = [(2.0, 0.72), (2.7, 1.0), (3.4, 0.71), (4.1, 0.70), (4.8, 0.70)]  # one bar read full by mistake
+        self.assertEqual(self.pekka_fight(misread), [])
+
+    def test_a_survivor_back_hurt_waits_to_be_hit_again(self):
+        # the next stage: she comes back at 40 %, not on fire on the edge of the base
+        readings = [(2.0 + 0.8 * k, 0.4) for k in range(10)] + [(10.0, 0.37), (10.8, 0.34)]
+        self.assertEqual([t for (t, _hp, _why) in self.pekka_fight(readings)], [10.8])
+
+    def test_no_health_bar_read_the_overcharge_goes_on_time(self):
+        taps = self.pekka_fight([(2.0 + 2 * k, None) for k in range(16)])
+        self.assertEqual(taps[:1], [(30.0, None, 'no health bar read for 30 s: on time')])
+        lost = self.pekka_fight([(2.0, 1.0)] + [(4.0 + 2 * k, None) for k in range(16)])  # read once, then never
+        self.assertEqual(lost[:1], [(32.0, None, 'no health bar read for 30 s: on time')])
+
+    def test_heavy_fire_tapped_again_while_her_card_stays_green(self):
+        thick = [(2.0, 1.0), (2.7, 0.97), (3.4, 0.86), (4.1, 0.74)] + [(4.8 + 0.7 * k, 0.66) for k in range(6)]
+        self.assertEqual([t for (t, _hp, _why) in self.pekka_fight(thick)], [4.1, 6.2, 8.3])  # a lost tap, three tries
 
     def test_the_bombers_bomb_goes_as_it_lands_then_once_recharged(self):
         bombers = bb_strategy.Abilities()
@@ -511,6 +579,11 @@ class AbilityTests(unittest.TestCase):
         # at equal health the P.E.K.K.A's one-time Overcharge goes before the Bomber's bomb,
         # which comes back every time it recharges (it went first every poll before)
         abilities = self.abilities('pekka', [(275, 688)])
+        with patch('app.core.bb_strategy.alive', return_value=True), \
+                patch('app.core.bb_strategy.ability_state', return_value=bb_strategy.READY), \
+                patch('app.core.bb_strategy.health', return_value=1.0):
+            self.assertIsNone(abilities.next_tap(2.0, 'frame'))  # she lands untouched
+            self.assertIsNone(abilities.next_tap(2.5, 'frame'))
         abilities.add(bb_strategy.Step((709, 688), (0, 0), 0, bb_strategy.PROFILES['bomber'], 'bomber'), 0)
         used = set()
         state = lambda frame, card: bb_strategy.USED if card in used else bb_strategy.READY
@@ -527,10 +600,11 @@ class AbilityTests(unittest.TestCase):
 
     def test_a_lost_tap_is_tried_again_while_the_card_stays_green(self):
         abilities = self.abilities('pekka', [(275, 688)])
+        readings = iter([1.0])  # she lands untouched, then the defences have her at 30 %
         with patch('app.core.bb_strategy.alive', return_value=True), \
                 patch('app.core.bb_strategy.ability_state', return_value=bb_strategy.READY), \
-                patch('app.core.bb_strategy.health', return_value=0.3):
-            taps = [t for t in (abilities.next_tap(s, 'frame') for s in (5.0, 5.5, 6.6, 8.2, 9.8, 12.0)) if t]
+                patch('app.core.bb_strategy.health', side_effect=lambda frame, card: next(readings, 0.3)):
+            taps = [t for t in (abilities.next_tap(s, 'frame') for s in (2.0, 5.0, 5.5, 6.6, 8.2, 9.8, 12.0)) if t]
         self.assertEqual(len(taps), 3)  # every 1.5 s while still green, three tries at most
 
     def test_no_tap_while_recharging_and_none_for_a_dead_troop(self):

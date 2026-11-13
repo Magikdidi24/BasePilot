@@ -1686,8 +1686,8 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             ability = abilities.next_tap(now, frame)
             if ability is not None:
                 self.input.click(*ability.card, pause = 0.1, rand = False)  # the card again: the troop's ability
-                logger.info('Builder Base: %s ability at %ds%s', ability.troop or 'unknown', int(now - start),
-                            f' (health {ability.health:.0%})' if ability.health is not None else '')
+                note = ', '.join(n for n in (f'health {ability.health:.0%}' if ability.health is not None else '', ability.why) if n)
+                logger.info('Builder Base: %s ability at %ds%s', ability.troop or 'unknown', int(now - start), f' ({note})' if note else '')
             speed = self._bb_speed_point(frame) if now >= next_speed else None
             if speed:
                 self.input.click(*speed, pause = 0.1)

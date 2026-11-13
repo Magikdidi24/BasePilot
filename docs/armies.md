@@ -104,12 +104,12 @@ at once, troops spread against splash):
 |---|---|---|---|
 | Battle Machine / Copter | tank, first | the entry point | at 20 s, then every 20 s (it charges) |
 | Boxer Giant | tank | around the entry, 0.025 screen heights apart | Boxer Block once under 75 % health (2-15 s) |
-| Power P.E.K.K.A | tank | around the entry, 0.025 screen heights apart | Overcharge, a one-time blast around her (she lives on), once the defences have her under 70 % health (6-30 s) |
+| Power P.E.K.K.A | tank, first (a P.E.K.K.A push, below) | one pack at the entry, 0.006 screen heights apart | Overcharge, a one-time blast around her (she lives on), in the thick of the defences: once she lost a quarter of her health within about 3 s, or under half of it (hit again, for a survivor of the last stage); from 2 s, never on time alone (but after 30 s with her card's health bar unread) |
 | Drop Ship | tank (flies over the walls) | around the entry | Skeleton Bomb once under 85 % health (4-9 s) |
 | Raged Barbarian | flank | a pair per three, up to two pairs, far out on both sides at once (the funnel); the rest behind the tanks | Rage (passive, first 22 s) |
 | Sneaky Archer | flank | the same | Cloak (passive, first 11 s) |
 | Beta Minion | flank | the same | Power Shot (passive) |
-| Bomber | wall breaker, 1 s after | behind the tanks | Bouncing Bomb as it lands (its card tapped again: the first wall), then each time it has recharged; a lost tap goes again at once, first of all under 50 % health |
+| Bomber | wall breaker, 1 s after (2.5 s in a P.E.K.K.A push) | behind the tanks | Bouncing Bomb as it lands (its card tapped again: the first wall), then each time it has recharged; a lost tap goes again at once, first of all under 50 % health |
 | Night Witch | support, 1.2 s after | behind the tanks | Bat Swarm once hit, under 90 % (4-10 s) |
 | Cannon Cart | support | behind the tanks | none (stays a cart) |
 | Baby Dragon | alone | one each side of the push, apart (Tantrum) | Fiery Sneeze once under 85 % health (3-9 s) |
@@ -119,9 +119,12 @@ The flanks land along the base's sides and clear the outer buildings, so the pus
 into the core instead of walking around it. A troop still on the bar after the deploy
 (its tap fell off the deploy zone) lands once more at the entry.
 
-An army with Power P.E.K.K.As is played as a P.E.K.K.A push: the Bombers land first and
-open the walls with their Bouncing Bomb (fired as they land), the P.E.K.K.As go in right
-behind them, the machine follows, then the rest. The attack comes from the side of the
+An army with Power P.E.K.K.As is played as a P.E.K.K.A push: the P.E.K.K.As land first as
+one pack, so that they all go for the same first building, the machine with them, and the
+Bombers 2.5 s later at the same spot: the defences are on the P.E.K.K.As by then, and the
+Bouncing Bomb (fired as they land) opens the wall the pack stands at. Then the rest. (Live,
+a Bomber landed first died alone before reaching any wall, and P.E.K.K.As spread along the
+front split between two outer buildings.) The attack comes from the side of the
 Multi Mortar, whose splash is what stops them: the scouting looks for its four tube
 openings (dark, round, a lighter rim each, close together in a fairly regular
 quadrilateral), which every level has, from the wooden one to the gold one. With no
@@ -138,8 +141,10 @@ others now and then. The first stage's plan is scored by the battle's total dama
 destroyed and the troops it left for the second base), the second stage's by its own part
 of it (the damage over 100 %). Older battles, recorded with one plan, count for the only
 stage they can belong to. The P.E.K.K.A push starts with the Multi Mortar first (the
-player's play) leading, and yields only to a plan that does clearly better. The log gives
-each draw and the damage each plan is expected to bring.
+player's play) leading, and yields only to a plan that does clearly better. Its battles
+before 13 November 2026 were played with the Bomber first; they still count, and the
+beliefs move with what the pack does. The log gives each draw and the damage each plan is
+expected to bring.
 
 After the battle, Return Home is tapped and the bot waits for the results screen to go
 (tapping it once more if it is still up 3 s later), so the next step starts on the village.
@@ -150,14 +155,17 @@ as it is, else after a pan once the view has stopped moving. Nothing else is tap
 
 Abilities go at the right moment, not all at once. During the fight each card shows its
 troop's health bar; an ability fires once its troop is engaged (health under the share
-above), never before the first time of its range and at the second at the latest. One tap
+above) or, for the P.E.K.K.A, under heavy fire (a quarter of her health lost within about
+3 s, one bar misread high left out), never before the first time of its range and at the
+second at the latest (the P.E.K.K.A has none: her Overcharge goes on time only if her
+health bar goes unread for 30 s). One tap
 per poll, the most hurt troop first, never two of one troop kind within 1.2 s, and none
 for a dead troop (its card turns grey). A troop card's background tells its ability's state:
 green ready, red recharging, grey used (blue: not deployed yet); it is only tapped while green,
 and tapped again if it stays green (a lost tap). Only the machine charges its ability: tapped
 too early, the game answers "You need to wait...", so it goes on time. The timings are first
 guesses from Builder Base 2.0 guides, to tune on live battles (each ability is logged with
-the troop's health).
+the troop's health, and the drop that fired it: "lost 31% in 2.4 s").
 
 A battle is never ended early: no End Battle, no Surrender. When troops come back to the bar
 for the next stage (a reinforcement's swap button shows), the survivors of the last stage

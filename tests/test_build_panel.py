@@ -1,7 +1,7 @@
 """October 2026 Build panel: the readers on live 16:10 crops, and the gem-safety rules."""
 import unittest
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 import numpy as np
 
@@ -216,12 +216,13 @@ class BotFlowTests(unittest.TestCase):
         schedule = bot._deploy_bb_army(np.zeros((1200, 1920, 3), np.uint8))
         lift = int(round(91 * 1200 / 1600))
         taps = [c.args[:2] for c in bot.input.click.call_args_list]
-        # a P.E.K.K.A push: the Bomber opens the walls (its card again as it lands: the bomb),
-        # the P.E.K.K.As go in, the machine card (its swap button beside it is not a troop) follows
-        self.assertEqual(taps[2], taps[0])
-        del taps[2]
+        # a P.E.K.K.A push: the P.E.K.K.As as one pack, the machine card (its swap button beside
+        # it is not a troop) with them, the Bomber 2.5 s later (its card again as it lands: the bomb)
+        self.assertEqual(taps[-1], taps[-3])
+        del taps[-1]
         cards = taps[0::2]
-        self.assertEqual(cards, [(430, 1150 - lift), (570, 1150 - lift), (710, 1150 - lift), (250, 1100)])
+        self.assertEqual(cards, [(570, 1150 - lift), (710, 1150 - lift), (250, 1100), (430, 1150 - lift)])
+        self.assertIn(call(2.5), bot.stop_event.wait.call_args_list)  # the Bomber waits for the pack to draw fire
         points = taps[1::2]
         corner = corners['left'] if points[0][0] < 960 else corners['right']
         (ux, uy) = (960 - corner[0], -15 - corner[1])

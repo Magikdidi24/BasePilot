@@ -18,17 +18,22 @@ troop bar). The push enters at the front's entry, and
   no other air unit near).
 
 That is the play of BB 2.0 guides (tank first, Bombers behind it, flanks at once, troops
-spread against splash). A P.E.K.K.A push goes otherwise (the player's own play): the
-Bombers land first and open the walls with their Bouncing Bomb, the P.E.K.K.As go in
-right behind them, the machine follows, and the attack comes from the side of the Multi
-Mortar (:func:`app.core.bb_scout.towards`).
+spread against splash). A P.E.K.K.A push lands its P.E.K.K.As as one pack
+(:data:`_PACK` apart: they all pick the same first building), the machine with them, and
+the Bombers :data:`_PUSH_BREAKER_WAIT` later at the same spot: the defences are on the
+P.E.K.K.As by then, and the Bouncing Bomb opens the wall they stand at. Live, a Bomber
+landed first, alone, died in under 6 s before any wall, and P.E.K.K.As spread along the
+front (0.025 screen heights apart) split between two outer buildings and walked around
+the walls; that stage failed at 86 %.
 
 A troop's profile also says when its ability fires, by tapping its card again (BB 2.0):
 Boxer Block, Overcharge, Bouncing Bomb (it recharges), Skeleton Bomb, Bat Swarm, Fiery
 Sneeze, and the machine's, which grows stronger the longer it charges. An ability goes at
 the right moment, not all at once: once its troop is engaged (the health bar its card
-shows during the fight falls under the profile's share), at the latest after the
-profile's delay, never before its earliest one; never two of one troop kind within
+shows during the fight falls under the profile's share), or under heavy fire (it lost the
+profile's drop within :data:`_DROP_WINDOW`), at the latest after the profile's delay (for
+an infinite one, only once the troop's health bar went unread for :data:`_BLIND_AFTER`),
+never before its earliest one; never two of one troop kind within
 :data:`_ABILITY_SPACING`, one tap per poll, and none for a dead troop (grey card). A troop
 card's background tells its ability's state (:func:`ability_state`): it is only tapped
 while ready (green), a used one-time ability turns it grey, a recharging one red until it
@@ -62,19 +67,23 @@ class TroopProfile:
     role: str  # where and when it lands (see plan)
     ability_at: Optional[float]  # earliest s after landing for its ability (None: no active ability)
     ability_hp: Optional[float] = None  # fire once its health falls under this share (the troop is engaged)
-    ability_latest: Optional[float] = None  # fire by then whatever its health (None: at ability_at)
+    ability_latest: Optional[float] = None  # fire by then whatever its health (None: at ability_at; math.inf: never, but for an unread bar)
     ability_every: float = 0.0  # > 0: fire again, at least this long after the last tap (a recharging ability)
     ability_on_landing: bool = False  # its card tapped again right after it lands
+    ability_drop: Optional[float] = None  # fire once it lost this share of its health within _DROP_WINDOW (heavy fire)
 
 
 PROFILES = {
     # no health bar on its card, and its ability charges (up to three levels): on time, then again
     MACHINE: TroopProfile(TANK, ability_at = 20.0, ability_every = 20.0),
     'boxer': TroopProfile(TANK, 2.0, ability_hp = 0.75, ability_latest = 15.0),  # Boxer Block shield under fire
-    # Overcharge: a one-time blast around her; she lives on (her card stays in colour). Live, she
-    # is hit from ~8 s, under 70 % by ~25 s, dead by ~36-44 s: the blast goes in the thick of
-    # the defences, before she falls
-    'pekka': TroopProfile(TANK, 6.0, ability_hp = 0.7, ability_latest = 30.0),
+    # Overcharge: a one-time blast around her; she lives on (her card stays in colour). It goes
+    # in the thick of the defences: once several of them take a quarter of her health within
+    # 3 s, or under half of it before she falls; never on time alone (unless her health bar
+    # goes unread for _BLIND_AFTER). Live, the old rule (under
+    # 70 %, or at 30 s) fired the five of them at 64-69 % within 13 s, on the first outer
+    # building, and at full health at 30 s, out of reach of anything
+    'pekka': TroopProfile(TANK, 2.0, ability_hp = 0.5, ability_latest = math.inf, ability_drop = 0.25),
     'dropship': TroopProfile(TANK, 4.0, ability_hp = 0.85, ability_latest = 9.0),  # flies over the walls; Skeleton Bomb once hit
     'barbarian': TroopProfile(FLANK, None),  # Rage (22 s, passive)
     'archer': TroopProfile(FLANK, None),  # Cloak (11 s, passive): picks off the outer buildings
@@ -95,7 +104,9 @@ TROOP_NAMES = {MACHINE: 'Battle Machine / Copter', 'boxer': 'Boxer Giant', 'pekk
 # role: (s to wait before its first card, screen heights between two of its cards along the front)
 _ROLES = {TANK: (0.3, 0.025), FLANK: (0.0, 0.02), BREAKER: (1.0, 0.015), SUPPORT: (1.2, 0.025), LONE: (0.5, 0.08), OTHER: (0.3, 0.02)}
 _ROLE_ORDER = (TANK, FLANK, BREAKER, SUPPORT, LONE, OTHER)
-_PUSH_ORDER = (BREAKER, TANK, FLANK, SUPPORT, LONE, OTHER)  # a P.E.K.K.A push; the machine right after the tanks
+_PUSH_ORDER = (TANK, BREAKER, FLANK, SUPPORT, LONE, OTHER)  # a P.E.K.K.A push; the machine right after the tanks
+_PACK = 0.006  # screen heights between two tanks of a P.E.K.K.A push: with the landing jitter, a pack about a tile wide
+_PUSH_BREAKER_WAIT = 2.5  # s from the machine (or the last tank) to the push's first Bomber: the defences are on the pack by then
 _FLANK = 0.17  # screen heights from the entry out to each flank (~10 tiles)
 _FLANK_PAIRS = 2  # flankers out on each side at most: one pair per three of them, the rest follow the tanks
 _LONE_FROM = 0.09  # screen heights from the entry to the first lone troop
@@ -131,6 +142,11 @@ _HEALTH_FILL = (0.012, 0.003)  # screen heights above the edge
 _HEALTH_EDGE_DARK = 80  # V of the edge's pixels
 _HEALTH_EDGE_SHARE = 0.9  # of a row's pixels that dark: the edge, a full-width line (a dark portrait under it: ~0.65)
 _ABILITY_SPACING = 1.2  # s between two abilities of one troop kind
+_DROP_WINDOW = 3.0  # s over which a troop's health drop is measured (a profile's ability_drop)
+_DROP_ANCHOR = 4.5  # s: the oldest reading a drop is measured from (the window and a poll or two)
+_SPIKE = 0.1  # a health reading this far above both readings around it: misread
+_HIT = 0.05  # health share a troop lost since its first readings: engaged in this stage
+_BLIND_AFTER = 30.0  # s with no health reading (from landing): an ability with no deadline goes on time
 _ABILITY_RECHECK = 1.5  # s after a one-time ability's tap before its card is checked (green still: the tap was lost)
 _ABILITY_TRIES = 3
 # Card background beside the portrait's top corners, in screen heights from the tap point.
@@ -361,9 +377,11 @@ def pekka_push(cards):
 def plan(cards, machine, front):
     '''Deploy steps, in order: the machine (``machine``: its card, or None), then the cards
     role by role (see the module doc), each kind's cards left to right; for a P.E.K.K.A
-    push (:func:`pekka_push`), the Bombers, the P.E.K.K.As and the machine, then the rest.
-    ``front(offset)`` is the landing spot ``offset`` screen heights along the front from
-    its entry (:func:`edge_front`, :func:`app.core.bb_scout.front`).'''
+    push (:func:`pekka_push`), the tanks (the P.E.K.K.As, any Boxer Giant or Drop Ship) as one
+    pack, the machine, the Bombers :data:`_PUSH_BREAKER_WAIT` later, then the rest.
+    ``front(offset)`` is the landing spot
+    ``offset`` screen heights along the front from its entry (:func:`edge_front`,
+    :func:`app.core.bb_scout.front`).'''
     at = front
     push = pekka_push(cards)
     order = _PUSH_ORDER if push else _ROLE_ORDER
@@ -377,6 +395,10 @@ def plan(cards, machine, front):
         group = [c for c in ordered if profile(c.troop).role == role]
         if group:
             (gap, spacing) = _ROLES[role]
+            if push and role == TANK:
+                spacing = _PACK
+            elif push and role == BREAKER:
+                gap = _PUSH_BREAKER_WAIT
             if role == FLANK:
                 offsets = _flank_offsets(len(group), spacing)
             elif role == LONE:
@@ -400,6 +422,32 @@ class Ability:
     latest: float  # monotonic s
     tries: int = 0
     health: Optional[float] = None  # at the last tap, for the log
+    why: str = ''  # what fired the last tap besides its health, for the log
+    landed: float = 0.0  # monotonic s
+    first_hp: Optional[float] = None  # the lower of its first two health readings (a survivor of the last stage comes back hurt)
+    reads: int = 0  # health readings lost() was given
+    last_read: Optional[float] = None  # monotonic s of its last health reading
+    seen: list = field(default_factory = list)  # (monotonic s, health): the last reading before _DROP_WINDOW, those within
+
+    def lost(self, now, hp):
+        '''Record ``hp`` read at ``now``; ``(share, s)``: the share of its health the troop
+        lost over about :data:`_DROP_WINDOW`, and in how long, from its highest earlier
+        reading, the last one before the window included (a poll every ~0.8 s: the window
+        holds three or four) if no older than :data:`_DROP_ANCHOR`. A reading over both its
+        neighbours by :data:`_SPIKE` was a bar misread high: left out (a steep fall, however
+        steep, has no such peak).'''
+        if self.reads < 2:
+            self.first_hp = hp if self.first_hp is None else min(self.first_hp, hp)
+        self.reads += 1
+        if len(self.seen) >= 2 and self.seen[-1][1] - max(self.seen[-2][1], hp) > _SPIKE:
+            self.seen.pop()
+        before = [s for s in self.seen if _DROP_WINDOW < now - s[0] <= _DROP_ANCHOR]
+        self.seen = before[-1:] + [s for s in self.seen if now - s[0] <= _DROP_WINDOW] + [(now, hp)]
+        earlier = self.seen[:-1]
+        if len(earlier) < 2:
+            return (0.0, 0.0)
+        (t, h) = max(earlier, key = lambda s: s[1])
+        return (h - hp, now - t)
 
 
 @dataclass
@@ -414,7 +462,7 @@ class Abilities:
         p = step.profile
         if p.ability_at is not None:
             latest = p.ability_latest if p.ability_latest is not None else p.ability_at
-            item = Ability(step.card, step.troop, p, landed + p.ability_at, landed + latest)
+            item = Ability(step.card, step.troop, p, landed + p.ability_at, landed + latest, landed = landed)
             if fired:
                 item.tries = 1
                 item.earliest = item.latest = landed + max(p.ability_every, _ABILITY_RECHECK)
@@ -428,10 +476,10 @@ class Abilities:
 
     def next_tap(self, now, frame):
         """The :class:`Ability` to tap now (its ``card``), or None. Among the ready ones (past
-        their earliest time, card green, and engaged or past their latest), the most hurt
-        troop goes first, a one-time ability before a recharging one at equal health; a troop
-        kind that just used one waits :data:`_ABILITY_SPACING`; a dead troop's, or a used
-        one-time ability's, is dropped."""
+        their earliest time, card green, and engaged, under heavy fire or past their latest),
+        the most hurt troop goes first, a one-time ability before a recharging one at equal
+        health; a troop kind that just used one waits :data:`_ABILITY_SPACING`; a dead
+        troop's, or a used one-time ability's, is dropped."""
         ready = []
         for item in list(self.items):
             if now < item.earliest or now - self.last_by_troop.get(item.troop, -1e9) < _ABILITY_SPACING:
@@ -446,20 +494,33 @@ class Abilities:
                     continue
                 if state != READY:
                     continue  # recharging, not deployed yet, or unreadable
+            p = item.profile
             hp = None
-            if frame is not None and item.troop != MACHINE and item.profile.ability_hp is not None:
+            if frame is not None and item.troop != MACHINE and (p.ability_hp is not None or p.ability_drop is not None):
                 hp = health(frame, item.card)
-            engaged = hp is not None and hp < item.profile.ability_hp
-            if engaged or item.profile.ability_hp is None or now >= item.latest:
-                ready.append((hp if hp is not None else 1.0, bool(item.profile.ability_every), item.latest, item, hp))
+            if hp is not None:
+                item.last_read = now
+            (lost, span) = item.lost(now, hp) if hp is not None and p.ability_drop is not None else (0.0, 0.0)
+            # under its share, and hit since it landed: a survivor of the last stage that comes
+            # back under it waits to be hit again (not on the edge of the base)
+            engaged = (hp is not None and p.ability_hp is not None and hp < p.ability_hp
+                       and (item.first_hp is None or item.first_hp - hp >= _HIT))
+            falling = p.ability_drop is not None and lost >= p.ability_drop
+            # an ability with no deadline whose troop's health has not been read for a while
+            # (no bar found on its card): on time after all, and the log says so
+            blind = math.isinf(item.latest) and now - (item.landed if item.last_read is None else item.last_read) >= _BLIND_AFTER
+            if engaged or falling or blind or (p.ability_hp is None and p.ability_drop is None) or now >= item.latest:
+                why = f'lost {lost:.0%} in {span:.1f} s' if falling else f'no health bar read for {_BLIND_AFTER:.0f} s: on time' if blind else ''
+                ready.append((hp if hp is not None else 1.0, bool(p.ability_every), item.latest, item, hp, why))
         if not ready:
             return None
         # the most hurt first; at equal health a one-time ability before a recharging one,
         # which comes back anyway (it must not starve the others), then the most overdue
-        (_hp, _recharges, _latest, item, hp) = min(ready, key = lambda r: (r[0], r[1], r[2]))
+        (_hp, _recharges, _latest, item, hp, why) = min(ready, key = lambda r: (r[0], r[1], r[2]))
         self.last_by_troop[item.troop] = now
         item.tries += 1
         item.health = hp
+        item.why = why
         if item.profile.ability_every:
             item.earliest = item.latest = now + item.profile.ability_every
         elif item.tries >= _ABILITY_TRIES:
