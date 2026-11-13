@@ -1,5 +1,6 @@
 """The Run page's Start: what it hands the controller in each village, switch by switch (a
 temporary data dir and UI store, never the user's)."""
+import os
 import unittest
 from unittest.mock import Mock, patch
 
@@ -55,6 +56,34 @@ class StartArgumentsTests(QtTestCase):
                                     auto_donate=True, auto_request=True, stop_when_full=False),
                          dict(builder_base=True, upgrade_walls=False, auto_upgrade='off', auto_donate=False, auto_request=False,
                               stop_when_full=False, multi_run_players=None))
+
+
+@unittest.skipIf(QApplication is None, 'needs PySide6')
+class ProfileSeedTests(QtTestCase):
+    def test_a_profile_starts_from_the_main_profiles_choices_once(self):
+        main = self.temp_settings('main.ini')
+        main.setValue('run/minutes', 42)
+        main.setValue('schedule/times', '08:00')
+        main.setValue('geometry', 'x')
+        alt = self.temp_settings('alt.ini')
+        stores = {'UI': main, 'UI-alt': alt}
+        controller = Mock(**{'is_running.return_value': False})
+        with (patch.dict(os.environ, {'BASEPILOT_PROFILE': 'alt'}),
+              patch('app.ui.qt.pages.run.QSettings', side_effect=lambda org, name: stores[name])):
+            RunPage(controller, lambda name: None)
+            self.assertEqual((alt.value('run/minutes', type=int), alt.value('schedule/times')), (42, '08:00'))
+            self.assertFalse(alt.contains('geometry'))  # the main window's own keys stay where they are
+            alt.setValue('run/minutes', 7)  # from now on the profile keeps its own choices
+            main.setValue('run/minutes', 50)
+            RunPage(controller, lambda name: None)
+            self.assertEqual(alt.value('run/minutes', type=int), 7)
+
+    def test_the_main_profile_copies_nothing(self):
+        main = self.temp_settings('main.ini')
+        with (patch.dict(os.environ, {'BASEPILOT_PROFILE': ''}),
+              patch('app.ui.qt.pages.run.QSettings', return_value=main) as opened):
+            RunPage(Mock(**{'is_running.return_value': False}), lambda name: None)
+        opened.assert_called_once_with('BasePilot', 'UI')
 
 
 if __name__ == '__main__':

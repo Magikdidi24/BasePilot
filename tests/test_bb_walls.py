@@ -8,7 +8,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 from app.config import Config
 from app.services import ppocr
@@ -154,7 +154,7 @@ class RunPageTests(QtTestCase):
             with (self.subTest(profile=profile), patch.dict(os.environ, {'BASEPILOT_PROFILE': profile}),
                   patch('app.ui.qt.pages.run.QSettings', return_value=settings) as opened):
                 RunPage(controller, lambda name: None)
-                opened.assert_called_once_with('BasePilot', ui_store)
+                self.assertEqual(opened.call_args_list[0], call('BasePilot', ui_store))  # its own store (a new one then copies the main one's)
 
 
 if __name__ == '__main__':

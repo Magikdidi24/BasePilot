@@ -26,6 +26,8 @@ def _when(text):
         return None
 
 
+_RUN_KEY_PREFIXES = ('run/', 'schedule/')  # the Run page's keys in the UI store
+
 class RunPage(QWidget):
     scheduledStart = Signal(str)  # a set start time ("14:00") just started a run
     _STRATEGY_LABELS = [
@@ -47,6 +49,7 @@ class RunPage(QWidget):
         self._controller = controller
         self._navigate_to = navigate_to
         self._settings = QSettings('BasePilot', ui_settings_name())  # per profile, as the main window's
+        self._seed_from_main_profile()
         outer = QVBoxLayout(self)
         outer.setContentsMargins(SPACING['lg'], SPACING['lg'], SPACING['lg'], SPACING['lg'])
         outer.setSpacing(SPACING['md'])
@@ -571,6 +574,19 @@ class RunPage(QWidget):
                 if btn is not None:
                     btn.setChecked(True)
                 return None
+
+    def _seed_from_main_profile(self):
+        '''A profile's Run page starts from the main profile's Run choices and schedule, once:
+        until each profile had its own store, every profile read and wrote the main one, so
+        a profile upgraded from then keeps what it showed.'''
+        if ui_settings_name() == 'UI' or any(k.startswith(_RUN_KEY_PREFIXES) for k in self._settings.allKeys()):
+            return None
+        main = QSettings('BasePilot', 'UI')
+        keys = [k for k in main.allKeys() if k.startswith(_RUN_KEY_PREFIXES)]
+        for key in keys:
+            self._settings.setValue(key, main.value(key))
+        if keys:
+            logger.info('Run page: %d choices copied from the main profile (first start of %s)', len(keys), ui_settings_name())
 
     def _restore_choices(self):
         '''Bring back the last run's choices (mode, walls, duration) across app starts.'''
