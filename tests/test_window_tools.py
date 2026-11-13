@@ -58,6 +58,12 @@ class WindowToolTests(QtTestCase):
         dialog.assert_called_once_with(page, GAME, None)  # None: says the list could not be read, not that it is empty
         dialog.return_value.exec.assert_called_once_with()
 
+    def test_the_info_dialog_says_the_list_could_not_be_read(self):
+        dialog = self.settings.WindowInfoDialog(None, GAME, None)
+        texts = [label.text() for label in dialog.findChildren(self.QLabel)]
+        self.assertIn('Could not list the child windows (see the log).', texts)
+        self.assertNotIn('0 child window(s)', ' '.join(texts))
+
 
 if __name__ == '__main__':
     unittest.main()

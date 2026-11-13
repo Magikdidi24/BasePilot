@@ -8,24 +8,15 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-import numpy as np
-
-from app.config import Config
-from app.utils.common import read_image
-
-FIXTURES = Path(__file__).parent / 'fixtures'
-GPG = (1227, 767)  # (w, h): the default Google Play Games window, 16:10
-WAYDROID = (1920, 1200)  # (w, h): where the October 2026 UI was first measured
-
-# The whole test run reads and writes a throwaway data dir (LOCALAPPDATA on Windows, HOME on
-# Linux), never the user's: templates the app captured there would win over the bundled ones,
-# and debug frames would land in it. Loggers set up before this module was imported keep the
-# real log.
+# The test run reads and writes a throwaway data dir (LOCALAPPDATA on Windows, HOME on Linux),
+# never the user's: templates the app captured there would win over the bundled ones, and
+# debug frames would land in it. Set before this module imports app; a test module that
+# imported app before this one keeps the real log for the loggers it set up then.
 _RUN_DATA_DIR = tempfile.mkdtemp(prefix='basepilot-tests-')
 
 
 def _remove_run_data_dir():
-    from app.utils import logger as log_setup  # a logger set up after this module opened its file there
+    from app.utils import logger as log_setup  # a logger set up after the redirect opened its file there
     for (path, handlers) in list(log_setup._shared_handlers.items()):
         if str(path).startswith(_RUN_DATA_DIR):
             for handler in handlers:
@@ -36,6 +27,15 @@ def _remove_run_data_dir():
 atexit.register(_remove_run_data_dir)
 os.environ['LOCALAPPDATA'] = _RUN_DATA_DIR
 os.environ['HOME'] = _RUN_DATA_DIR
+
+import numpy as np  # after the redirect, as app below
+
+from app.config import Config
+from app.utils.common import read_image
+
+FIXTURES = Path(__file__).parent / 'fixtures'
+GPG = (1227, 767)  # (w, h): the default Google Play Games window, 16:10
+WAYDROID = (1920, 1200)  # (w, h): where the October 2026 UI was first measured
 
 
 def canvas(*crops, size=GPG):
@@ -89,7 +89,6 @@ class QtTestCase(DataDirTestCase):
         os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')  # no window on the desktop
         from PySide6.QtWidgets import QApplication  # lazy: the Linux CI has no Qt
         cls.app = QApplication.instance() or QApplication([])
-
 
     def temp_settings(self, name='ui.ini'):
         """A QSettings on an ini file of the temporary data dir, synced before the dir goes:
