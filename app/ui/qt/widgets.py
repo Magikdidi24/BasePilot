@@ -45,10 +45,9 @@ class PageTitle(QLabel):
 
 class ToggleSwitch(QCheckBox):
     
-    def __init__(self, text = '', *, parent = None, danger = False, under_development = False):
+    def __init__(self, text = '', *, parent = None, under_development = False):
         super().__init__(text, parent)
         self.setObjectName('ToggleSwitch')
-        self._danger = danger
         self._under_development = under_development
         self.setFixedHeight(24)
         if under_development:
@@ -67,9 +66,9 @@ class ToggleSwitch(QCheckBox):
             off_color = QColor(TOKENS['border'])
             text_color = QColor(TOKENS['text_faint'])
         else:
-            on_color = QColor(TOKENS['danger'] if self._danger else TOKENS['primary'])
+            on_color = QColor(TOKENS['primary'])
             off_color = QColor(TOKENS['neutral'])
-            text_color = QColor(TOKENS['danger'] if self._danger else TOKENS['text'])
+            text_color = QColor(TOKENS['text'])
         track_color = on_color if self.isChecked() and not self._under_development else off_color
         painter.setPen(Qt.NoPen)
         painter.setBrush(track_color)
@@ -134,8 +133,6 @@ def chip_button(text, *, parent = None):
 def segment_button(text, *, parent = None):
     btn = _styled_button(text, 'segment', parent)
     btn.setCheckable(True)
-    btn.style().unpolish(btn)
-    btn.style().polish(btn)
     btn.setMinimumWidth(int(btn.sizeHint().width() * 1.1))
     return btn
 
@@ -187,6 +184,11 @@ def spin_box(low, high, *, step = 1, suffix = '', special = '', width = 88, tip 
     spin.setFixedWidth(width)
     spin.setToolTip(tip)
     return spin
+
+
+def loot_spin(maximum, step, parent = None):
+    '''A minimum-loot spin in thousands, "any" at 0: Settings and the Run page show the same.'''
+    return spin_box(0, maximum, step = step, suffix = 'k', special = 'any', parent = parent)
 
 
 def muted_label(text, parent = None):

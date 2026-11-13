@@ -9,7 +9,7 @@ from app.core.clan import donate_troop_template_names, missing_templates
 from app.ui.qt.point_picker import PointPickerDialog
 from app.ui.qt.template_capture import TemplateCaptureDialog
 from app.ui.qt.theme import SPACING, TOKENS
-from app.ui.qt.widgets import Card, PageTitle, SectionTitle, ToggleSwitch, hint_label, muted_label, neutral_button, primary_button, scroll_page, spin_box
+from app.ui.qt.widgets import Card, PageTitle, SectionTitle, ToggleSwitch, hint_label, loot_spin, muted_label, neutral_button, primary_button, scroll_page, spin_box
 from app.utils.logger import setup_logger
 from app.utils.profile_settings_store import BB_WALL_THRESHOLD_K_MAX, ATTACK_MAX_SKIPS_MAX, ATTACK_MIN_DARK_K_MAX, ATTACK_MIN_LOOT_K_MAX, CLAN_MIN_ELIXIR_K_MAX, CLAN_DONATE_COUNT_MAX, CLAN_DONATE_INTERVAL_M_MAX, CLAN_DONATE_INTERVAL_M_MIN, CLAN_REQUEST_INTERVAL_M_MAX, CLAN_REQUEST_INTERVAL_M_MIN, EARTHQUAKE_METHOD_OPTIONS, RESERVE_BUILDERS_MAX, WALL_UPGRADE_THRESHOLD_M_MAX, ProfileSettings, load_profile_settings, save_profile_settings, UPGRADE_ORDER_CHEAPEST, UPGRADE_ORDER_PRICIEST, CLAN_DONATE_TROOP_AUTO, CLAN_DONATE_TROOP_OPTIONS
 from app.utils.window_settings_store import clear_window_selection, load_window_selection, save_window_selection
@@ -128,17 +128,22 @@ class SettingsPage(QWidget):
         card.card_layout.addWidget(SectionTitle('Reserve builders'))
         reserve_hint = hint_label('With Auto upgrade on, keep this many builders free (the wall flow spends through them). Set 0 when your walls are maxed so every builder is used for upgrades.')
         card.card_layout.addWidget(reserve_hint)
-        reserve_row = QHBoxLayout()
-        self._reserve_builders = spin_box(0, RESERVE_BUILDERS_MAX)
-        reserve_row.addWidget(self._reserve_builders)
-        reserve_unit = muted_label('builders kept free')
-        reserve_row.addWidget(reserve_unit)
-        reserve_row.addStretch()
-        card.card_layout.addLayout(reserve_row)
+        self._reserve_builders = self._unit_row(card, spin_box(0, RESERVE_BUILDERS_MAX), 'builders kept free')
         self._add_save_row(card)
         return card
 
     
+    @staticmethod
+    def _unit_row(card, spin, unit, wrap = False):
+        '''``spin`` with its muted unit beside it, on a row of ``card`` (a long unit wraps).
+        Returns ``spin``.'''
+        row = QHBoxLayout()
+        row.addWidget(spin)
+        row.addWidget(hint_label(unit) if wrap else muted_label(unit))
+        row.addStretch()
+        card.card_layout.addLayout(row)
+        return spin
+
     def _add_save_row(self, card):
         '''Save and Reset under a card: Save writes every card's fields (one profile file),
         Reset reloads every profile field from it.'''
@@ -172,34 +177,10 @@ class SettingsPage(QWidget):
         card.card_layout.addWidget(SectionTitle('Minimum loot to attack'))
         hint = hint_label('On the battle-prep screen the bot reads how much loot the base holds and presses Next while it is under these amounts, so an army is never spent on a 40k base. Needs the OCR models and a captured nextbase.png — without either it attacks every base and says so in the log. Set both to 0 to attack anything.')
         card.card_layout.addWidget(hint)
-        gold_row = QHBoxLayout()
-        self._attack_min_gold = spin_box(0, ATTACK_MIN_LOOT_K_MAX, step = 50, suffix = 'k', special = 'any')
-        gold_row.addWidget(self._attack_min_gold)
-        gold_unit = muted_label('gold')
-        gold_row.addWidget(gold_unit)
-        gold_row.addStretch()
-        card.card_layout.addLayout(gold_row)
-        elixir_row = QHBoxLayout()
-        self._attack_min_elixir = spin_box(0, ATTACK_MIN_LOOT_K_MAX, step = 50, suffix = 'k', special = 'any')
-        elixir_row.addWidget(self._attack_min_elixir)
-        elixir_unit = muted_label('elixir')
-        elixir_row.addWidget(elixir_unit)
-        elixir_row.addStretch()
-        card.card_layout.addLayout(elixir_row)
-        dark_row = QHBoxLayout()
-        self._attack_min_dark = spin_box(0, ATTACK_MIN_DARK_K_MAX, suffix = 'k', special = 'any')
-        dark_row.addWidget(self._attack_min_dark)
-        dark_unit = muted_label('dark elixir')
-        dark_row.addWidget(dark_unit)
-        dark_row.addStretch()
-        card.card_layout.addLayout(dark_row)
-        skips_row = QHBoxLayout()
-        self._attack_max_skips = spin_box(0, ATTACK_MAX_SKIPS_MAX)
-        skips_row.addWidget(self._attack_max_skips)
-        skips_unit = hint_label('bases skipped per raid at most — every Next costs another search fee')
-        skips_row.addWidget(skips_unit)
-        skips_row.addStretch()
-        card.card_layout.addLayout(skips_row)
+        self._attack_min_gold = self._unit_row(card, loot_spin(ATTACK_MIN_LOOT_K_MAX, 50), 'gold')
+        self._attack_min_elixir = self._unit_row(card, loot_spin(ATTACK_MIN_LOOT_K_MAX, 50), 'elixir')
+        self._attack_min_dark = self._unit_row(card, loot_spin(ATTACK_MIN_DARK_K_MAX, 1), 'dark elixir')
+        self._attack_max_skips = self._unit_row(card, spin_box(0, ATTACK_MAX_SKIPS_MAX), 'bases skipped per raid at most — every Next costs another search fee', wrap = True)
         self._add_save_row(card)
         return card
 
@@ -247,40 +228,16 @@ class SettingsPage(QWidget):
         self._clan_troop.addItems([label for (label, _key) in CLAN_TROOP_CHOICES])
         self._clan_troop.currentIndexChanged.connect((lambda _idx: self._update_clan_templates_label()))
         card.card_layout.addWidget(self._clan_troop)
-        count_row = QHBoxLayout()
-        self._clan_donate_count = spin_box(0, CLAN_DONATE_COUNT_MAX, special = 'until grey')
-        count_row.addWidget(self._clan_donate_count)
-        count_unit = muted_label('troops per request — "until grey" gives until the game greys the troop out (it is full)')
-        count_row.addWidget(count_unit)
-        count_row.addStretch()
-        card.card_layout.addLayout(count_row)
+        self._clan_donate_count = self._unit_row(card, spin_box(0, CLAN_DONATE_COUNT_MAX, special = 'until grey'), 'troops per request — "until grey" gives until the game greys the troop out (it is full)')
         card.card_layout.addWidget(SectionTitle('Elixir floor'))
         elixir_hint = hint_label('Only donate while the HUD shows at least this much elixir, so giving troops away never eats the loot you are farming for. Read before the clan menu opens; needs the OCR models — without them the check is skipped and logged. 0 turns it off.')
         card.card_layout.addWidget(elixir_hint)
-        elixir_row = QHBoxLayout()
-        self._clan_min_elixir = spin_box(0, CLAN_MIN_ELIXIR_K_MAX, step = 50, suffix = 'k', special = 'off')
-        elixir_row.addWidget(self._clan_min_elixir)
-        elixir_unit = muted_label('elixir needed before donating')
-        elixir_row.addWidget(elixir_unit)
-        elixir_row.addStretch()
-        card.card_layout.addLayout(elixir_row)
+        self._clan_min_elixir = self._unit_row(card, spin_box(0, CLAN_MIN_ELIXIR_K_MAX, step = 50, suffix = 'k', special = 'off'), 'elixir needed before donating')
         card.card_layout.addWidget(SectionTitle('How often'))
         interval_hint = hint_label('Checked between raids, from the home screen. Requests are asked for far less often than clanmates ask you — the castle only holds so much.')
         card.card_layout.addWidget(interval_hint)
-        donate_row = QHBoxLayout()
-        self._clan_donate_interval = spin_box(CLAN_DONATE_INTERVAL_M_MIN, CLAN_DONATE_INTERVAL_M_MAX, suffix = 'm', special = 'every raid')
-        donate_row.addWidget(self._clan_donate_interval)
-        donate_unit = muted_label('between donation visits — "every raid" donates on every trip home')
-        donate_row.addWidget(donate_unit)
-        donate_row.addStretch()
-        card.card_layout.addLayout(donate_row)
-        request_row = QHBoxLayout()
-        self._clan_request_interval = spin_box(CLAN_REQUEST_INTERVAL_M_MIN, CLAN_REQUEST_INTERVAL_M_MAX, suffix = 'm')
-        request_row.addWidget(self._clan_request_interval)
-        request_unit = muted_label('between reinforcement requests')
-        request_row.addWidget(request_unit)
-        request_row.addStretch()
-        card.card_layout.addLayout(request_row)
+        self._clan_donate_interval = self._unit_row(card, spin_box(CLAN_DONATE_INTERVAL_M_MIN, CLAN_DONATE_INTERVAL_M_MAX, suffix = 'm', special = 'every raid'), 'between donation visits — "every raid" donates on every trip home')
+        self._clan_request_interval = self._unit_row(card, spin_box(CLAN_REQUEST_INTERVAL_M_MIN, CLAN_REQUEST_INTERVAL_M_MAX, suffix = 'm'), 'between reinforcement requests')
         self._add_save_row(card)
         return card
 

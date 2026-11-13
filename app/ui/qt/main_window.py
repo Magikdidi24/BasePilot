@@ -16,6 +16,7 @@ from app.ui.qt.pages.settings import SettingsPage
 from app.ui.qt.pages.stats import StatsPage
 from app.ui.qt.taskbar_thumb_qt import QtTaskbarThumb
 from app.ui.qt.theme import SIDEBAR_WIDTH, TOKENS, WINDOW_DEFAULT, WINDOW_MIN
+from app.ui.qt.widgets import muted_label
 from app.utils import update_check
 PAGE_KEYS = [
     'run',
@@ -113,11 +114,9 @@ class MainWindow(QMainWindow):
     def _build_status_bar(self):
         bar = QStatusBar()
         self.setStatusBar(bar)
-        self._status_label = QLabel('Ready')
-        self._status_label.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
+        self._status_label = muted_label('Ready')
         bar.addWidget(self._status_label, stretch = 1)
-        version_lbl = QLabel(f'''v{__version__}''')
-        version_lbl.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
+        version_lbl = muted_label(f'''v{__version__}''')
         bar.addPermanentWidget(version_lbl)
 
 

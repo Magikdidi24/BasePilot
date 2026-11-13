@@ -10,7 +10,7 @@ from app.core.upgrade_policy import MODE_DRY, MODE_MAXER, MODE_OFF, MODE_RUSHER
 from app.ui.qt._constants import ATTACK_STRATEGIES, BUILDER_BASE_ATTACK_STRATEGIES
 from app.ui.qt.dialogs import show_error, show_under_development
 from app.ui.qt.theme import SPACING, TOKENS
-from app.ui.qt.widgets import Card, SectionTitle, StepperButton, ToggleSwitch, chip_button, danger_button, hint_label, muted_label, neutral_button, primary_button, scroll_page, segment_button, spin_box
+from app.ui.qt.widgets import Card, SectionTitle, StepperButton, ToggleSwitch, chip_button, danger_button, hint_label, loot_spin, muted_label, neutral_button, primary_button, scroll_page, segment_button
 from app.ui.qt.text import short_amount
 from app.utils.common import ui_settings_name
 from app.utils.player_list_store import load_players
@@ -134,15 +134,15 @@ class RunPage(QWidget):
         loot_row = QHBoxLayout()
         loot_row.addWidget(SectionTitle('Minimum loot'))
         loot_row.addSpacing(SPACING['xs'])
-        self._min_gold = self._min_loot_spin(card)
+        self._min_gold = loot_spin(ATTACK_MIN_LOOT_K_MAX, 50, card)
         loot_row.addWidget(self._min_gold)
         loot_row.addWidget(muted_label('gold', card))
         loot_row.addSpacing(SPACING['md'])
-        self._min_elixir = self._min_loot_spin(card)
+        self._min_elixir = loot_spin(ATTACK_MIN_LOOT_K_MAX, 50, card)
         loot_row.addWidget(self._min_elixir)
         loot_row.addWidget(muted_label('elixir', card))
         loot_row.addSpacing(SPACING['md'])
-        self._min_dark = self._min_loot_spin(card, ATTACK_MIN_DARK_K_MAX, 1)
+        self._min_dark = loot_spin(ATTACK_MIN_DARK_K_MAX, 1, card)
         loot_row.addWidget(self._min_dark)
         loot_row.addWidget(muted_label('dark', card))
         loot_row.addStretch()
@@ -156,10 +156,6 @@ class RunPage(QWidget):
         self._min_elixir.valueChanged.connect(self._save_min_loot)
         self._min_dark.valueChanged.connect(self._save_min_loot)
         return card
-
-    @staticmethod
-    def _min_loot_spin(parent, maximum = ATTACK_MIN_LOOT_K_MAX, step = 50):
-        return spin_box(0, maximum, step = step, suffix = 'k', special = 'any', parent = parent)
 
     def _load_min_loot(self):
         '''The loot filter's minimums from the profile (Settings edits them too).'''
@@ -240,9 +236,8 @@ class RunPage(QWidget):
         self._btn_spin_down.clicked.connect((lambda : self._step_minutes(-1)))
         step_col.addWidget(self._btn_spin_up)
         step_col.addWidget(self._btn_spin_down)
-        self._minutes_unit = QLabel('minutes')
+        self._minutes_unit = muted_label('minutes')
         self._minutes_unit.setObjectName('DurationUnit')
-        self._minutes_unit.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
         spin_group = QHBoxLayout()
         spin_group.setSpacing(4)
         spin_group.addWidget(self._minutes_spin)
