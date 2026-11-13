@@ -18,6 +18,7 @@ def _clan_options(profile, *, donate, request):
         request = bool(request),
         dry_run = bool(profile.clan_dry_run),
         chat_point = (float(point[0]), float(point[1])) if point else None,
+        chat_point_aspect = profile.clan_chat_point_aspect,
         donate_troop = profile.clan_donate_troop,
         donate_count = int(profile.clan_donate_count),
         min_elixir = int(profile.clan_min_elixir_k) * 1000,

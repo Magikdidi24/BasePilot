@@ -63,6 +63,7 @@ from typing import List, Optional, Tuple
 import cv2
 import numpy as np
 
+from app.config import aspect_label, resolve_aspect_key
 from app.core.build_panel import gem_prompt_visible
 from app.services.vision import VisionService
 from app.utils.common import get_template_path, read_image, save_debug_frame
@@ -128,6 +129,7 @@ class ClanOptions:
     request: bool = False
     dry_run: bool = True
     chat_point: Optional[Tuple[float, float]] = None  # (fx, fy) fractions — fallback way in
+    chat_point_aspect: Optional[str] = None  # aspect key the point was picked on
     donate_troop: str = DONATE_TROOP_AUTO
     donate_count: int = 0  # 0 = keep giving until the troop greys out
     donate_interval_s: int = 0  # 0 = donate on every home visit (after each raid)
@@ -334,11 +336,17 @@ class ClanAssistant:
         return bool(x)
 
     def _chat_click_point(self, frame):
-        '''Fallback way in: the calibrated fraction from Settings, if there is one.'''
+        '''Fallback way in: the calibrated fraction from Settings, if there is one and the
+        capture has the aspect it was picked on (a 16:9 point is a stale spot at 16:10).'''
         point = self.options.chat_point
         if point is None:
             return None
         (h, w) = frame.shape[:2]
+        (picked_on, now) = (self.options.chat_point_aspect, resolve_aspect_key(w, h))
+        if picked_on and now and picked_on != now:
+            logger.warning('Clan assist: the chat button was picked at %s and the game is at %s — not clicking it; re-pick it in Settings',
+                           aspect_label(picked_on), aspect_label(now))
+            return None
         (fx, fy) = point
         return (min(w - 1, max(0, int(round(float(fx) * w)))),
                 min(h - 1, max(0, int(round(float(fy) * h)))))
@@ -392,7 +400,7 @@ class ClanAssistant:
         if allow_okay and gem_prompt_visible(self.vision, frame):  # a gem purchase is on offer
             logger.warning('Clan assist: gem icon on screen — not pressing Okay')
             allow_okay = False
-        names = ('exit.png', 'okay.png') if allow_okay else ('exit.png', 'closex.png')
+        names = ('exit.png', 'okay.png', 'closex.png') if allow_okay else ('exit.png', 'closex.png')
         for name in names:
             (x, y) = self._find(frame, name)
             if x:

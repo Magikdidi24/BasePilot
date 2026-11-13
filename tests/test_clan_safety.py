@@ -42,10 +42,25 @@ class EscapeTests(unittest.TestCase):
                 clan._escape_subpanel()
                 self.assertEqual(clan.input.click.call_args.args[:2], (1500, 200))
 
+    def test_a_panel_with_only_the_october_x_is_closed_by_it(self):
+        clan = assistant({'closex.png': (1500, 200)})
+        clan._escape_subpanel()
+        self.assertEqual(clan.input.click.call_args.args[:2], (1500, 200))  # not a tap on empty ground
+
     def test_no_okay_after_a_price_veto(self):
         clan = assistant({'okay.png': OKAY})  # the gem beside Send was seen, not this one
         clan._escape_subpanel(allow_okay=False)
         self.assertEqual(clan.input.click.call_args.args[:2], EMPTY)
+
+
+class ChatPointTests(unittest.TestCase):
+    def test_the_chat_point_is_clicked_only_at_the_aspect_it_was_picked_on(self):
+        frame = np.zeros((1200, 1920, 3), np.uint8)  # 16:10
+        for (picked_on, expected) in (('16_10', (960, 600)), (None, (960, 600)), ('16_9', None)):
+            with self.subTest(picked_on=picked_on):
+                clan = assistant({})
+                clan.options = ClanOptions(chat_point=(0.5, 0.5), chat_point_aspect=picked_on)
+                self.assertEqual(clan._chat_click_point(frame), expected)
 
 
 if __name__ == '__main__':
