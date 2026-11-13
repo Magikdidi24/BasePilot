@@ -6,6 +6,7 @@ from PySide6.QtCore import QSettings, Qt, QTimer, Signal
 from PySide6.QtWidgets import QButtonGroup, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QSpinBox, QVBoxLayout, QWidget
 from app.config import check_game_window_aspect_for_start
 from app.core import bb_strategy, schedule
+from app.core.upgrade_policy import MODE_DRY, MODE_MAXER, MODE_OFF, MODE_RUSHER
 from app.ui.qt._constants import ATTACK_STRATEGIES, BUILDER_BASE_ATTACK_STRATEGIES
 from app.ui.qt.dialogs import show_error, show_under_development
 from app.ui.qt.theme import SPACING, TOKENS
@@ -39,10 +40,10 @@ class RunPage(QWidget):
         'Home Village',
         'Builder Base']
     _AUTO_UPGRADE_LABELS = [
-        ('Off', 'off'),
-        ('Dry run', 'dry'),
-        ('Maxer', 'maxer'),
-        ('Rusher', 'rusher')]
+        ('Off', MODE_OFF),
+        ('Dry run', MODE_DRY),
+        ('Maxer', MODE_MAXER),
+        ('Rusher', MODE_RUSHER)]
 
     def __init__(self, controller, navigate_to, parent = None):
         super().__init__(parent)
@@ -565,7 +566,7 @@ class RunPage(QWidget):
         checked_id = self._auto_upgrade_group.checkedId()
         if 0 <= checked_id < len(self._AUTO_UPGRADE_LABELS):
             return self._AUTO_UPGRADE_LABELS[checked_id][1]
-        return 'off'
+        return MODE_OFF
 
     def _set_auto_upgrade_mode(self, mode):
         for i, (_label, key) in enumerate(self._AUTO_UPGRADE_LABELS):
@@ -590,7 +591,7 @@ class RunPage(QWidget):
 
     def _restore_choices(self):
         '''Bring back the last run's choices (mode, walls, duration) across app starts.'''
-        self._set_auto_upgrade_mode(str(self._settings.value('run/autoUpgrade', 'off')))
+        self._set_auto_upgrade_mode(str(self._settings.value('run/autoUpgrade', MODE_OFF)))
         self._upgrade_walls.setChecked(self._settings.value('run/upgradeWalls', False, type = bool))
         self._bb_auto_upgrade.setChecked(self._settings.value('run/bbAutoUpgrade', False, type = bool))
         self._bb_upgrade_walls.setChecked(self._settings.value('run/bbUpgradeWalls', False, type = bool))
@@ -654,7 +655,7 @@ class RunPage(QWidget):
         self._save_choices()
         if builder_base:
             upgrade_walls = self._bb_upgrade_walls.isChecked()
-            auto_upgrade = self._get_auto_upgrade_mode() if self._bb_auto_upgrade.isChecked() else 'off'
+            auto_upgrade = self._get_auto_upgrade_mode() if self._bb_auto_upgrade.isChecked() else MODE_OFF
             # Clan assist rides the Home Village flow (the chat button is calibrated on it,
             # and the Builder Base has no clan chat).
             (auto_donate, auto_request) = (False, False)
@@ -677,7 +678,7 @@ class RunPage(QWidget):
             return None
 
 
-    def apply_autostart(self, minutes, upgrade_walls, auto_upgrade = 'off', auto_donate = False, auto_request = False):
+    def apply_autostart(self, minutes, upgrade_walls, auto_upgrade = MODE_OFF, auto_donate = False, auto_request = False):
         '''CLI ``--autostart``: Home Village run with the given duration (``0`` =
         endless), wall toggle, auto-upgrade mode (off|dry|maxer|rusher), and
         the clan-assist toggles.'''

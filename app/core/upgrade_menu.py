@@ -29,7 +29,7 @@ RESOURCE_DARK = 'dark_elixir'
 class UpgradeRow:
     '''One upgrade card of the Build panel, in full-frame coordinates.'''
     label: str
-    section: str  # always '' from the Build panel, which skips running upgrades
+    section: str  # '' from the Build panel; a running upgrade shows there with no cost instead
     cost: Optional[int]  # parsed white cost; None for in-progress / red / unparsed rows
     resource: Optional[str]  # RESOURCE_* from the icon right of the cost; None when unknown
     affordable: Optional[bool]  # True: white cost parsed; False: cost zone reads red; None: unknown

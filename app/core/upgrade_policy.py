@@ -21,6 +21,7 @@ from app.core.upgrade_menu import (
     is_wall_row,
 )
 from app.utils.logger import setup_logger
+from app.utils.profile_settings_store import UPGRADE_ORDER_CHEAPEST, UPGRADE_ORDER_PRICIEST
 
 logger = setup_logger('UpgradePolicy')
 
@@ -31,8 +32,8 @@ MODE_DRY = 'dry'  # open the Build panel and log the pick, start nothing
 AUTO_UPGRADE_MODES = (MODE_OFF, MODE_DRY, MODE_MAXER, MODE_RUSHER)
 LIVE_UPGRADE_MODES = (MODE_MAXER, MODE_RUSHER)
 
-ORDER_PRICIEST = 'priciest'
-ORDER_CHEAPEST = 'cheapest'
+ORDER_PRICIEST = UPGRADE_ORDER_PRICIEST  # the strings settings.json stores
+ORDER_CHEAPEST = UPGRADE_ORDER_CHEAPEST
 
 
 @dataclass(frozen = True)
@@ -82,7 +83,7 @@ def choose_upgrade(rows, resources, free_builders, policy):
         r for r in rows
         if r.section != SECTION_IN_PROGRESS
         and r.affordable
-        and not is_wall_row(r)  # walls belong to the wall-batch flow (overflow sink)
+        and not is_wall_row(r)  # walls belong to the wall flow (one at a time, the overflow sink)
         and can_pay(r, resources, policy)
     ]
     if not candidates:

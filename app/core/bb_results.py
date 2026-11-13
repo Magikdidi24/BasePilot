@@ -12,9 +12,6 @@ from typing import Optional
 
 from app.core.results_screen import crop, digits, lit_stars
 from app.services import ppocr
-from app.utils.logger import setup_logger
-
-logger = setup_logger('BBResults')
 
 # Star centres, (x from the middle, y), and the half side of the box sampled around them, in
 # screen heights. Live 1227x767: (460, 225), (612, 170), (762, 225).

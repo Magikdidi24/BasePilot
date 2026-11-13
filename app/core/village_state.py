@@ -24,10 +24,10 @@ logger = setup_logger('VillageState')
 # elixir read as 49,796,363 against a real 9,796,363 in the second after a purchase, and
 # as 411,251,572 and 116,737,862 in the run log. The corruption is systematic while the
 # resource bar animates, so two consecutive reads can agree on it and pass the stability
-# check above. Set above the largest storage set in the game today (a maxed Town Hall 17
+# check below. Set above the largest storage set in the game today (a maxed Town Hall 17
 # holds a little under 25M of either) and well below a spurious extra digit. Rejecting a
 # real read by mistake costs one cycle: callers treat it as an unreadable HUD, which
-# falls back to the storage icons rather than doing anything rash.
+# falls back to the full-storage flags of the bars rather than doing anything rash.
 _IMPLAUSIBLE_HUD_MAIN = 30000000
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
+from app.core.upgrade_policy import AUTO_UPGRADE_MODES, MODE_OFF
 from app.ui.qt.branding import apply_app_icon
 from app.ui.qt.main_window import MainWindow
 from app.ui.qt.theme import apply_theme
@@ -19,11 +20,11 @@ def _parse_autostart(argv):
             minutes = max(0, min(999, int(argv[argv.index('--minutes') + 1])))
         except (IndexError, ValueError):
             pass
-    upgrades = 'off'
+    upgrades = MODE_OFF
     if '--upgrades' in argv:
         try:
             candidate = argv[argv.index('--upgrades') + 1].lower()
-            if candidate in ('off', 'dry', 'maxer', 'rusher'):
+            if candidate in AUTO_UPGRADE_MODES:
                 upgrades = candidate
         except IndexError:
             pass
