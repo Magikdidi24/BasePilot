@@ -626,13 +626,14 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
     def _build_panel_pass(self, mode):
         '''October 2026 HUD: one upgrade and one research from the Build panel, never with
         the goblin and never through a gem prompt (see :mod:`app.core.build_panel`). True
-        when it started one of them.'''
+        when it tried to start one: started, or failed and put on a cooldown, so the next
+        pass reaches the next card.'''
         upgrader = self._build_panel_upgrader()
         note = upgrader.run_pass(mode, reserve_builders = self._effective_reserve(), order = getattr(self, '_upgrade_order', None),
                                  builder_base = getattr(self, '_builder_base', False))
         logger.info('Upgrades: %s', note)
         self._status(f'''Upgrades: {note}''')
-        return upgrader.started > 0
+        return upgrader.tried > 0
 
     def _clan_assistant(self):
         '''The session's single ClanAssistant (holds the failure counter that
@@ -820,10 +821,11 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         logger.info('Idle gate: spend burst (%s) — forcing upgrade passes', state.summary())
         # Spend NOW rather than one pass per wake: a pass starts at most one upgrade and one
         # research, and another builder may still be free after it, so keep going while
-        # passes start something (a card that failed to start sits out its cooldown).
+        # passes try a card: one that failed to start sits out its cooldown, so the next
+        # pass reaches the next card.
         for _attempt in range(5):
             if not self._maybe_auto_upgrade(force = True):
-                break  # nothing started: nothing free or affordable, or no Build panel
+                break  # nothing tried: nothing free or affordable, or no Build panel
         state = self._read_state_stable()
         if state is None or not state.storages_full:
             return None

@@ -129,7 +129,8 @@ class GemSafetyTests(unittest.TestCase):
 
 
 class StartCountTests(unittest.TestCase):
-    """run_pass counts what it started: the idle spend burst goes on while passes start something."""
+    """run_pass counts the cards it tried to start: the idle spend burst goes on while passes
+    try one (a card that failed sits out its cooldown, so the next pass reaches the next)."""
     def setUp(self):
         stop = Mock(**{'wait.return_value': False})
         window = Mock(**{'screenshot.return_value': np.zeros((1200, 1920, 3), np.uint8)})
@@ -145,34 +146,37 @@ class StartCountTests(unittest.TestCase):
               patch.object(bp, 'read_chips', return_value=(chip_after, None))):
             return self.up._one(bp.TAB_BUILDINGS, (10 ** 6, 10 ** 6, 0), 1, UpgradePolicy(), mode)
 
-    def test_a_start_the_chip_confirms_is_counted(self):
-        note = self.one('maxer', bp.Chip(0, 6, False))
-        self.assertEqual(self.up.started, 1, note)
-
-    def test_a_start_the_chip_does_not_confirm_is_not_counted(self):
-        for (case, chip) in (('slot still free', bp.Chip(1, 6, False)), ('chip unreadable', None)):
+    def test_a_start_is_counted_confirmed_or_not(self):
+        for (case, chip) in (('confirmed', bp.Chip(0, 6, False)), ('slot still free', bp.Chip(1, 6, False)),
+                             ('chip unreadable', None)):
             with self.subTest(case):
-                self.up.started = 0
+                self.up.tried = 0
                 note = self.one('maxer', chip)
-                self.assertEqual(self.up.started, 0, note)
+                self.assertEqual(self.up.tried, 1, note)
 
-    def test_a_dry_run_starts_nothing(self):
+    def test_a_failed_start_is_counted_and_sits_out_its_cooldown(self):
+        self.up._start.return_value = 'gem prompt closed, not started:'
+        note = self.one('maxer', bp.Chip(1, 6, False))
+        self.assertEqual(self.up.tried, 1, note)
+        self.assertIn('Cannon', self.up._failed)
+
+    def test_a_dry_run_tries_nothing(self):
         note = self.one('dry', bp.Chip(0, 6, False))
-        self.assertEqual(self.up.started, 0, note)
+        self.assertEqual(self.up.tried, 0, note)
         self.up._start.assert_not_called()
 
     @patch.object(bp, 'read_chips', return_value=(bp.Chip(1, 6, True), bp.Chip(1, 2, True)))
     def test_each_pass_counts_from_zero(self, _chips):
-        self.up.started = 2  # what the last pass started
-        self.up.run_pass('maxer')  # goblin only: nothing to start
-        self.assertEqual(self.up.started, 0)
+        self.up.tried = 2  # what the last pass tried
+        self.up.run_pass('maxer')  # goblin only: nothing to try
+        self.assertEqual(self.up.tried, 0)
 
-    def test_the_bot_hears_whether_the_pass_started_something(self):
+    def test_the_bot_hears_whether_the_pass_tried_a_card(self):
         bot = Bot.__new__(Bot)
         bot._panel_upgrader = Mock(**{'run_pass.return_value': 'note'})
-        for (started, expected) in ((0, False), (1, True), (2, True)):
-            with self.subTest(started=started):
-                bot._panel_upgrader.started = started
+        for (tried, expected) in ((0, False), (1, True), (2, True)):
+            with self.subTest(tried=tried):
+                bot._panel_upgrader.tried = tried
                 self.assertIs(bot._build_panel_pass('maxer'), expected)
 
 
