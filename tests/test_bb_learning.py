@@ -50,6 +50,20 @@ class ResultsScreenTests(unittest.TestCase):
         self.assertIsNone(bb_results.read_result(np.zeros((767, 1227, 3), np.uint8)))
 
 
+@unittest.skipUnless(ppocr.available(), 'needs the OCR models in app/data/ocr')
+class LiveDamageTests(unittest.TestCase):
+    def test_the_battles_damage_reads_from_0_to_200(self):
+        # the Overall Damage box (x 1040-1227, y 560-632 of a live 1227x767 battle): the
+        # second base's count goes on from the first one's 100
+        for value in (0, 68, 131, 200):
+            frame = canvas((f'gpg767_bb_live_damage_{value}.png', 1040, 560))
+            self.assertEqual(bb_results.live_damage(frame), value)
+
+    def test_no_damage_off_a_battle(self):
+        self.assertIsNone(bb_results.live_damage(np.zeros((767, 1227, 3), np.uint8)))
+        self.assertIsNone(bb_results.live_damage(results_frame('142_3')))
+
+
 class HistoryTests(unittest.TestCase):
     def test_records_go_in_one_line_each_and_come_back(self):
         with tempfile.TemporaryDirectory() as d:
@@ -204,6 +218,28 @@ class BotPlanTests(unittest.TestCase):
         # 58 %, to both plans that went in from its side: (3 + 0.58) / 7
         self.assertEqual(bot._bb_plans.summary(MM, ['mortar']), 'mortar 73 % (1)')
         self.assertEqual(bot._bb_plans.summary('pekka', ['best', 'core'], stage=2), 'best 51 % (1), core 51 % (1)')
+
+    def test_the_damage_curve_keeps_each_rise_and_goes_in_the_history(self):
+        bot = make_bot()
+        reads = iter([0, 36, 30, 68, None, 100, 131])  # 30: a misread, lower than the read before
+        with patch('app.core.bot.bb_results.live_damage', side_effect=lambda frame: next(reads)):
+            for k in range(7):
+                bot._bb_note_damage(None, 3 * k)
+        curve = [[0, 0], [3, 36], [9, 68], [15, 100], [18, 131]]
+        self.assertEqual(bot._bb_damage_curve, curve)
+        bot._bb_plans = bb_learning.PlanLearner()
+        result = bb_results.BattleResult(3, 158, 142000, 37)
+        with patch('app.core.bot.results_screen.settled_result', return_value=result), \
+                patch('app.core.bot.battle_history.append') as append, self.assertLogs('BotCore', 'INFO') as logs:
+            bot._bb_record_result(0.0)
+        self.assertEqual(append.call_args.args[0]['curve'], curve)
+        self.assertIn('first base cleared at 15s', ' '.join(logs.output))
+
+    def test_a_misread_never_ends_the_battle(self):
+        bot = make_bot()
+        with patch('app.core.bot.bb_results.live_damage', side_effect=RuntimeError('no model')):
+            bot._bb_note_damage(None, 0)  # does not raise
+        self.assertEqual(getattr(bot, '_bb_damage_curve', []), [])
 
 
 if __name__ == '__main__':

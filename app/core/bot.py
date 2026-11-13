@@ -33,6 +33,7 @@ _BB_RETURN_HOME_OCR_EVERY = 10
 _BB_RESULTS_LEAVE_TIMEOUT = 8.0  # s for the results screen to go once Return Home is tapped
 _BB_BATTLE_MAX_SECONDS = 360  # two stages of ~2 min, the scouting and the transitions; then recovery
 _BB_REDEPLOY_AFTER = 8  # s after a deploy before swap buttons on the bar mean a new stage
+_BB_DAMAGE_EVERY = 3.0  # s between two reads of the battle's Overall Damage (one OCR line, 20-60 ms)
 _BB_TEMPLATE_SUPPRESS_PAD = 0.1
 _BB_FULL_ELIXIR_CART_TEMPLATES = ('fullecart.png', 'fullecart2.png', 'fullecart3.png')
 _BB_COLLECT_TEMPLATE = 'collect.png'
@@ -1332,6 +1333,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         End Battle nor Surrender). False when no battle was played (a control never showed up).'''
         self._bb_stage_plans = {}  # a new battle draws the attack plan of each stage
         self._bb_stage_sides = {}  # and goes in from a side of each base (bb_scout.features)
+        self._bb_damage_curve = []  # [s into the fight, Overall Damage %], each time it went up
         self.input.scroll(*self._scroll_point(), 20)
         if self.stop_event.wait(random.uniform(0.1, 0.25)):
             self._check_stop()
@@ -1601,9 +1603,14 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             return None
         plans = getattr(self, '_bb_stage_plans', None) or {}
         (first, second) = (plans.get(bb_learning.FIRST), plans.get(bb_learning.SECOND))
-        logger.info('Builder Base: %d star(s), %d %% damage, %s gold, %s trophies (plans %s, %ds)', result.stars, result.damage,
-                    result.gold, result.trophies, ' then '.join(p[1] for p in (first, second) if p) or '-', int(time.monotonic() - start))
+        curve = list(getattr(self, '_bb_damage_curve', None) or [])
+        cleared = next((t for (t, damage) in curve if damage >= 100), None)
+        logger.info('Builder Base: %d star(s), %d %% damage, %s gold, %s trophies (plans %s, %ds%s)', result.stars, result.damage,
+                    result.gold, result.trophies, ' then '.join(p[1] for p in (first, second) if p) or '-', int(time.monotonic() - start),
+                    f', first base cleared at {cleared}s' if cleared is not None else '')
         record = dict(result.as_dict(), village = 'builder', session = getattr(self, '_session_id', None), seconds = int(time.monotonic() - start))
+        if curve:
+            record['curve'] = curve  # [s into the fight, Overall Damage %], each time it went up
         if first or second:
             # "plan": the last stage's, as the history had it before the stages were scored apart
             record.update(army = (first or second)[0], plan = (second or first)[1])
@@ -1740,6 +1747,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         last_deploy = start
         next_speed = start
         next_ocr = start + _BB_RETURN_HOME_OCR_EVERY
+        next_damage = start
         while time.monotonic() - start < _BB_BATTLE_MAX_SECONDS:
             self._check_stop()
             frame = self.window.screenshot()
@@ -1749,6 +1757,9 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                 continue
             self._update_config_size(frame)
             now = time.monotonic()
+            if now >= next_damage:
+                next_damage = now + _BB_DAMAGE_EVERY
+                self._bb_note_damage(frame, now - start)
             point = self._bb_return_home_point(frame, ocr = now >= next_ocr)
             if now >= next_ocr:
                 next_ocr = now + _BB_RETURN_HOME_OCR_EVERY
@@ -1783,6 +1794,21 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                 self._check_stop()
         logger.warning('Builder Base: no results screen after %ds — leaving it to recovery', _BB_BATTLE_MAX_SECONDS)
         return False
+
+    def _bb_note_damage(self, frame, seconds):
+        '''The battle's Overall Damage into its curve, when it went up (the history keeps it:
+        how fast an attack takes each base, where it stalls). It never goes down within a
+        battle, so a lower read is a misread, skipped. Never raises.'''
+        try:
+            damage = bb_results.live_damage(frame)
+        except Exception:
+            logger.debug('Builder Base: Overall Damage not read', exc_info = True)
+            return None
+        curve = getattr(self, '_bb_damage_curve', None)
+        if curve is None:
+            curve = self._bb_damage_curve = []
+        if damage is not None and (not curve or damage > curve[-1][1]):
+            curve.append([int(seconds), damage])
 
     def _find_match_and_attack(self, method_id):
         """One attack cycle. Returns ``'troop'`` (troops missing — retry later),
