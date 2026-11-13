@@ -476,6 +476,8 @@ Normalize high-contrast UI text to **black glyphs on white** (single channel, 0 
             cq = re.sub('[^a-z0-9]', '', query_norm.lower()) if match_alnum_only else query_norm
             if len(cq) < 3:
                 return False
+            if not fragments and cr != cq and cr in cq:
+                return False  # a part of the name, misread or not: another account ("Bob 2" for "Mr Bob 2")
             (lo, hi) = sorted((len(cr), len(cq)))
             if hi and lo / hi < 0.5:
                 return False
@@ -574,7 +576,8 @@ Args:
     region: Optional ROI ``(x, y, w, h)`` in screen coordinates.
     query: If set, only return words whose text contains this substring (after normalization),
         not as part of a longer number (another account numbered alike). A query of several
-        words is also looked for on as many consecutive words of a line.
+        words or parts is also looked for on runs of consecutive words of a line, up to as many
+        words as it has words or parts; a run shorter than the query never matches a part of it.
     case_sensitive: Match behavior when ``query`` is set.
     match_alnum_only: If True with ``query``, also match after stripping non-alphanumeric characters
         and allow substring match either way on the compact strings (a fragment of the name only
@@ -596,19 +599,28 @@ Returns:
         if query is not None:
             qnorm = query.strip() if case_sensitive else query.strip().lower()
             # "Farm 1" reads as the words "Farm" and "1", and so may "Chief_42" ("Chief", "42") or
-            # "King Bob 2" ("KingBob", "2"): runs of up to as many words as the name has parts
-            parts = len(re.findall(r'[^\W_]+', qnorm))
+            # "King Bob 2" ("KingBob", "2"): runs of up to as many words as the name has words or
+            # parts ("Bob - 2" is three words, two parts)
+            span = len(qnorm.split())
+            parts = max(span, len(re.findall(r'[^\W_]+', qnorm)))
         words = []
         for (i, line) in enumerate(VisionService._ocr_lines(screen_img, region, charset = charset, single_line = single_line, roi_upscale = roi_upscale)):
             (_x0, y0, _x1, y1) = line.box
             candidates = ppocr.words(line)
-            runs = [candidates[k:k + n] for n in range(2, parts + 1) for k in range(len(candidates) - n + 1)]
+
+            def number_goes_on(k, end):
+                '''The run's number continues in the word next to it ("Farm 1 2" is not "Farm 1").'''
+                after = end < len(candidates) and candidates[end - 1][0][-1:].isdigit() and candidates[end][0][:1].isdigit()
+                before = k > 0 and candidates[k][0][:1].isdigit() and candidates[k - 1][0][-1:].isdigit()
+                return after or before
+            runs = [(candidates[k:k + n], n) for n in range(2, parts + 1) for k in range(len(candidates) - n + 1)
+                    if not number_goes_on(k, k + n)]
             candidates = [(c, True) for c in candidates] + [
-                ((' '.join(w[0] for w in run), run[0][1], run[-1][2], float(np.mean([w[3] for w in run]))), False) for run in runs]
-            for ((text, left, right, prob), single) in candidates:
-                # a run of words is the name or holds it, never a fragment of it: "Bob 2" is a
-                # fragment of "King Bob 2" and another account's name
-                if qnorm is not None and not VisionService._ocr_query_matches(text, qnorm, case_sensitive = case_sensitive, match_alnum_only = match_alnum_only, fuzzy_min_ratio = fuzzy_min_ratio, fragments = single):
+                ((' '.join(w[0] for w in run), run[0][1], run[-1][2], float(np.mean([w[3] for w in run]))), n >= span) for (run, n) in runs]
+            for ((text, left, right, prob), fragments) in candidates:
+                # a run shorter than the name is the name or holds it, never a part of it: "Bob 2"
+                # is a part of "King Bob 2" and another account's name
+                if qnorm is not None and not VisionService._ocr_query_matches(text, qnorm, case_sensitive = case_sensitive, match_alnum_only = match_alnum_only, fuzzy_min_ratio = fuzzy_min_ratio, fragments = fragments):
                     continue
                 words.append(OcrWordBox(left = int(round(left)), top = y0, width = max(1, int(round(right - left))),
                                         height = max(1, y1 - y0), text = text, confidence = 100.0 * prob, line = i))

@@ -105,8 +105,21 @@ class AccountNumberTests(OcrTestCase):
         self.assertEqual(self.find('Chief 42', 'Chief_42'), (140, 50))  # the underscore read as a blank
         self.assertEqual(self.find('KingBob 2', 'King Bob 2'), (145, 50))  # a blank lost
 
-    def test_a_run_of_words_is_never_taken_for_a_fragment_of_the_name(self):
-        self.assertEqual(self.find('Bob 2', 'King Bob 2'), (None, None))  # another account's name
+    def test_a_run_of_words_is_never_taken_for_a_part_of_the_name(self):
+        for (row, name) in (('Bob 2', 'King Bob 2'), ('Bob 2', 'Mr Bob 2'), ('Farm 12', 'The Farm 12'),
+                            ('King Bob 2', 'A King Bob 2'), ('Farm 1 2', 'Farm_1')):  # other accounts' names
+            with self.subTest(row=row, name=name):
+                self.assertEqual(self.find(row, name), (None, None))
+
+    def test_the_name_misread_beats_another_account_holding_a_part_of_it(self):
+        lines = [line('Bob 2', 100, 40, 150, 60), line('Mr Bab 2', 100, 90, 180, 110)]  # the right account, a letter misread
+        with patch.object(ppocr, 'read_lines', return_value=lines):
+            vision_module._OCR_CACHE.update(frame=None, reads={})
+            (x, y) = VisionService.find_word_on_screen(FRAME, 'Mr Bob 2', **NAME_SEARCH)
+        self.assertEqual(y, 100)  # its row, not the "Bob 2" one
+
+    def test_a_name_with_a_lone_symbol_is_found(self):
+        self.assertEqual(self.find('Bob - 2', 'Bob - 2'), (135, 50))
 
     def test_a_spaced_name_is_not_found_on_another_account(self):
         for (row, name) in (('Farm 2', 'Farm 1'), ('King Bob', 'King Bob 2'), ('King Rob 3', 'King Bob 2')):
