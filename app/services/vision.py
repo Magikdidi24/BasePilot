@@ -38,6 +38,7 @@ _NUMBER_RUN_GAP_WIDTHS = 2.0
 HUD_TOP_RIGHT_NUMBERS_ROI_UPSCALE = 3
 # In a HUD number, the letters the line model can read for a digit (live: "i16" for "116").
 _HUD_DIGIT_LOOKALIKES = str.maketrans({'i': '1', 'I': '1', 'l': '1', '|': '1', '!': '1', 'O': '0', 'o': '0'})
+_EXACT_TIER = 4  # the rank of a name read as itself (VisionService._ocr_username_match_tier)
 
 @dataclass(frozen = True)
 class GroupedNumber:
@@ -492,8 +493,8 @@ Normalize high-contrast UI text to **black glyphs on white** (single channel, 0 
     def _ocr_username_match_tier(raw, query_norm, *, case_sensitive, match_alnum_only, fuzzy_min_ratio):
         '''
 Rank how well ``raw`` matches the username (higher is better).
-Used to pick a click target: prefer the exact name, then the full name inside a word, then
-longest token, then confidence.
+Used to pick a click target (:meth:`find_word_match`): the exact name, then the full name
+inside a word, and so on; at equal rank the length nearest the name's, then confidence.
 '''
         if not query_norm:
             return 0
@@ -509,7 +510,7 @@ longest token, then confidence.
         aq = re.sub('[^a-z0-9]', '', query_norm.lower()) if match_alnum_only else ''
         inside_number = VisionService._inside_number
         if r == query_norm or (match_alnum_only and aq and ar == aq):
-            return 4  # "Bob" before "KingBob", the longer word, when both show
+            return _EXACT_TIER  # "Bob" before "KingBob", the longer word, when both show
         if match_alnum_only and aq and aq in ar and not inside_number(ar, aq):
             return 3
         if query_norm in r and not inside_number(r, query_norm):
@@ -868,34 +869,33 @@ are available.
 
     
     @staticmethod
-    def find_word_on_screen(screen_img, word_or_phrase, region = None, **kwargs):
+    def find_word_match(screen_img, word_or_phrase, region = None, **kwargs):
         '''
-Returns the center ``(x, y)`` of the best OCR match for ``word_or_phrase``, or
-``(None, None)`` if not found.
+``((x, y), exact, rank)``: the center of the best OCR match for ``word_or_phrase``, whether it
+is the name itself, and how near it is (comparable between frames, higher is nearer); or
+``((None, None), False, None)`` if not found.
 
-Among all tokens that pass filters, picks by: (0) **the exact name**, (1) **full alnum name
-inside OCR token**, (2) plain substring, (3) long name fragment, (4) fuzzy; then **longest** OCR token,
-then OCR confidence — so a short side label does not beat the full username.
+Among all tokens that pass filters, picks by: the exact name, the full alnum name inside an
+OCR token, a plain substring, a long name fragment, fuzzy; at equal rank the token whose
+length is nearest the name's ("Bob" is "12Bob", a level badge read into it, before
+"KingBob"; a long fragment before a short side label), then OCR confidence.
 Extra kwargs go to :meth:`find_words_ocr` (e.g. ``match_alnum_only``, ``fuzzy_min_ratio``).
 '''
         matches = VisionService.find_words_ocr(screen_img, region = region, query = word_or_phrase, **kwargs)  # [recovered: pycdc dropped the **kwargs merge -> the name search ran without match_alnum_only or fuzzy_min_ratio]
         if not matches:
-            return (None, None)
+            return ((None, None), False, None)
         case_sensitive = bool(kwargs.get('case_sensitive', False))
         match_alnum_only = bool(kwargs.get('match_alnum_only', False))
         fuzzy_min_ratio = kwargs.get('fuzzy_min_ratio')
         qnorm = word_or_phrase.strip() if case_sensitive else word_or_phrase.strip().lower()
-        
-        def pick_key(w):
-            tier = VisionService._ocr_username_match_tier(w.text, qnorm, case_sensitive = case_sensitive, match_alnum_only = match_alnum_only, fuzzy_min_ratio = fuzzy_min_ratio)
-            if match_alnum_only:
-                alen = len(re.sub('[^a-z0-9]', '', w.text.lower()))
-            else:
-                alen = len(w.text.strip())
-            return (tier, alen, VisionService._ocr_confidence_key(w))
+        length = (lambda s: len(re.sub('[^a-z0-9]', '', s.lower()))) if match_alnum_only else (lambda s: len(s.strip()))
 
-        best = max(matches, key = pick_key)
-        return best.center
+        def rank(w):
+            tier = VisionService._ocr_username_match_tier(w.text, qnorm, case_sensitive = case_sensitive, match_alnum_only = match_alnum_only, fuzzy_min_ratio = fuzzy_min_ratio)
+            return (tier, -abs(length(w.text) - length(qnorm)))
+
+        best = max(matches, key = lambda w: (rank(w), VisionService._ocr_confidence_key(w)))
+        return (best.center, rank(best)[0] == _EXACT_TIER, rank(best))
 
     @staticmethod
     def _label_segments(words):

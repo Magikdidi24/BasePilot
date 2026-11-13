@@ -99,19 +99,20 @@ def storages_full(frame):
             VisionService.pink_fraction(elixir, hue_lo = 126) >= 0.6)
 
 
-def read_village_state(frame, config = None):
+def read_village_state(frame, config = None, goblin_slots = None):
     '''Parse a home-screen frame → :class:`VillageState`. Chip reads are OCR — callers
     that gate behavior on them should tolerate ``None`` (busy frames misread; the
     idle gate re-reads on its next wake anyway). On the October 2026 HUD the chips sit
-    above the Build button and count only regular builders / researchers: the goblin
-    (paid in gems) is never free for the bot.'''
+    above the Build button; the free ones counted are the regular builders / researchers
+    (:attr:`app.core.build_panel.Chip.regular_free`): the goblin (paid in gems) is never
+    free for the bot (``goblin_slots``: see :func:`app.core.build_panel.read_chips`).'''
     if frame is None or frame.size == 0:
         return None
     (gold_full, elixir_full) = storages_full(frame)
     if is_october_hud(frame):
         from app.config import Config
         from app.core.build_panel import read_chips  # build_panel imports this module
-        chips = read_chips(VisionService, config or Config(), frame)
+        chips = read_chips(VisionService, config or Config(), frame, goblin_slots)
         (builders, lab) = ((c.regular_free, c.total) if c is not None else None for c in chips)
     else:
         (builders, lab) = (None, None)  # not the home screen: no chip to read
@@ -153,7 +154,7 @@ def read_hud_triplet_stable(capture, wait, attempts = 4):
     return None
 
 
-def read_village_state_stable(capture, wait, attempts = 3):
+def read_village_state_stable(capture, wait, attempts = 3, goblin_slots = None):
     '''Multi-frame :func:`read_village_state`: the translucent HUD chips flicker against
     the animated village, so single-frame chip reads drop out (live repro). Merges up
     to ``attempts`` frames — first readable value per field wins; the full-storage flags
@@ -163,7 +164,7 @@ def read_village_state_stable(capture, wait, attempts = 3):
     for i in range(max(1, attempts)):
         if i and wait(0.4):
             return merged
-        state = read_village_state(capture())
+        state = read_village_state(capture(), goblin_slots = goblin_slots)
         if state is None:
             continue
         if merged is None:

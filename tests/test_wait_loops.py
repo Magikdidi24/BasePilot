@@ -13,6 +13,8 @@ BOTTOM_HALF = (0, 383, 1227, 384)
 RIGHT_HALF = (613, 0, 614, 767)
 MISS = (None, None)
 MISS3 = (None, None, None)
+NO_NAME = (MISS, False, None)  # find_word_match: no name read
+NEAR = (3, -2)  # the rank of a near name, as find_word_match gives it
 
 
 class Clock:
@@ -40,7 +42,8 @@ class WaitLoopTestCase(unittest.TestCase):
         bot.stop_event.wait.side_effect = self.clock.wait
         bot.config = Mock(aspect_key='16_10', **{'get_point.return_value': (640, 700)})
         bot.vision = Mock(**{'find_control.return_value': MISS, 'find_template.return_value': MISS,
-                             'find_label.return_value': MISS, 'find_word_on_screen.return_value': MISS})
+                             'find_label.return_value': MISS, 'find_word_match.return_value': NO_NAME,
+                             'find_words_ocr.side_effect': lambda frame, region: [Mock(text=f'row {self.clock.now}')]})
         bot._battle_rewards = Mock(**{'handle.return_value': False})
         for (name, value) in (('_update_config_size', None), ('_scroll_point', (500, 400)), ('_status', None),
                               ('_frame_shows_supercell_login_prompt', False), ('_scroll_player_list_with_drag', None),
@@ -200,16 +203,73 @@ class AnyImageWaitTests(WaitLoopTestCase):
 
 class PlayerNameWaitTests(WaitLoopTestCase):
     def test_a_miss_scrolls_the_list_and_pauses(self):
-        self.bot.vision.find_word_on_screen.side_effect = [MISS, (30, 40)]
+        self.bot.vision.find_word_match.side_effect = [NO_NAME, ((30, 40), True, (4, 0))]
         self.assertEqual(self.bot._wait_for_player_name('Farm_1', match_alnum_only=True), (30, 40))
-        self.bot._scroll_player_list_with_drag.assert_called_once_with(FRAME)
+        self.bot._scroll_player_list_with_drag.assert_called_once_with(FRAME, up=True)
         self.assertEqual(self.clock.pauses, [0.45])
-        self.assertEqual(self.bot.vision.find_word_on_screen.call_args, call(FRAME, 'Farm_1', region=RIGHT_HALF, match_alnum_only=True))
+        self.assertEqual(self.bot.vision.find_word_match.call_args, call(FRAME, 'Farm_1', region=RIGHT_HALF, match_alnum_only=True))
 
     def test_an_explicit_region_is_read_instead(self):
-        self.bot.vision.find_word_on_screen.return_value = (30, 40)
+        self.bot.vision.find_word_match.return_value = ((30, 40), True, (4, 0))
         self.bot._wait_for_player_name('Farm_1', region=(1, 2, 3, 4))
-        self.assertEqual(self.bot.vision.find_word_on_screen.call_args.kwargs['region'], (1, 2, 3, 4))
+        self.assertEqual(self.bot.vision.find_word_match.call_args.kwargs['region'], (1, 2, 3, 4))
+
+    def test_the_name_itself_beats_a_near_one_on_screen_before_it(self):
+        # "KingRob" on screen, "KingBob" one scroll further down: the near name is never tapped
+        self.bot.vision.find_word_match.side_effect = [((30, 40), False, (0, 0)), ((60, 80), True, (4, 0))]
+        self.assertEqual(self.bot._wait_for_player_name('KingBob'), (60, 80))
+        self.bot._scroll_player_list_with_drag.assert_called_once_with(FRAME, up=True)
+
+    def test_a_near_name_once_the_list_was_read_through(self):
+        # the name never reads as itself (a level badge read into it): taken once the list
+        # reads the same after two scrolls, its end
+        self.bot.vision.find_word_match.return_value = ((30, 40), False, NEAR)
+        self.bot.vision.find_words_ocr.side_effect = lambda frame, region: [Mock(text='12Bob'), Mock(text='KingBob')]
+        self.assertEqual(self.bot._wait_for_player_name('Bob'), (30, 40))
+        self.assertEqual(self.bot._scroll_player_list_with_drag.call_count, 2)
+
+    def test_the_list_is_read_back_for_a_near_name_seen_earlier(self):
+        near = ((30, 40), False, NEAR)
+        self.bot.vision.find_word_match.side_effect = [near] + [NO_NAME] * 3 + [near]
+        rows = iter([['a'], ['b'], ['b'], ['b'], ['a']])  # it scrolls, then reads the same: the end
+        self.bot.vision.find_words_ocr.side_effect = lambda frame, region: [Mock(text=t) for t in next(rows)]
+        self.assertEqual(self.bot._wait_for_player_name('KingBob'), (30, 40))
+        self.assertEqual([c.kwargs['up'] for c in self.bot._scroll_player_list_with_drag.call_args_list], [True, True, True, False])
+
+    def test_a_near_name_after_half_the_time_on_a_moving_list(self):
+        self.bot.vision.find_word_match.return_value = ((30, 40), False, NEAR)  # the list moves every time (setUp)
+        self.assertEqual(self.bot._wait_for_player_name('KingBob', timeout=2), (30, 40))
+        self.assertGreaterEqual(sum(self.clock.pauses), 1.0)  # not before half the time
+
+    def test_the_nearest_name_of_the_whole_list_is_taken(self):
+        # "Bob" looked for: "12Bob" (a badge read into it, the nearest) on the first screen,
+        # "KingBob" at the end of the list: the list is read back up to "12Bob"
+        badge = ((30, 40), False, (3, -2))
+        king = ((60, 80), False, (3, -4))
+        self.bot.vision.find_word_match.side_effect = [badge, NO_NAME, king, king, king, NO_NAME, badge]
+        rows = iter([['12Bob'], ['Ann'], ['KingBob'], ['KingBob'], ['KingBob'], ['Ann'], ['12Bob']])
+        self.bot.vision.find_words_ocr.side_effect = lambda frame, region: [Mock(text=t) for t in next(rows)]
+        self.assertEqual(self.bot._wait_for_player_name('Bob'), (30, 40))
+
+    def test_a_list_still_loading_is_not_its_end(self):
+        # three empty reads, then a near name, the name itself one scroll down: never the near one
+        self.bot.vision.find_word_match.side_effect = [NO_NAME] * 3 + [((30, 40), False, NEAR), ((60, 80), True, (4, 0))]
+        rows = iter([[], [], [], ['KingRob'], ['KingBob']])
+        self.bot.vision.find_words_ocr.side_effect = lambda frame, region: [Mock(text=t) for t in next(rows)]
+        self.assertEqual(self.bot._wait_for_player_name('KingBob'), (60, 80))
+
+    def test_a_near_name_on_screen_is_no_login_prompt(self):
+        # the prompt is looked for only when no name at all is read
+        self.bot.vision.find_word_match.return_value = ((30, 40), False, NEAR)
+        self.bot._frame_shows_supercell_login_prompt.return_value = True
+        self.assertEqual(self.bot._wait_for_player_name('KingBob', timeout=2), (30, 40))
+
+    def test_nothing_near_the_list_is_read_on_down_to_the_end(self):
+        # no near name in half the time, a still screen (Settings while the list loads): the
+        # list is read on down, never back up, until the time out
+        self.bot.vision.find_words_ocr.side_effect = lambda frame, region: [Mock(text='Settings')]
+        self.assertEqual(self.bot._wait_for_player_name('KingBob', timeout=3, error=False), MISS)
+        self.assertTrue(all(c.kwargs['up'] for c in self.bot._scroll_player_list_with_drag.call_args_list))
 
     def test_the_supercell_id_login_screen_stops_the_switch(self):
         self.bot._frame_shows_supercell_login_prompt.return_value = True
@@ -381,6 +441,18 @@ class ReturnHomeWaitTests(WaitLoopTestCase):
         self.assertEqual(self.clock.pauses, [0.5, 0.5, 0.5])
         self.assertEqual(self.bot.window.screenshot.call_count, 4)  # the reward's frame is looked at again at once
         self.assertEqual(logs.output, ['WARNING:BotCore:Timeout waiting for returnhome.png / returnhome2.png (16:10) or chestclaim.png'])
+
+
+class AccountListScrollTests(unittest.TestCase):
+    def test_the_list_is_read_on_then_back(self):
+        bot = bare_bot(FRAME)
+        with patch('app.core.bot.random.randint', return_value=0), patch('app.core.bot.random.uniform', return_value=0.3):
+            bot._scroll_player_list_with_drag(FRAME)
+            bot._scroll_player_list_with_drag(FRAME, up=False)
+        (down, up) = ([c.args for c in bot.input.mouse_down.call_args_list], [c.args for c in bot.input.mouse_up.call_args_list])
+        self.assertGreater(down[0][1], up[0][1])  # dragged upward: the list reads on down
+        self.assertEqual((down[1], up[1]), (up[0], down[0]))  # the same stroke the other way: back up
+        self.assertTrue(all(0.5 * 767 <= y <= 0.9 * 767 for (_x, y) in down + up))  # on the list, clear of its header
 
 
 if __name__ == '__main__':

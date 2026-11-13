@@ -26,11 +26,17 @@ Its limits: only one account is farming at any moment, and the account switch it
 OCR on the username list, so an account whose name reads badly can fail the switch (the
 log says which name it could not find). Names numbered alike (`Farm_1` / `Farm_2`, `Farm 1` /
 `Farm 2`) are told apart by their number: a name whose number does not read fails the switch
-rather than picking the other account. What cannot be told apart is a name that is a word, or
-part of a word, of another one (`Farm` / `Farm 2`, `Bob` / `King Bob`, `Bob` / `KingBob`), names
-with the same letters and digits (`Farm_1` / `Farm 1`), or names a letter apart (`KingBob` /
-`KingRob`): give each account a name that no other one contains and that differs from the
-others by more than a letter.
+rather than picking the other account. The name read as itself is tapped at once; a near
+one (a name holding it, `Bob` in `KingBob` or in `12Bob` when a level badge is read into it,
+or a name a letter apart, `KingBob` / `KingRob`) only once the whole list was read through
+without the name itself (or after half the search, about 12 s, with a near name seen), and
+then the nearest one seen on the list (`12Bob` before `KingBob` for `Bob`). What still cannot
+be told apart: a name that is a whole word of another one (`Farm` / `Farm 2`, `Bob` /
+`King Bob`: the word reads as the name itself), names with the same letters and digits
+(`Farm_1` / `Farm 1`), names as near as each other to the one looked for (`Bob` / `Bobby`
+when `Bob` reads with its badge, `12Bob`), and an account whose own name never reads as
+itself while another one, a letter apart, does. Give each account a name that no other one
+contains and that differs from the others by more than a letter.
 
 ## Both at once — profiles
 

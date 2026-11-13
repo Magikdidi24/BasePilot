@@ -127,8 +127,8 @@ class CooldownTests(unittest.TestCase):
         row = UpgradeRow('Blacksmith', '', 2480000, 'elixir', True, (1480, 700))
         policy = bp.UpgradePolicy(reserve_builders=0)
         with patch.object(bp, 'parse_cards', return_value=[row]):
-            self.assertIn('not started', up._one(bp.TAB_BUILDINGS, (10 ** 8, 10 ** 8, 10 ** 6), 1, policy, 'maxer'))
-            self.assertEqual(up._one(bp.TAB_BUILDINGS, (10 ** 8, 10 ** 8, 10 ** 6), 1, policy, 'maxer'), 'upgrade: nothing affordable')
+            self.assertIn('not started', up._one(bp.TAB_BUILDINGS, (10 ** 8, 10 ** 8, 10 ** 6), bp.Chip(1, 6, False), policy, 'maxer', {}))
+            self.assertEqual(up._one(bp.TAB_BUILDINGS, (10 ** 8, 10 ** 8, 10 ** 6), bp.Chip(1, 6, False), policy, 'maxer', {}), 'upgrade: nothing affordable')
         self.assertEqual(up._start.call_count, 1)
 
 

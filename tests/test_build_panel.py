@@ -3,6 +3,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import cv2
 import numpy as np
 
 from app.config import Config
@@ -53,6 +54,57 @@ class ReaderTests(unittest.TestCase):
         self.assertEqual((builders.free, builders.goblin, builders.regular_free), (1, True, 0))
         (builders, lab) = bp.read_chips(_vision(), Config(), canvas(('chips_bb.jpg', 1640, 860), size=WAYDROID))
         self.assertEqual(((builders.free, builders.total), (lab.free, lab.total)), ((0, 3), (0, 1)))
+
+    def test_the_goblin_slot_is_learnt_from_its_face(self):
+        slots = {}
+        (builders, lab) = bp.read_chips(_vision(), Config(), canvas(('chips_hv_builders_busy_lab_goblin.jpg', 1640, 860), size=WAYDROID), slots)
+        self.assertEqual((builders.goblin_slot, lab.goblin_slot), (False, True))  # only the lab showed its goblin
+        (builders, _lab) = bp.read_chips(_vision(), Config(), canvas(('chips_hv_goblins.jpg', 1640, 860), size=WAYDROID), slots)
+        self.assertTrue(builders.goblin_slot)
+        self.assertEqual(slots, {'builders': True, 'lab': True})
+        (builders, _lab) = bp.read_chips(_vision(), Config(), canvas(('chips_bb.jpg', 1640, 860), size=WAYDROID), {})
+        self.assertFalse(builders.goblin_slot)  # another village, another memory
+
+    def test_each_village_keeps_its_own_goblin_slots(self):
+        up = bp.BuildPanelUpgrader(Mock(**{'screenshot.return_value': np.zeros((1200, 1920, 3), np.uint8)}), Mock(), Mock(), Mock(), Mock())
+        with patch.object(bp, 'read_chips', return_value=(bp.Chip(0, 6, False), None)) as chips:
+            up.run_pass('maxer')
+            up.run_pass('maxer', builder_base=True)
+        (home, builder) = (c.args[3] for c in chips.call_args_list)
+        self.assertIsNot(home, builder)
+        self.assertIs(up.goblin_memory['home'], home)
+        self.assertIs(up.goblin_memory['builder'], builder)
+
+    def test_the_bot_shares_one_memory_per_village(self):
+        bot = Bot.__new__(Bot)
+        (bot.window, bot.input, bot.vision, bot.config, bot.stop_event) = (Mock(), Mock(), Mock(), Mock(), Mock())
+        self.assertIs(bot._goblin_memory('home'), bot._goblin_memory('home'))  # the idle gate's reads and the passes'
+        self.assertIs(bot._build_panel_upgrader().goblin_memory, bot._goblin_memory())
+        self.assertIsNot(bot._goblin_memory('home'), bot._goblin_memory('builder'))
+
+    def test_a_human_face_may_hold_the_goblin_once_the_account_showed_it(self):
+        # "2/6" under a human face: two regular builders, or one and the goblin; the one kept
+        # for walls must not go to an upgrade
+        self.assertEqual(bp.Chip(2, 6, False).regular_free, 2)  # no goblin slot seen: as read
+        self.assertEqual(bp.Chip(2, 6, False, goblin_slot=True).regular_free, 1)
+        self.assertEqual(bp.Chip(1, 6, False, goblin_slot=True).regular_free, 1)  # a human face: that one is regular
+        self.assertEqual(bp.Chip(1, 6, True, goblin_slot=True).regular_free, 0)  # the goblin's face: only it is free
+        self.assertEqual(bp.Chip(0, 6, False, goblin_slot=True).regular_free, 0)
+
+    def test_a_dark_icon_without_the_purple_sheen_is_no_dark_elixir(self):
+        # a crafted defence's black ball (another currency) must not be bought as dark elixir
+        frame = canvas(('panel_hv_buildings.jpg', 1280, 0), size=WAYDROID)
+        box = (1867.6, 617, 1895.2, 640)  # the Archer Queen's dark elixir icon, right of "46 800"
+        self.assertEqual(bp._icon(frame, box, 0.2), RESOURCE_DARK)
+        (x0, y0, x1, y1) = (int(box[0]) - 10, box[1] - 5, int(box[2]) + 10, box[3] + 5)
+        patch_ = frame[y0:y1, x0:x1]
+        hsv = cv2.cvtColor(patch_, cv2.COLOR_BGR2HSV)
+        icon = (hsv[..., 2] <= 100) | ((hsv[..., 0] >= 115) & (hsv[..., 0] <= 175) & (hsv[..., 1] >= 60))
+        grey = cv2.cvtColor(cv2.cvtColor(patch_, cv2.COLOR_BGR2GRAY), cv2.COLOR_GRAY2BGR)
+        patch_[icon] = grey[icon]  # the same ball with no purple, on the card's beige: a black ball
+        self.assertIsNone(bp._icon(frame, box, 0.2))  # not dark elixir, nor the beige's gold
+        rows = bp.parse_cards(_vision(), frame)
+        self.assertIn((46800, None), {(r.cost, r.resource) for r in rows if r.cost})
 
     def test_the_chip_reader_crops_the_box_read_chips_anchors(self):
         # the box went through frame fractions and int() back: the builders' text 27 px tall
@@ -140,11 +192,16 @@ class StartCountTests(unittest.TestCase):
         self.up._start = Mock(return_value='started')
         self.card = UpgradeRow(label='Cannon', section='', cost=5000, resource=RESOURCE_GOLD, affordable=True, center=(1500, 400))
 
-    def one(self, mode, chip_after):
+    def one(self, mode, chip_after, chip_before=bp.Chip(1, 6, False)):
         with (patch.object(bp, 'parse_cards', return_value=[self.card]),
               patch.object(bp, 'choose_upgrade', return_value=self.card),
               patch.object(bp, 'read_chips', return_value=(chip_after, None))):
-            return self.up._one(bp.TAB_BUILDINGS, (10 ** 6, 10 ** 6, 0), 1, UpgradePolicy(), mode)
+            return self.up._one(bp.TAB_BUILDINGS, (10 ** 6, 10 ** 6, 0), chip_before, UpgradePolicy(), mode, {})
+
+    def test_a_start_with_the_goblin_counted_out_is_confirmed_by_the_count(self):
+        # "3/6" with the goblin slot (2 regular counted), then "2/6": a builder went to work
+        note = self.one('maxer', bp.Chip(2, 6, False, goblin_slot=True), chip_before=bp.Chip(3, 6, False, goblin_slot=True))
+        self.assertNotIn('not confirmed', note)
 
     def test_a_start_is_counted_confirmed_or_not(self):
         for (case, chip) in (('confirmed', bp.Chip(0, 6, False)), ('slot still free', bp.Chip(1, 6, False)),

@@ -75,6 +75,7 @@ _AUTO_UPGRADE_SCAN_INTERVAL_SECONDS = 600  # a Build panel pass is OCR-heavy; ke
 _WALL_RETRY_SECONDS = 600  # a wall pass that bought nothing fails the same way next raid; wait before paying for another
 _BUILD_PANEL_POLLS = 6  # ~3 s for the Build panel to slide in (its title read, or its tab art)
 _TAP_EATEN_AFTER = 3.0  # s without the next screen: a tap a selection on screen ate (it deselects); tapped again
+_NAME_LIST_END_READS = 2  # scrolls in a row the account list reads the same words through: its end
 # Oct 2026 HUD: the profile (Town Hall and XP badge, top left) holds Settings; its centre in
 # screen heights from the top-left corner (live 1227x767: (61, 72), both villages)
 _PROFILE_BADGE = (0.08, 0.094)
@@ -215,6 +216,7 @@ class Bot:
         self._reserve_builders = max(0, int(reserve_builders or 0))
         self._walls_enabled = bool(upgrade_walls)  # not _upgrade_walls: that is the wall-pass method
         self._panel_upgrader = None
+        self._goblin_slots = {}  # the account may have changed since the last run
         self._reload_first_seen = None  # a dialog seen before an earlier Stop must not skip this session's grace
         self._upgrade_order = upgrade_order
         self._clan_options = clan_options if clan_options is not None else ClanOptions()
@@ -252,6 +254,7 @@ class Bot:
                     self._wall_retry_at = 0
                     self._gold_pinned = self._elixir_pinned = False  # the last account's cap is not this one's
                     self._panel_upgrader = None  # nor its failed-card cooldowns
+                    self._goblin_slots = {}  # nor whether it has a goblin builder
                     self._check_stop()
                     self._run_loop(method, duration, star_bonus, upgrade_walls)
                     self._check_stop()
@@ -625,9 +628,16 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         '''Builders kept free for walls; with wall upgrades off they would only sit idle.'''
         return getattr(self, '_reserve_builders', 1) if getattr(self, '_walls_enabled', False) else 0
 
+    def _goblin_memory(self, village = None):
+        '''The chips that showed the goblin's face on this account, per village ('home',
+        'builder'), or one village's (see :func:`app.core.build_panel.read_chips`).'''
+        memory = self.__dict__.setdefault('_goblin_slots', {})
+        return memory if village is None else memory.setdefault(village, {})
+
     def _build_panel_upgrader(self):
         if getattr(self, '_panel_upgrader', None) is None:
-            self._panel_upgrader = BuildPanelUpgrader(self.window, self.input, self.vision, self.config, self.stop_event)
+            self._panel_upgrader = BuildPanelUpgrader(self.window, self.input, self.vision, self.config, self.stop_event,
+                                                      goblin_memory = self._goblin_memory())
         return self._panel_upgrader
 
     def _build_panel_pass(self, mode):
@@ -750,7 +760,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             if frame is not None and frame.size:
                 self._update_config_size(frame)
             return frame
-        return read_village_state_stable(_capture, self.stop_event.wait, attempts)
+        return read_village_state_stable(_capture, self.stop_event.wait, attempts, goblin_slots = self._goblin_memory('home'))
 
     def _read_hud_triplet_stable(self):
         def _capture():
@@ -806,7 +816,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         if frame is None:
             return None
         self._update_config_size(frame)
-        state = read_village_state(frame, self.config)
+        state = read_village_state(frame, self.config, goblin_slots = self._goblin_memory('home'))
         self._emit_village_state(state, 'farming')
         if state is None:
             return None
@@ -2570,8 +2580,9 @@ optionally run the clock boost chain, then leave Builder Base.
         return False
 
     
-    def _scroll_player_list_with_drag(self, frame):
-        '''Drag ~200px upward from lower-right (client coords) to scroll the change-user list.'''
+    def _scroll_player_list_with_drag(self, frame, up = True):
+        '''Drag ~200px in the lower right (client coords) to scroll the change-user list:
+        upward to read on down the list, downward (``up`` False) to read it back.'''
         if frame is None or frame.size == 0:
             return None
         (h, w) = frame.shape[:2]
@@ -2580,6 +2591,8 @@ optionally run the clock boost chain, then leave Builder Base.
         y1 = int(h * 0.86) + random.randint(-12, 12)
         y1 = max(int(h * 0.55), min(h - 12, y1))
         y2 = max(int(h * 0.12), y1 - 200)
+        if not up:
+            (y1, y2) = (y2, y1)
         x2 = x1
         self.input.mouse_down(x1, y1)
         self.input.human_move(x1, y1, x2, y2, duration = random.uniform(0.28, 0.42))
@@ -2588,23 +2601,45 @@ optionally run the clock boost chain, then leave Builder Base.
     
     def _wait_for_player_name(self, text, timeout = 25, error = True, region = None, **ocr_kwargs):
         '''
-Poll screenshots until OCR finds ``text`` (as :meth:`VisionService.find_word_on_screen` matches it) and return its click center;
-after each failed OCR pass, drag upward in the lower-right to scroll the account list.
+Poll screenshots until OCR finds ``text`` (as :meth:`VisionService.find_word_match` matches it) and return its click center;
+after each failed OCR pass, drag in the lower-right to scroll the account list.
+The name itself is taken at once; a near match (a name holding it, a letter off, a level
+badge read into it) only once the list was read through without the name: the same words
+read again after :data:`_NAME_LIST_END_READS` scrolls in a row (its end), or half the
+``timeout`` gone. The list is then read back the other way and the nearest name seen on it
+taken (by :meth:`VisionService.find_word_match`'s rank): an account named like the one
+looked for, on screen while that one was not, was taken for it.
 Raises RuntimeError while the "Log in to Supercell ID" prompt shows instead.
 
 OCR is limited to the right half of the window unless ``region`` is passed explicitly.
 '''
+        seen = {'words': None, 'same': 0, 'near': False, 'best': None}
+
         def look(frame, elapsed):
             roi = region if not region is None else VisionService.right_half_region(frame)
-            (x, y) = self.vision.find_word_on_screen(frame, text, region = roi, **ocr_kwargs)
-            if x:
-                return (x, y)
-            if self._frame_shows_supercell_login_prompt(frame):
+            (point, exact, rank) = self.vision.find_word_match(frame, text, region = roi, **ocr_kwargs)
+            if point[0] and exact:
+                return point
+            if point[0]:
+                seen['best'] = rank if seen['best'] is None else max(seen['best'], rank)
+                if seen['near'] and rank >= seen['best']:
+                    return point
+            elif self._frame_shows_supercell_login_prompt(frame):
                 msg = f'''Multi-run: "Log in to Supercell ID" is showing and {text!r} was not found — log in or dismiss that screen, then retry.'''
                 logger.warning(msg)
                 self._status(msg)
                 raise RuntimeError(msg)
-            self._scroll_player_list_with_drag(frame)
+            words = tuple(w.text for w in self.vision.find_words_ocr(frame, region = roi) or ())
+            seen['same'] = seen['same'] + 1 if words and words == seen['words'] else 0  # a list still loading reads nothing
+            seen['words'] = words
+            # nothing near seen yet: read on down (a list still loading, a long list)
+            if not seen['near'] and seen['best'] is not None and (seen['same'] >= _NAME_LIST_END_READS or elapsed() >= timeout / 2):
+                seen['near'] = True
+                logger.info('Multi-run: %r not read as itself %s — taking the nearest name seen', text,
+                            'on the whole account list' if seen['same'] >= _NAME_LIST_END_READS else f'in {timeout / 2:.0f} s')
+                if point[0] and rank >= seen['best']:
+                    return point
+            self._scroll_player_list_with_drag(frame, up = not seen['near'])
             return None
         return self._poll_screen(look, timeout, 0.45, f'''Timeout waiting for player name OCR match: {text!r}''' if error else None)
 

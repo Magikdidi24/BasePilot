@@ -10,7 +10,9 @@ resource button opens "All builders are busy!", whose only button spends gems.
 
 A gem must never be spent:
 - start only when a regular builder / researcher is free: the chip count above Build is
-  > 0 and its face is not the goblin (the goblin is the gem-paid extra slot);
+  > 0 and its face is not the goblin (the goblin is the gem-paid extra slot); once the
+  account showed that slot, a human face's count may hold the goblin, and one is counted
+  out (:attr:`Chip.regular_free`);
 - tap only the dialog's lime resource button: the card's resource icon on it, no gem icon,
   never the grey magic-item Confirm next to it;
 - close any gem prompt the moment it shows up.
@@ -65,6 +67,8 @@ _GEM_ICON = 'gemicon.png'
 _CLOSE_TEMPLATES = ('closex.png', 'exit.png')
 _CLOSE_MIN = 0.72
 _FAILED_COOLDOWN = 1800  # s: a card whose start failed is left alone this long, so the next pass tries another
+_DARK_SHEEN = 0.25  # purple pixels per dark one in a dark-elixir icon, at least (live: ~1)
+_CARD_GOLD_MIN = 0.5  # share of a card's cost icon box a gold coin covers, at least (see _resource)
 
 
 @dataclass(frozen = True)
@@ -72,10 +76,19 @@ class Chip:
     free: int
     total: int
     goblin: bool  # the chip shows the goblin face: only the gem-paid slot is free
+    goblin_slot: bool = False  # the account has the gem-paid slot (its face showed on this chip before)
 
     @property
     def regular_free(self):
-        return 0 if self.goblin else self.free
+        '''Regular builders / researchers free: none under the goblin face. Under a human
+        face one at least is regular, but the chip does not say whether the goblin is among
+        the others ("2/6": two regular builders, or one and the goblin): once the account
+        showed its goblin slot, one is counted out, so an upgrade never takes the builder
+        kept for walls. While the goblin works (started by hand), that leaves one regular
+        builder idle.'''
+        if self.goblin:
+            return 0
+        return self.free - 1 if self.goblin_slot and self.free >= 2 else self.free
 
 
 def _x_from_right(frame, dist):
@@ -109,19 +122,23 @@ def find_build_button(vision, frame):
     return vision.find_template(frame, 'build.png', region = _region(frame, w // 2, h // 2, w, h))
 
 
-def read_chips(vision, config, frame):
-    '''``(builders, lab)`` :class:`Chip` from the home screen, each None when unreadable.'''
+def read_chips(vision, config, frame, goblin_slots = None):
+    '''``(builders, lab)`` :class:`Chip` from the home screen, each None when unreadable.
+    ``goblin_slots``: the chips that showed the goblin's face on this account and village
+    (``{'builders': True}``), kept up to date: their :attr:`Chip.goblin_slot`.'''
     (bx, by) = find_build_button(vision, frame)
     if not bx:
         return (None, None)
     chips = []
-    for (text, face, top) in ((_BUILDER_TEXT, _BUILDER_FACE, 6), (_LAB_TEXT, _LAB_FACE, 2)):
+    seen = goblin_slots if goblin_slots is not None else {}
+    for (kind, text, face, top) in (('builders', _BUILDER_TEXT, _BUILDER_FACE, 6), ('lab', _LAB_TEXT, _LAB_FACE, 2)):
         parsed = _parse_fraction_chip(frame, _anchored(frame, config, bx, by, text), max_total = top)
         if parsed is None:
             chips.append(None)
             continue
         goblin = vision.find_template(frame, 'goblinface.png', region = _anchored(frame, config, bx, by, face))[0] is not None
-        chips.append(Chip(parsed[0], parsed[1], goblin))
+        seen[kind] = seen.get(kind, False) or goblin
+        chips.append(Chip(parsed[0], parsed[1], goblin, seen[kind]))
     return tuple(chips)
 
 
@@ -229,24 +246,35 @@ def _redness(frame, box):
 
 
 def _resource(frame, box):
-    '''Resource icon right of a cost box.'''
+    '''Resource icon right of a cost box. A gold coin covers most of its box (live: 82-93 %),
+    while the card's beige around any other icon reads as gold too (12-38 %).'''
     (x0, y0, x1, y1) = box
     h = y1 - y0
-    return _icon(frame, (x1 + 0.2 * h, y0, x1 + 1.4 * h, y1), 0.2)
+    return _icon(frame, (x1 + 0.2 * h, y0, x1 + 1.4 * h, y1), 0.2, gold_min = _CARD_GOLD_MIN)
 
 
-def _icon(frame, box, min_share):
+def _icon(frame, box, min_share, gold_min = 0.0):
     '''Gold, elixir (pink, or purple in the Builder Base) or dark elixir by colour inside
-    ``box``; None when none of them covers ``min_share`` of it (a gem, a lock).'''
+    ``box``; None when none of them covers ``min_share`` of it (a gem, a lock, another
+    currency). Dark elixir is a dark drop with a purple sheen (live: 38-42 % of the box
+    dark, as much purple): a dark icon without it is another currency, a crafted
+    defence's black ball, which the policy would otherwise buy as dark elixir. The sheen
+    is measured against the dark pixels, so it holds for an icon on a button too.'''
     hsv = _hsv_patch(frame, *box)
     if hsv is None:
         return None
     (hh, s, v) = (hsv[..., 0], hsv[..., 1], hsv[..., 2])
+    dark = (v <= 60).mean()
+    sheen = ((hh >= 115) & (hh <= 175) & (s >= 60) & (v >= 40)).mean()
     shares = {
         RESOURCE_GOLD: ((hh >= 8) & (hh <= 35) & (s >= 90) & (v >= 150)).mean(),  # Builder Base gold is paler
         RESOURCE_ELIXIR: ((hh >= 120) & (hh <= 175) & (s >= 100) & (v >= 110)).mean(),
-        RESOURCE_DARK: (v <= 60).mean()}
+        RESOURCE_DARK: dark}
     (best, share) = max(shares.items(), key = lambda kv: kv[1])
+    if best == RESOURCE_DARK and sheen < _DARK_SHEEN * dark:
+        return None  # dark, no purple: another currency (the card's beige around it reads as gold)
+    if best == RESOURCE_GOLD and share < gold_min:
+        return None  # beige around an icon of another colour, not a coin
     return best if share >= min_share else None
 
 
@@ -395,13 +423,14 @@ def wall_upgrade_button(vision, frame, resources = (RESOURCE_ELIXIR, RESOURCE_GO
 def _chip_text(chip):
     if chip is None:
         return '?'
-    return f'{chip.free}/{chip.total}' + (' (goblin only)' if chip.goblin and chip.free else '')
+    note = ' (goblin only)' if chip.goblin and chip.free else f' ({chip.regular_free} regular)' if chip.regular_free != chip.free else ''
+    return f'{chip.free}/{chip.total}{note}'
 
 
 class BuildPanelUpgrader:
     '''Starts one building upgrade and one research per pass from the Build panel.'''
 
-    def __init__(self, window, input_service, vision, config, stop_event):
+    def __init__(self, window, input_service, vision, config, stop_event, goblin_memory = None):
         self.window = window
         self.input = input_service
         self.vision = vision
@@ -409,6 +438,8 @@ class BuildPanelUpgrader:
         self.stop_event = stop_event
         self._failed = {}  # card label -> time.monotonic() of its failed start
         self.tried = 0  # cards the last run_pass tried to start: started, or failed (not on a gem prompt) and on cooldown
+        # per village ('home', 'builder'), the chips that showed the goblin's face: see read_chips
+        self.goblin_memory = goblin_memory if goblin_memory is not None else {}
 
     def _frame(self):
         frame = self.window.screenshot()
@@ -441,7 +472,8 @@ class BuildPanelUpgrader:
         frame = self._frame()
         if frame is None:
             return 'no capture'
-        (builders, lab) = read_chips(self.vision, self.config, frame)
+        slots = self.goblin_memory.setdefault('builder' if builder_base else 'home', {})
+        (builders, lab) = read_chips(self.vision, self.config, frame, slots)
         build = builders is not None and builders.regular_free > reserve_builders
         study = research and lab is not None and lab.regular_free > 0
         state = f'builders {_chip_text(builders)}, lab {_chip_text(lab)}'
@@ -458,14 +490,16 @@ class BuildPanelUpgrader:
                                gold_attack_buffer = 0 if builder_base else UpgradePolicy.gold_attack_buffer)
         notes = []
         if build:
-            notes.append(self._one(TAB_BUILDINGS, hud, builders.regular_free, policy, mode))
+            notes.append(self._one(TAB_BUILDINGS, hud, builders, policy, mode, slots))
         if study:
             lab_policy = UpgradePolicy(mode = mode, reserve_builders = 0, order = policy.order, gold_attack_buffer = policy.gold_attack_buffer)
-            notes.append(self._one(TAB_ARMY, hud, lab.regular_free, lab_policy, mode))
+            notes.append(self._one(TAB_ARMY, hud, lab, lab_policy, mode, slots))
         return ', '.join(notes)
 
-    def _one(self, tab, hud, free, policy, mode):
+    def _one(self, tab, hud, before, policy, mode, slots):
+        '''Start one card of ``tab``, ``before`` its chip as read when the pass began.'''
         what = 'upgrade' if tab == TAB_BUILDINGS else 'research'
+        free = before.regular_free
         pick = None
         try:
             if not self._open(tab):
@@ -489,8 +523,8 @@ class BuildPanelUpgrader:
             self._close_panel()
         if result == 'started':
             frame = self._frame()
-            chip = read_chips(self.vision, self.config, frame)[tab] if frame is not None else None
-            if chip is not None and chip.free >= free:
+            chip = read_chips(self.vision, self.config, frame, slots)[tab] if frame is not None else None
+            if chip is not None and chip.free >= before.free:  # the count as read, goblin or not
                 logger.warning('Build panel: %s of %s not confirmed (chip still %s)', what, pick.label, _chip_text(chip))
                 result = 'started (not confirmed by the chip)'
         return f'{what}: {result} {pick.label} ({pick.cost})'
