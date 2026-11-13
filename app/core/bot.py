@@ -49,7 +49,7 @@ _BB_SIDES_TRIED = 3  # sides of the base the opening (bb_strategy.opening) tries
 _BB_SCOUTING_KEPT = 400  # frames kept in scouting/ of the data dir (~80 MB): the bases attacked, as scouted
 _NO_MASTER_BUILDER = 0.7  # mbuilder.png under this: not the Builder Base's home
 _VILLAGE_DETECT_RETRIES = 3
-_BB_CORE_WEIGHTS = {'core': 3.0, 'reach': 0.3}  # the scouting's core weight of these plans (best: its own, 1.2)
+_BB_CORE_WEIGHTS = {'best': bb_scout.CORE_WEIGHT, 'core': 3.0, 'reach': 0.3}  # each side plan's weight of the core against the buildings in reach
 _BB_STILL_TIMEOUT = 2.0  # s to wait for the view to stop moving
 _BB_STILL_DIFF = 1.5  # mean grey change (160x100) between two frames 0.25 s apart under which the view is still
 _STAR_BONUS_THRESHOLD = 0.75
@@ -1322,6 +1322,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         '''One Builder Base battle: Battle → Find Now → deploy → play it to its end (never
         End Battle nor Surrender). False when no battle was played (a control never showed up).'''
         self._bb_stage_plans = {}  # a new battle draws the attack plan of each stage
+        self._bb_stage_sides = {}  # and goes in from a side of each base (bb_scout.features)
         self.input.scroll(*self._scroll_point(), 20)
         if self.stop_event.wait(random.uniform(0.1, 0.25)):
             self._check_stop()
@@ -1509,25 +1510,29 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             abilities.add(step, time.monotonic(), fired = fired)
 
     def _bb_fronts(self, frame, cards, stage = bb_learning.FIRST):
-        '''``(label, front)`` to attack from, best first: the sides of the base the scouting
-        found (:mod:`app.core.bb_scout`) — for a P.E.K.K.A push, the side of the Multi
-        Mortar first — then one top edge of the map as a last resort.'''
+        '''``(label, front, where)`` to attack from, best first: the sides of the base the
+        scouting found (:mod:`app.core.bb_scout`), the stage's plan's own first, then one top
+        edge of the map as a last resort. ``where``: what the history keeps of the side
+        (:func:`~app.core.bb_scout.features`).'''
         h = frame.shape[0]
         fronts = []
         try:
-            (scouting, entries) = self._bb_plan_entries(frame, cards, stage)
+            (scouting, entries, mortar, alike) = self._bb_plan_entries(frame, cards, stage)
         except Exception:
             logger.warning('Builder Base: scouting failed', exc_info = True)
-            (scouting, entries) = (None, [])
+            (scouting, entries, mortar, alike) = (None, [], None, [])
         if scouting is not None:
-            for entry in entries[:_BB_SIDES_TRIED]:
+            for (k, entry) in enumerate(entries[:_BB_SIDES_TRIED]):
+                where = bb_scout.features(scouting, entry, mortar)
+                if k == 0:
+                    where['plans'] = alike  # the plans this side stands for
                 fronts.append((f'at {entry}, {bb_scout.side(scouting, entry)} of the base centred at {scouting.centre}',
-                               bb_scout.front(scouting, entry)))
+                               bb_scout.front(scouting, entry), where))
         else:
             logger.info('Builder Base: no base found on the screen — attacking from a map edge')
         side = random.choice(('left', 'right'))
         edge = bb_strategy.front_edge(self.config.get_point(side), self.config.get_point('top'), h)
-        fronts.append((f'from the {side} edge of the map', bb_strategy.edge_front(edge, h)))
+        fronts.append((f'from the {side} edge of the map', bb_strategy.edge_front(edge, h), {'side': 'map edge'}))
         return fronts
 
     def _bb_learner(self):
@@ -1537,32 +1542,42 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         return learner
 
     def _bb_plan_entries(self, frame, cards, stage = bb_learning.FIRST):
-        '''``(scouting, entries)`` of the stage's attack plan (:mod:`app.core.bb_learning`):
-        each stage draws its own among the plans that apply (the second base is another
-        base, scored apart); a redeploy within the stage keeps it. The army is the first
-        stage's: the second one's bar holds what is left of it.'''
-        scouting = bb_scout.scout(frame)
+        '''``(scouting, entries, mortar, alike)`` of the stage's attack plan
+        (:mod:`app.core.bb_learning`): each stage draws its own among the plans that apply
+        (the second base is another base, scored apart), from the beliefs of its army on
+        this kind of base (a Multi Mortar seen or not); a redeploy within the stage keeps it.
+        The army is the first stage's: the second one's bar holds what is left of it.
+        ``mortar``: the Multi Mortar seen on the base (px), or None; ``alike``: the plans
+        that go in from the same side as the drawn one on this base (on 53 live bases, core
+        took another side than best on 10, reach on 5, the Multi Mortar's on 15 of 26).'''
+        # each plan's scouting (its entries, its own side first), the frame read once
+        sides = dict(zip(_BB_CORE_WEIGHTS, bb_scout.scout_weights(frame, tuple(_BB_CORE_WEIGHTS.values()))))
+        scouting = sides['best']
         if scouting is None:
-            return (None, [])
+            return (None, [], None, [])
         plans = getattr(self, '_bb_stage_plans', None)
         if plans is None:
             plans = self._bb_stage_plans = {}
         opening = plans.get(bb_learning.FIRST)
         army = opening[0] if opening else (bb_learning.PEKKA if bb_strategy.pekka_push(cards) else bb_learning.OTHER)
         mortar = bb_scout.multi_mortar(frame, scouting) if army == bb_learning.PEKKA else None
-        available = ['best', 'core', 'reach'] + (['mortar'] if mortar is not None else [])
+        entries = {name: s.entries for (name, s) in sides.items()}
+        if mortar is not None:
+            (sides['mortar'], entries['mortar']) = (scouting, bb_scout.towards(scouting, mortar))
+        available = list(entries)
         plan = plans.get(stage)
         if plan is None or plan[1] not in available:
             learner = self._bb_learner()
-            plan = plans[stage] = (army, learner.choose(army, available, stage = stage))
-            logger.info('Builder Base: stage %d attack plan "%s" (expected damage: %s)', stage, plan[1],
-                        learner.summary(army, available, stage = stage))
+            bases = bb_learning.bases(army, mortar is not None)
+            plan = plans[stage] = (army, learner.choose(bases, available, stage = stage))
+            logger.info('Builder Base: stage %d attack plan "%s" (%s; expected damage of the stage: %s)', stage, plan[1],
+                        bases, learner.summary(bases, available, stage = stage))
         if plan[1] == 'mortar':
             logger.info('Builder Base: Multi Mortar at %s — the P.E.K.K.As go for it first', mortar)
-            return (scouting, bb_scout.towards(scouting, mortar))
-        if plan[1] in _BB_CORE_WEIGHTS:
-            scouting = bb_scout.scout(frame, core_weight = _BB_CORE_WEIGHTS[plan[1]]) or scouting
-        return (scouting, scouting.entries)
+        chosen = entries[plan[1]]
+        # the plans that go in from this side here are the same attack: the stage scores them all
+        alike = [name for name in available if bb_scout.same_side(entries[name][0], chosen[0], frame.shape[0])]
+        return (sides[plan[1]], chosen, mortar, alike)
 
     def _bb_record_result(self, start):
         '''Read the results screen once settled, log it, and score the battle's plan.'''
@@ -1581,11 +1596,12 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                     result.gold, result.trophies, ' then '.join(p[1] for p in (first, second) if p) or '-', int(time.monotonic() - start))
         record = dict(result.as_dict(), village = 'builder', session = getattr(self, '_session_id', None), seconds = int(time.monotonic() - start))
         if first or second:
-            army = (first or second)[0]
             # "plan": the last stage's, as the history had it before the stages were scored apart
-            record.update(army = army, plan = (second or first)[1])
+            record.update(army = (first or second)[0], plan = (second or first)[1])
             record.update({key: p[1] for (key, p) in (('plan1', first), ('plan2', second)) if p})
-            self._bb_learner().record_battle(army, first[1] if first else None, second[1] if second else None, result.damage)
+        # s1, s2: the side each stage went in from, which the plans are learned from
+        record.update({f's{stage}': where for (stage, where) in (getattr(self, '_bb_stage_sides', None) or {}).items()})
+        self._bb_learner().add(record)
         battle_history.append(record)
         return result
 
@@ -1615,7 +1631,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         fronts = self._bb_fronts(frame, cards, stage)
         check = self._bb_swaps_shown(frame)  # before any troop lands, the swap buttons show
         abilities = bb_strategy.Abilities()
-        for (k, (label, front)) in enumerate(fronts):
+        for (k, (label, front, where)) in enumerate(fronts):
             steps = bb_strategy.plan(cards, machine, front)
             first = bb_strategy.opening(steps)
             if k == 0:
@@ -1626,6 +1642,11 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                 break
             abilities.forget([s.card for s in steps[:first]], 0.05 * h)
             logger.warning('Builder Base: the opening did not land at %s — attacking %s instead', steps[0].point, fronts[k + 1][0])
+        sides = getattr(self, '_bb_stage_sides', None)
+        if sides is None:
+            sides = self._bb_stage_sides = {}
+        # front 0: the plan's own side took the opening; a redeploy within the stage keeps it
+        sides.setdefault(stage, dict(where, front = k))
         rest = steps[first:]
         if rest and rest[0].wait:  # the check took part of it (a push's Bomber waits from the machine)
             rest[0] = replace(rest[0], wait = max(0.0, rest[0].wait - (time.monotonic() - checked)))

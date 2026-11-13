@@ -18,8 +18,11 @@ with half the map empty). Read on a quarter-size frame before the deploy:
 Each spot of that band is scored by the base in reach of it (troops engage at once, a
 notch of the base gives more) and by its distance to the base's centre (the core, where
 the Builder Hall usually is). The best spot of each side of the base is an entry; the
-attack takes one of the three best sides at random, so it does not always come from the
-same place, and the others are kept for when the first troop does not land.
+attack goes in from the best one, the others are kept for when the first troop does not
+land. Which side is best depends on the weight of the core against the buildings in reach,
+and that weight is what the attack plans differ by (:mod:`app.core.bb_learning`): the plans
+are tried, not the sides. (Until November 2026 the attack took one of the three best sides
+at random, which blurred what each plan was worth.)
 
 A P.E.K.K.A push goes for the Multi Mortar first (:func:`multi_mortar`, :func:`towards`):
 its splash is what stops them.
@@ -47,10 +50,9 @@ _CLOSE = 0.035  # screen heights: the gaps closed over (between walls, buildings
 _BAND = (0.045, 0.075)  # screen heights from the base to a landing spot (its red zone is ~1 tile wide)
 _REACH = 0.12  # screen heights around a spot counted as buildings in reach
 _WALL = 0.008  # screen heights: half the width of what a wall is at most (~12 px thick at 767p)
-_CORE_WEIGHT = 1.2  # score lost per screen height to the base's centre
+CORE_WEIGHT = 1.2  # score lost per screen height to the base's centre
 _SECTORS = 12  # sides of the base, one entry each
 _APART = 0.15  # screen heights between two entries (a notch by the centre is the best spot of several sides)
-_PICK = (3, 2, 1)  # odds of the three best sides
 _JITTER = 0.006  # screen heights along the edge, so two troops do not stack on one pixel
 # The Multi Mortar: four tube openings close together, whatever its level (wood, stone,
 # silver, gold) or the map's light. Sizes in px of a 767 px high frame.
@@ -66,10 +68,11 @@ _NEAR_TARGET = 0.02  # screen heights: landing spots this much farther than the 
 @dataclass
 class Scouting:
     centre: tuple  # the base's centre of mass, px
-    entries: list  # (x, y) px: the chosen one, then the best of each other side, best first
+    entries: list  # (x, y) px: the best spot of each side of the base, best first
     valid: np.ndarray  # quarter-size mask: where troops land
     distance: np.ndarray  # quarter-size: screen heights to the base
     frame_height: int
+    reach: np.ndarray = None  # quarter-size: buildings in reach of each spot, 1.0 at the band's most
 
 
 def _hud(shape):
@@ -80,10 +83,44 @@ def _hud(shape):
     return mask
 
 
-def scout(frame, rng = random, core_weight = _CORE_WEIGHT):
+def scout(frame, core_weight = CORE_WEIGHT):
     ''':class:`Scouting` of the base on ``frame`` (the battle before the deploy), or None
     when no floor or no base is found. ``core_weight``: score lost per screen height to the
     base's centre (higher: the side nearest the core; lower: the most buildings in reach).'''
+    return scout_weights(frame, (core_weight,))[0]
+
+
+def scout_weights(frame, core_weights):
+    ''':func:`scout` for each of ``core_weights``, the frame read once (the reading is most of
+    the time, ~30 ms at 767p; the ranking a few ms): a list of :class:`Scouting`, or of None.'''
+    survey = _survey(frame)
+    if survey is None:
+        return [None] * len(core_weights)
+    (cx, cy, xs, ys, valid, distance, h, reach_map) = survey
+    in_reach = reach_map[ys, xs]
+    near = np.hypot(xs - cx, ys - cy) * _WORK / h
+    sector = ((np.degrees(np.arctan2(ys - cy, xs - cx)) + 360) % 360 * _SECTORS // 360).astype(int)
+    centre = (int(cx * _WORK), int(cy * _WORK))
+    return [Scouting(centre, _ranked(in_reach - w * near, xs, ys, sector, h), valid, distance, h, reach_map) for w in core_weights]
+
+
+def _ranked(score, xs, ys, sector, h):
+    '''The best spot (px) of each side of the base by ``score``, best first, sides apart.'''
+    best = {}
+    for i in np.argsort(-score, kind = 'stable'):
+        if sector[i] not in best:
+            best[sector[i]] = (float(score[i]), (int(xs[i]) * _WORK + _WORK // 2, int(ys[i]) * _WORK + _WORK // 2))
+    ranked = []
+    for (_s, p) in sorted(best.values(), key = lambda e: -e[0]):
+        if all(math.hypot(p[0] - q[0], p[1] - q[1]) >= _APART * h for q in ranked):
+            ranked.append(p)
+    return ranked
+
+
+def _survey(frame):
+    '''The base on ``frame``: ``(cx, cy, xs, ys, valid, distance, h, reach_map)`` (quarter
+    size: its centre, the landing band's spots and mask, the distance to the base, the
+    buildings in reach of each spot), or None when no floor or no base is found.'''
     (h, w) = frame.shape[:2]
     small = cv2.resize(frame, (w // _WORK, h // _WORK), interpolation = cv2.INTER_AREA)
     (sh, sw) = small.shape[:2]
@@ -145,20 +182,9 @@ def scout(frame, rng = random, core_weight = _CORE_WEIGHT):
     buildings = cv2.morphologyEx(objects, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
     r = int(_REACH * sh)
     disk = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1)).astype(np.float32)
-    in_reach = cv2.filter2D(buildings.astype(np.float32), -1, disk, borderType = cv2.BORDER_CONSTANT)[ys, xs]
-    score = in_reach / max(1.0, float(in_reach.max())) - core_weight * np.hypot(xs - cx, ys - cy) * _WORK / h
-    sector = ((np.degrees(np.arctan2(ys - cy, xs - cx)) + 360) % 360 * _SECTORS // 360).astype(int)
-    best = {}
-    for i in np.argsort(-score, kind = 'stable'):
-        if sector[i] not in best:
-            best[sector[i]] = (float(score[i]), (int(xs[i]) * _WORK + _WORK // 2, int(ys[i]) * _WORK + _WORK // 2))
-    ranked = []
-    for (_s, p) in sorted(best.values(), key = lambda e: -e[0]):
-        if all(math.hypot(p[0] - q[0], p[1] - q[1]) >= _APART * h for q in ranked):
-            ranked.append(p)
-    top = ranked[:len(_PICK)]
-    chosen = rng.choices(top, weights = _PICK[:len(top)])[0]
-    return Scouting((int(cx * _WORK), int(cy * _WORK)), [chosen] + [p for p in ranked if p != chosen], valid, distance, h)
+    reach_map = cv2.filter2D(buildings.astype(np.float32), -1, disk, borderType = cv2.BORDER_CONSTANT)
+    reach_map /= max(1.0, float(reach_map[ys, xs].max()))
+    return (cx, cy, xs, ys, valid, distance, h, reach_map)
 
 
 def _openings(frame, s):
@@ -232,6 +258,25 @@ def side(scouting, entry):
     angle = math.degrees(math.atan2(entry[1] - scouting.centre[1], entry[0] - scouting.centre[0])) % 360
     names = ('right', 'bottom-right', 'bottom', 'bottom-left', 'left', 'top-left', 'top', 'top-right')
     return names[int((angle + 22.5) // 45) % 8]
+
+
+def same_side(a, b, frame_height):
+    '''True when entries ``a`` and ``b`` (px) are one side of the base: closer than two of
+    the scouting's entries ever are.'''
+    return math.dist(a, b) < _APART * frame_height
+
+
+def features(scouting, entry, mortar = None):
+    '''What the battle history keeps of the side a stage went in from (what the plans may
+    be told apart by later): where it lies from the base's centre, the buildings in reach of
+    it (1.0: as many as from the band's best spot), and its distance to the base's centre and
+    to the Multi Mortar, in screen heights (``mortar`` None: no Multi Mortar seen).'''
+    h = scouting.frame_height
+    (rows, cols) = scouting.reach.shape
+    reach = scouting.reach[min(rows - 1, entry[1] // _WORK), min(cols - 1, entry[0] // _WORK)]
+    return {'side': side(scouting, entry), 'reach': round(float(reach), 2),
+            'core': round(math.dist(entry, scouting.centre) / h, 3),
+            'mortar': None if mortar is None else round(math.dist(entry, mortar) / h, 3)}
 
 
 def front(scouting, entry, rng = random):

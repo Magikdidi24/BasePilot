@@ -1,140 +1,159 @@
 '''Which Builder Base attack plan wins, learned from the battles played.
 
-A plan is how the side of the base is picked (:mod:`app.core.bb_scout`):
+A plan is the side of the base the attack goes in from (:mod:`app.core.bb_scout`), the
+best one by the plan's own measure:
 
 - ``best``: the scouting's blend of buildings in reach and nearness to the core;
 - ``core``: the side nearest the core (where the Builder Hall usually is);
 - ``reach``: the side with the most buildings in reach;
 - ``mortar``: the Multi Mortar's side (a P.E.K.K.A push with a Multi Mortar found).
 
-A battle has two stages, two bases, and each stage draws its own plan: the first stage's
-plan is scored by the battle's total damage (0-200 %: what it destroyed, and the troops it
-left alive for the second base), the second stage's by its own share of it (the damage over
-100 %). Before November 2026 a battle scored only the plan of its last stage with its whole
-damage: a first stage's Multi Mortar push that cleared the base credited the plan drawn for
-the second one (live: 5 battles in 19, the Multi Mortar seen at 72 % on its two failures
-while its seven openings averaged about 150 %). Those records count for the stage they can
-only belong to: the first under 100 %, the second from 100 % up.
+Until November 14, 2026 the scouting then drew one of its three best sides at random, so a
+plan's side varied as much within the plan as between plans and its score was mostly that
+draw (61 battles: 159 % of damage on the first half, 158 % on the second). Those battles
+carry no ``s1`` / ``s2`` (the side played) in the history, and do not count.
+
+A battle has two stages, two bases, and each stage draws its own plan, scored by its own
+stage: the first by its damage up to 100 % (did the side clear the first base), the second
+by the damage over 100 %. Plans that go in from the same side of a base are the same attack
+there, and the stage scores each of them: on 53 live bases core took another side than
+best on 10, reach on 5, and the Multi Mortar's side was another on 15 of the 26 with one.
+A stage whose opening did not land on its plan's side (another side took it, or a map
+edge) scores nothing. Plans are believed per army and kind of base:
+a P.E.K.K.A push's bases with a Multi Mortar seen apart from the others, as ``mortar`` is
+only drawn there and has to be compared with the other plans on the same bases.
+
+Only the newest :data:`WINDOW` battles count: the army levels up and the bases change, so
+old battles stop speaking for the plans.
 
 The plan of a stage is drawn by Thompson sampling: each plan's share is a Beta belief, one
 draw each, the highest plays. Plans that win get played more, the others now and then, so a
 plan that starts badly still gets its chance. A plan never played starts believed at half
-its stage (as if six battles at 50 %); the player's own play for a P.E.K.K.A push (the Multi
-Mortar first) at 70 % (ten battles' worth): at the first stage it leads the draws at first,
-and yields to a plan that does clearly better (175 % against its 70 %, 15 battles each: the
-other leads the draws). Beliefs are kept per army (a P.E.K.K.A push, or any other).
+its stage (as if six battles at 50 %); the player's own play for a P.E.K.K.A push, the Multi
+Mortar first, at 70 % (ten battles' worth), so it leads the first draws on a base with one.
 
-The Home Village's Earthquake placement is learned the same way (:class:`QuakeLearner`).
+The Home Village's Earthquake placement is learned the same way (:class:`QuakeLearner`),
+from every raid.
 '''
 import random
+from collections import deque
 
 PLANS = ('best', 'core', 'reach', 'mortar')
 PEKKA = 'pekka'
 OTHER = 'other'
-_PRIOR = (3.0, 3.0)  # (alpha, beta) of a plan never played
-_PRIORS = {(PEKKA, 'mortar'): (7.0, 3.0)}
+WINDOW = 40  # Builder Base battles the plans are believed from: the newest
 FIRST = 1
 SECOND = 2
 
 
+def bases(army, mortar_seen):
+    '''The beliefs a stage draws from: its army's, and for a P.E.K.K.A push, those of the
+    bases with a Multi Mortar seen or of the others (the scouting looks for one only then).'''
+    return f'{army}, Multi Mortar' if mortar_seen else army
+
+
+_PRIOR = (3.0, 3.0)  # (alpha, beta) of a plan never played
+_PRIORS = {(bases(PEKKA, True), 'mortar'): (7.0, 3.0)}
+
+
 class _Learner:
-    '''Thompson sampling over plans, per army and stage: Beta beliefs of each plan's share.'''
+    '''Thompson sampling over plans, per key and stage: Beta beliefs of each plan's share.'''
     village = None  # the history records it learns from
     plans = ()
     priors = {}
+    window = None  # the newest battles the beliefs hold (None: every battle)
 
     def __init__(self):
-        self._beliefs = {}  # (army, stage, plan) -> [alpha, beta, battles]
+        self._beliefs = {}  # (key, stage, plan) -> [alpha, beta, battles]
+        self._battles = deque()  # the scores of the battles in the window, oldest first
 
     @classmethod
     def from_history(cls, records):
         learner = cls()
         for r in records:
             if r.get('village') == cls.village:
-                for (army, stage, plan, share) in cls.scores(r):
-                    learner._add(army, stage, plan, share)
+                learner.add(r)
         return learner
 
     @classmethod
     def scores(cls, record):
-        '''``(army, stage, plan, share)`` the history ``record`` scores.'''
+        '''``(key, stage, plan, share)`` the history ``record`` scores.'''
         raise NotImplementedError
 
-    def _belief(self, army, stage, plan):
-        if (army, stage, plan) not in self._beliefs:
-            (a, b) = self.priors.get((army, plan), _PRIOR)
-            self._beliefs[(army, stage, plan)] = [a, b, 0]
-        return self._beliefs[(army, stage, plan)]
+    def add(self, record):
+        '''Learn from a history ``record``; past the window, the oldest battle is forgotten.'''
+        scores = self.scores(record)
+        for score in scores:
+            self._add(*score)
+        if self.window and scores:
+            self._battles.append(scores)
+            if len(self._battles) > self.window:
+                for score in self._battles.popleft():
+                    self._add(*score, forget = True)
 
-    def _add(self, army, stage, plan, share):
+    def _belief(self, key, stage, plan):
+        if (key, stage, plan) not in self._beliefs:
+            (a, b) = self.priors.get((key, plan), _PRIOR)
+            self._beliefs[(key, stage, plan)] = [a, b, 0]
+        return self._beliefs[(key, stage, plan)]
+
+    def _add(self, key, stage, plan, share, forget = False):
         share = min(1.0, max(0.0, float(share)))
-        belief = self._belief(army, stage, plan)
-        belief[0] += share
-        belief[1] += 1.0 - share
-        belief[2] += 1
+        sign = -1 if forget else 1
+        belief = self._belief(key, stage, plan)
+        belief[0] += sign * share
+        belief[1] += sign * (1.0 - share)
+        belief[2] += sign
 
-    def choose(self, army, available, rng = random, stage = FIRST):
+    def choose(self, key, available, rng = random, stage = FIRST):
         '''One of ``available`` plans, by a draw from each one's belief.'''
-        draws = [(rng.betavariate(*self._belief(army, stage, p)[:2]), p) for p in available]
+        draws = [(rng.betavariate(*self._belief(key, stage, p)[:2]), p) for p in available]
         return max(draws)[1]
 
     def _expected(self, share, stage):
         raise NotImplementedError
 
-    def summary(self, army, available, stage = FIRST):
-        '''"mortar 140 % (3), best 100 % (0)": each plan's expected score and its battles,
+    def summary(self, key, available, stage = FIRST):
+        '''"mortar 94 % (3), best 50 % (0)": each plan's expected score and its battles,
         for the log.'''
         parts = []
         for p in available:
-            (a, b, n) = self._belief(army, stage, p)
+            (a, b, n) = self._belief(key, stage, p)
             parts.append(f'{p} {self._expected(a / (a + b), stage):.0f} % ({n})')
         return ', '.join(parts)
 
 
 class PlanLearner(_Learner):
-    '''The Builder Base's plans, per army and stage, scored by the battle's damage.'''
+    '''The Builder Base's plans, per army, kind of base and stage, scored by the stage's damage.'''
     village = 'builder'
     plans = PLANS
     priors = _PRIORS
+    window = WINDOW
 
     @staticmethod
     def _share(damage, stage):
-        return damage / 200.0 if stage == FIRST else (damage - 100.0) / 100.0
+        return min(damage, 100.0) / 100.0 if stage == FIRST else (damage - 100.0) / 100.0
 
     def _expected(self, share, stage):
-        '''The battle's damage the share stands for: the first stage's of 200 %, the second
-        stage's over the first base's 100 %.'''
-        return 200.0 * share if stage == FIRST else 100.0 + 100.0 * share
+        '''The stage's damage the share stands for (0-100 %).'''
+        return 100.0 * share
 
     @classmethod
     def scores(cls, record):
         damage = record.get('damage')
         if not isinstance(damage, (int, float)):
             return []
-        (first, second) = (record.get('plan1'), record.get('plan2'))
-        if first is None and second is None:
-            # one plan, before the stages were told apart: the last stage's (see the module doc)
-            (first, second) = (record.get('plan'), None) if damage < 100 else (None, record.get('plan'))
         army = record.get('army', OTHER)
         out = []
-        if first in cls.plans:
-            out.append((army, FIRST, first, cls._share(damage, FIRST)))
-        if second in cls.plans and damage >= 100:
-            out.append((army, SECOND, second, cls._share(damage, SECOND)))
+        for (stage, plan, side) in ((FIRST, record.get('plan1'), record.get('s1')), (SECOND, record.get('plan2'), record.get('s2'))):
+            if plan not in cls.plans or not isinstance(side, dict) or side.get('front') != 0:
+                continue  # played before the sides were fixed, or not from the plan's side
+            if stage == SECOND and damage < 100:
+                continue  # the battle never reached the second base
+            key = bases(army, side.get('mortar') is not None)
+            alike = side.get('plans') or [plan]  # the plans that went in from this side: one attack
+            out.extend((key, stage, p, cls._share(damage, stage)) for p in cls.plans if p in alike)
         return out
-
-    def record(self, army, plan, damage, stage = FIRST):
-        '''Score the plan of one stage with the battle's total ``damage`` (0-200 %).'''
-        if stage == SECOND and damage < 100:
-            return  # the battle never reached the second base
-        self._add(army, stage, plan, self._share(damage, stage))
-
-    def record_battle(self, army, first, second, damage):
-        '''Score the plans of a battle's two stages (``second`` None: never reached).'''
-        if first is not None:
-            self.record(army, first, damage, FIRST)
-        if second is not None:
-            self.record(army, second, damage, SECOND)
 
 
 QUAKES = ('curve', 'random')

@@ -198,21 +198,32 @@ class ScoutTests(unittest.TestCase):
             for (a, b) in itertools.combinations(entries, 2):
                 self.assertGreaterEqual(math.hypot(a[0] - b[0], a[1] - b[1]), 0.15 * 767, name)
 
-    def test_the_side_changes_from_battle_to_battle(self):
+    def test_one_side_per_base_its_best(self):
         frame = self.battle('green_middle')
-        firsts = {bb_scout.scout(frame, rng=random.Random(seed)).entries[0] for seed in range(20)}
-        self.assertEqual(len(firsts), 3)  # one of the three best sides each time
+        self.assertEqual(len({bb_scout.scout(frame).entries[0] for _ in range(3)}), 1)  # no draw: the plans are tried, not the sides
+
+    def test_what_the_history_keeps_of_a_side(self):
+        scouting = bb_scout.scout(self.battle('green_middle'))
+        entry = scouting.entries[0]
+        where = bb_scout.features(scouting, entry, (717, 415))
+        self.assertEqual(where['side'], bb_scout.side(scouting, entry))
+        self.assertEqual(where['reach'], 1.0)  # the most buildings in reach of the band
+        self.assertAlmostEqual(where['core'], math.dist(entry, scouting.centre) / 767, places=3)
+        self.assertAlmostEqual(where['mortar'], math.dist(entry, (717, 415)) / 767, places=3)
+        self.assertIsNone(bb_scout.features(scouting, entry)['mortar'])  # none seen
+        self.assertTrue(bb_scout.same_side(entry, (entry[0] + 40, entry[1]), 767))
+        self.assertFalse(bb_scout.same_side(scouting.entries[0], scouting.entries[1], 767))
 
     def test_buildings_draw_the_attack_not_empty_walls(self):
         # three long walls with nothing inside on the right, the buildings bottom-left: walls
         # counted as targets, the best spot was by them, at (642, 294)
-        best = bb_scout.scout(self.battle('blue_bottom_left'), rng=self.BEST).entries[0]
+        best = bb_scout.scout(self.battle('blue_bottom_left')).entries[0]
         (buildings, walls) = ((470, 480), (830, 400))
         self.assertLess(math.dist(best, buildings), math.dist(best, walls), best)
 
     def test_the_formation_hugs_the_base(self):
         for name in self.BASES:
-            scouting = bb_scout.scout(self.battle(name), rng=random.Random(2))
+            scouting = bb_scout.scout(self.battle(name))
             entry = scouting.entries[0]
             at = bb_scout.front(scouting, entry, rng=self.BEST)
             self.assertLessEqual(math.hypot(at(0.0)[0] - entry[0], at(0.0)[1] - entry[1]), 4, name)
@@ -341,7 +352,7 @@ class FightTests(unittest.TestCase):
     def test_an_opening_that_does_not_land_goes_again_from_the_next_side(self):
         bot = make_bot()
         pekkas = [bb_strategy.Card('pekka', (275 + 90 * k, 688)) for k in range(2)]
-        fronts = [('A', lambda o: (300, 200)), ('B', lambda o: (800, 300)), ('C', lambda o: (500, 500))]
+        fronts = [('A', lambda o: (300, 200), {'side': 'A'}), ('B', lambda o: (800, 300), {'side': 'B'}), ('C', lambda o: (500, 500), {'side': 'C'})]
         with patch.object(bot, '_read_bb_bar', side_effect=[(pekkas, (159, 705)), ([], None)]), \
                 patch.object(bot, '_bb_fronts', return_value=fronts), \
                 patch.object(bot, '_bb_swaps_shown', return_value=True), \
@@ -353,13 +364,14 @@ class FightTests(unittest.TestCase):
         self.assertEqual(taps, [t for card in pack for t in (card, (300, 200))] + [t for card in pack for t in (card, (800, 300))])
         self.assertEqual(landed.call_count, 2)
         self.assertEqual([a.card for a in abilities.items], pack)  # each one's ability once
+        self.assertEqual(bot._bb_stage_sides[1], {'side': 'B', 'front': 1})  # not the plan's own side: it scores nothing
         # at the usual pace: live, 0.2 s and 0.1 s took one card in two of a stage's second bar
         self.assertEqual({c.kwargs['pause'] for c in bot.input.click.call_args_list}, {0.25, 0.2})
 
     def test_any_other_army_opens_with_its_first_troop(self):
         bot = make_bot()
         witches = [bb_strategy.Card('witch', (275 + 90 * k, 688)) for k in range(2)]
-        fronts = [('A', lambda o: (300, 200)), ('B', lambda o: (800, 300)), ('C', lambda o: (500, 500))]
+        fronts = [('A', lambda o: (300, 200), {'side': 'A'}), ('B', lambda o: (800, 300), {'side': 'B'}), ('C', lambda o: (500, 500), {'side': 'C'})]
         with patch.object(bot, '_read_bb_bar', side_effect=[(witches, (159, 705)), ([], None)]), \
                 patch.object(bot, '_bb_fronts', return_value=fronts), \
                 patch.object(bot, '_bb_swaps_shown', return_value=True), \
@@ -380,7 +392,7 @@ class FightTests(unittest.TestCase):
             clock[0] += 1.0
             return True
         with patch.object(bot, '_read_bb_bar', side_effect=[(cards, None), ([], None)]), \
-                patch.object(bot, '_bb_fronts', return_value=[('A', lambda o: (300, 200)), ('B', lambda o: (800, 300))]), \
+                patch.object(bot, '_bb_fronts', return_value=[('A', lambda o: (300, 200), {}), ('B', lambda o: (800, 300), {})]), \
                 patch.object(bot, '_bb_swaps_shown', return_value=True), \
                 patch.object(bot, '_bb_landed', side_effect=landed), \
                 patch('app.core.bot.time.monotonic', side_effect=lambda: clock[0]):
@@ -391,11 +403,13 @@ class FightTests(unittest.TestCase):
         bot = make_bot()
         frame = np.zeros((767, 1227, 3), np.uint8)
         pekkas = [bb_strategy.Card('pekka', (275, 688))]
-        with patch.object(bot, '_read_bb_bar', side_effect=[(pekkas, None), ([], None)]), \
-                patch.object(bot, '_bb_fronts', return_value=[('A', lambda o: (300, 200))]), \
+        with patch.object(bot, '_read_bb_bar', side_effect=[(pekkas, None), ([], None)] * 2), \
+                patch.object(bot, '_bb_fronts', side_effect=[[('A', lambda o: (300, 200), {'side': 'A'})], [('B', lambda o: (800, 300), {'side': 'B'})]]), \
                 patch('app.core.bot.save_frame') as save:
             bot._deploy_bb_army(frame, stage=2)
-        save.assert_called_once_with(frame, 'scouting', 'stage2', keep=400)
+            bot._deploy_bb_army(frame, stage=2)  # troops back on the bar within the stage
+        save.assert_called_with(frame, 'scouting', 'stage2', keep=400)
+        self.assertEqual(bot._bb_stage_sides, {2: {'side': 'A', 'front': 0}})  # the side the stage opened from
 
     def test_the_opening_is_the_pack_or_the_first_troop(self):
         pekkas = [bb_strategy.Card('pekka', (275 + 90 * k, 688)) for k in range(5)] + [bb_strategy.Card('bomber', (724, 688))]
