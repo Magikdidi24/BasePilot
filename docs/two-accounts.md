@@ -61,6 +61,7 @@ holding everything a run reads or writes:
 | `player_list.json` | the Players page |
 | `basepilot.log` | its own log, so two runs don't interleave |
 | `debug/` | its own debug frames |
+| `scouting/` | the Builder Base bases it attacked, as scouted before each stage's deploy (the newest 400) |
 | `templates/` | its own captured art |
 
 A brand-new profile starts as a copy of your main settings, so you are not setting every

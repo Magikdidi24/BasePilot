@@ -184,20 +184,29 @@ def read_image(path, flags = None):
     return cv2.imdecode(data, cv2.IMREAD_COLOR if flags is None else flags)
 
 
-def save_debug_frame(frame, prefix):
-    '''Write ``frame`` to ``debug/<prefix>_<unix time>.jpg`` in the data dir (JPEG quality 88),
-    the frames a bug report comes with, and return the path. Raises when it cannot. Encoded
-    here and written by Python, as :func:`read_image` reads: cv2.imwrite cannot open a
-    non-ASCII path on Windows, and only returns False.'''
+def save_frame(frame, folder, prefix, keep = None):
+    '''Write ``frame`` to ``<folder>/<prefix>_<unix time>.jpg`` in the data dir (JPEG quality
+    88) and return the path; ``keep``: then delete the folder's oldest JPEGs past that many.
+    Raises when it cannot. Encoded here and written by Python, as :func:`read_image` reads:
+    cv2.imwrite cannot open a non-ASCII path on Windows, and only returns False.'''
     import cv2  # lazy: importing this module must not load OpenCV (setup_logger imports it)
-    folder = get_user_app_data_dir() / 'debug'
-    folder.mkdir(parents = True, exist_ok = True)
-    path = folder / f'{prefix}_{int(time.time())}.jpg'
+    directory = get_user_app_data_dir() / folder
+    directory.mkdir(parents = True, exist_ok = True)
+    path = directory / f'{prefix}_{int(time.time())}.jpg'
     (ok, jpeg) = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 88])
     if not ok:
         raise ValueError(f'could not encode {path.name}')
     path.write_bytes(jpeg.tobytes())
+    if keep:
+        for old in sorted(directory.glob('*.jpg'), key = lambda p: (p.stat().st_mtime, p.name))[:-keep]:
+            old.unlink(missing_ok = True)
     return path
+
+
+def save_debug_frame(frame, prefix):
+    '''Write ``frame`` to ``debug/<prefix>_<unix time>.jpg`` in the data dir, the frames a bug
+    report comes with (:func:`save_frame`), and return the path. Raises when it cannot.'''
+    return save_frame(frame, 'debug', prefix)
 
 
 def get_template_path(template_name):

@@ -17,7 +17,7 @@ import numpy as np
 from app.core import bot
 from app.services import ppocr
 from app.services.vision import VisionService
-from app.utils.common import read_image
+from app.utils.common import read_image, save_frame
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATES = ROOT / 'templates' / '16_10'
@@ -58,6 +58,16 @@ class AccentedFolderTests(unittest.TestCase):
         self.assertIsNotNone(path)
         self.assertTrue(path.is_relative_to(self.folder))  # under the accented folder, never the real data dir
         self.assertEqual(read_image(path).shape, (40, 60, 3))
+
+    def test_the_scouting_frames_kept_are_the_newest(self):
+        frame = np.full((40, 60, 3), 200, np.uint8)
+        with patch.dict(os.environ, {'LOCALAPPDATA': str(self.folder), 'HOME': str(self.folder)}):
+            for t in range(5):
+                with patch('app.utils.common.time.time', return_value=1000.0 + t):
+                    path = save_frame(frame, 'scouting', 'stage1', keep=3)
+                os.utime(path, (1000 + t, 1000 + t))
+        names = sorted(p.name for p in path.parent.glob('*.jpg'))
+        self.assertEqual(names, ['stage1_1002.jpg', 'stage1_1003.jpg', 'stage1_1004.jpg'])
 
     def test_the_ocr_fallback_loads_its_model_there(self):
         model = shutil.copy(next((ROOT / 'app' / 'data' / 'ocr').glob('*det*.onnx')), self.folder / 'det.onnx')

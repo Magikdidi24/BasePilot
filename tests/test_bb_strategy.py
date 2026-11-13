@@ -387,6 +387,16 @@ class FightTests(unittest.TestCase):
             bot._deploy_bb_army(np.zeros((767, 1227, 3), np.uint8))
         self.assertIn(call(1.5), bot.stop_event.wait.call_args_list)  # 2.5 s from the pack, the check's second included
 
+    def test_each_stage_keeps_the_base_it_was_planned_on(self):
+        bot = make_bot()
+        frame = np.zeros((767, 1227, 3), np.uint8)
+        pekkas = [bb_strategy.Card('pekka', (275, 688))]
+        with patch.object(bot, '_read_bb_bar', side_effect=[(pekkas, None), ([], None)]), \
+                patch.object(bot, '_bb_fronts', return_value=[('A', lambda o: (300, 200))]), \
+                patch('app.core.bot.save_frame') as save:
+            bot._deploy_bb_army(frame, stage=2)
+        save.assert_called_once_with(frame, 'scouting', 'stage2', keep=400)
+
     def test_the_opening_is_the_pack_or_the_first_troop(self):
         pekkas = [bb_strategy.Card('pekka', (275 + 90 * k, 688)) for k in range(5)] + [bb_strategy.Card('bomber', (724, 688))]
         steps = bb_strategy.plan(pekkas, (159, 705), lambda offset: (300, 200))

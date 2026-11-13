@@ -93,6 +93,8 @@ no-deploy zone. Troops land in a band just off the base, out of the HUD. Each sp
 that band is scored by the buildings in reach (not the walls) and its distance to the
 base's centre; the best spot of each side of the base is an entry, and the attack takes
 one of the three best sides at random, so it does not always come from the same place.
+The frame each stage is planned on is kept in `scouting\` of `%LOCALAPPDATA%\BasePilot`
+(the newest 400, about 80 MB): the bases a scanner of their defences is to be built from.
 If the first troop does not land (a no-deploy spot), it goes again from the next side
 (a P.E.K.K.A push's pack and machine land at once, then are checked, and go again together);
 with no base found, from one top edge of the map.

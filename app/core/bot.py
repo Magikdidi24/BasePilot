@@ -19,7 +19,7 @@ from app.services.input import InputService
 from app.services.vision import BOTTOM_HALF_BOT_TEMPLATES, TOP_HALF_BOT_TEMPLATES, VisionService
 from app.services.window import WindowService
 from app.utils import battle_history
-from app.utils.common import get_template_path, save_debug_frame
+from app.utils.common import get_template_path, save_debug_frame, save_frame
 from app.utils.logger import setup_logger
 from app.utils.profile_settings_store import EARTHQUAKE_METHOD_CURVE, EARTHQUAKE_METHOD_LEARN, EARTHQUAKE_METHOD_RANDOM
 logger = setup_logger('BotCore')
@@ -46,6 +46,7 @@ _BB_SPEED_MIN = 0.9
 _BB_SPEED_RETRY = 3  # s before another tap if it still reads 1x (a lost tap)
 _BB_LANDED_CHECK_AFTER = 0.6  # s after a deploy before the bar is read again (a landed troop's card is green by then)
 _BB_SIDES_TRIED = 3  # sides of the base the opening (bb_strategy.opening) tries before a map edge
+_BB_SCOUTING_KEPT = 400  # frames kept in scouting/ of the data dir (~80 MB): the bases attacked, as scouted
 # s after a card's tap (the Home Village's troops: 0.2 s) and after its landing spot's (its
 # spells' spots: 0.1-0.3 s apart), for a pack landed at once: ~0.3 s a troop, against 0.45 s
 _BB_BURST_PAUSES = (0.2, 0.1)
@@ -1585,6 +1586,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         (cards, machine) = self._read_bb_bar(frame)
         if not cards and machine is None:
             return None
+        self._keep_scouting(frame, stage)
         fronts = self._bb_fronts(frame, cards, stage)
         check = self._bb_swaps_shown(frame)  # before any troop lands, the swap buttons show
         abilities = bb_strategy.Abilities()
@@ -1613,6 +1615,15 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             abilities.forget([c.tap for c in left], 0.05 * h)
             self._land_bb_steps(bb_strategy.plan(left, None, lambda _offset: entry), abilities)
         return abilities
+
+    def _keep_scouting(self, frame, stage):
+        '''Keep the frame a stage's attack is planned on (the base before the deploy) in
+        ``scouting/`` of the data dir, the newest :data:`_BB_SCOUTING_KEPT`: the data set a
+        base scanner (which defence stands where) is built from. Never raises.'''
+        try:
+            save_frame(frame, 'scouting', f'stage{stage}', keep = _BB_SCOUTING_KEPT)
+        except Exception:
+            logger.debug('Builder Base: scouting frame not kept', exc_info = True)
 
     def _bb_return_home_point(self, frame, ocr):
         '''Return Home of the results screen: the art at the bot's scale or another (drawn at
