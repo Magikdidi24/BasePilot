@@ -20,8 +20,8 @@ from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QVBoxLayout
 from app.config import resolve_aspect_key
 from app.services.window import WindowService
 from app.ui.qt.frame_preview import NO_CAPTURE, capture_line, frame_pixmap
-from app.ui.qt.theme import SPACING, TOKENS
-from app.ui.qt.widgets import neutral_button
+from app.ui.qt.theme import SPACING
+from app.ui.qt.widgets import hint_label, neutral_button
 from app.utils.logger import setup_logger
 
 logger = setup_logger('PointPicker')
@@ -61,15 +61,10 @@ class PointPickerDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(SPACING['lg'], SPACING['lg'], SPACING['lg'], SPACING['lg'])
         layout.setSpacing(SPACING['sm'])
-        hint_label = QLabel(hint)
-        hint_label.setWordWrap(True)
-        hint_label.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
-        layout.addWidget(hint_label)
+        layout.addWidget(hint_label(hint))
         self._image = _ClickableImage(self._on_image_click, parent = self)
         layout.addWidget(self._image)
-        self._status = QLabel('')
-        self._status.setWordWrap(True)
-        self._status.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
+        self._status = hint_label('')
         layout.addWidget(self._status)
         row = QHBoxLayout()
         refresh = neutral_button('Refresh', parent = self)

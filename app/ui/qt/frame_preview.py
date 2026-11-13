@@ -19,6 +19,6 @@ def frame_pixmap(frame, max_width, max_height):
                                            Qt.TransformationMode.SmoothTransformation)
 
 
-def capture_line(w, h, aspect_key, then):
-    '''"Capture WxH (aspect). ``then``": the line under the preview.'''
-    return f'''Capture {w}x{h} ({aspect_label(aspect_key, 'unsupported aspect')}). {then}'''
+def capture_line(w, h, aspect_key, instruction):
+    '''"Capture WxH (aspect). ``instruction``": the line under the preview.'''
+    return f'''Capture {w}x{h} ({aspect_label(aspect_key, 'unsupported aspect')}). {instruction}'''

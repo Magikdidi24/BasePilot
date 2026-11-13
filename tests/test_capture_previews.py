@@ -1,11 +1,15 @@
 """The capture preview of the point picker and the template capture dialogs: the frame scaled
 into each dialog's own box, the "Capture WxH (aspect)" line under it, and the message when
 there is no capture (the game window mocked)."""
+import os
 import unittest
 from unittest.mock import patch
 
 import numpy as np
 
+from tests.helpers import QtTestCase
+
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 try:
     from PySide6.QtWidgets import QApplication
 
@@ -18,11 +22,7 @@ NO_CAPTURE = 'Could not capture the game window. Open Clash of Clans (and check 
 
 
 @unittest.skipIf(QApplication is None, 'needs PySide6')
-class CapturePreviewTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.app = QApplication.instance() or QApplication([])
-
+class CapturePreviewTests(QtTestCase):
     def open(self, frame):
         '''Both dialogs on the same capture: ``(picker, capture)``.'''
         with (patch('app.ui.qt.point_picker.WindowService') as picker_window,
@@ -36,7 +36,10 @@ class CapturePreviewTests(unittest.TestCase):
         return (pixmap.width(), pixmap.height(), dialog._status.text())
 
     def test_a_16_10_capture_is_scaled_into_each_box(self):
-        (picker, capture) = self.open(np.full((767, 1227, 3), 90, np.uint8))
+        (picker, capture) = self.open(np.full((767, 1227, 3), (200, 30, 10), np.uint8))  # BGR: blue
+        for dialog in (picker, capture):  # shown in RGB
+            colour = dialog._image.pixmap().toImage().pixelColor(100, 100)
+            self.assertEqual((colour.red(), colour.green(), colour.blue()), (10, 30, 200))
         self.assertEqual(self.preview(picker), (895, 560, 'Capture 1227x767 (16:10). Click the button in the image.'))
         self.assertEqual(self.preview(capture), (895, 560, 'Capture 1227x767 (16:10). Drag a box around a button.'))
         self.assertEqual((capture._image.width(), capture._image.height()), (895, 560))  # fixed to the pixmap

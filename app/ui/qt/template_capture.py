@@ -22,8 +22,8 @@ from app.core.clan import CLAN_TEMPLATE_SPECS
 from app.core.loot_filter import LOOT_TEMPLATE_SPECS
 from app.services.window import WindowService
 from app.ui.qt.frame_preview import NO_CAPTURE, capture_line, frame_pixmap
-from app.ui.qt.theme import SPACING, TOKENS
-from app.ui.qt.widgets import neutral_button, primary_button
+from app.ui.qt.theme import SPACING
+from app.ui.qt.widgets import hint_label, neutral_button, primary_button
 from app.utils.common import ensure_dir, get_resource_path, get_user_app_data_dir
 from app.utils.logger import setup_logger
 
@@ -84,9 +84,7 @@ class TemplateCaptureDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(SPACING['lg'], SPACING['lg'], SPACING['lg'], SPACING['lg'])
         layout.setSpacing(SPACING['sm'])
-        hint = QLabel('Open the game on the screen that shows the button you want, press Refresh, then drag a box around the button — tight to its edges, no background. Pick what it is and press Save.')
-        hint.setWordWrap(True)
-        hint.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
+        hint = hint_label('Open the game on the screen that shows the button you want, press Refresh, then drag a box around the button — tight to its edges, no background. Pick what it is and press Save.')
         layout.addWidget(hint)
         self._image = _SelectableImage(self._on_select, parent = self)
         layout.addWidget(self._image)
@@ -107,9 +105,7 @@ class TemplateCaptureDialog(QDialog):
         btn_save.clicked.connect(self._on_save)
         pick_row.addWidget(btn_save)
         layout.addLayout(pick_row)
-        self._status = QLabel('')
-        self._status.setWordWrap(True)
-        self._status.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
+        self._status = hint_label('')
         layout.addWidget(self._status)
         row = QHBoxLayout()
         btn_refresh = neutral_button('Refresh', parent = self)

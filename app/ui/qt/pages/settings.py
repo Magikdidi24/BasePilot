@@ -141,7 +141,7 @@ class SettingsPage(QWidget):
     
     def _add_save_row(self, card):
         '''Save and Reset under a card: Save writes every card's fields (one profile file),
-        Reset reloads the whole page from it.'''
+        Reset reloads every profile field from it.'''
         btn_row = QHBoxLayout()
         btn_save = primary_button('Save', parent = card)
         btn_save.clicked.connect(self._on_save)
@@ -384,7 +384,7 @@ class SettingsPage(QWidget):
 
     
     def _reload(self):
-        '''Every field of the page from the profile's settings.json.'''
+        '''Every profile field of the page from settings.json.'''
         settings = load_profile_settings()
         idx = self._earthquake.findText(settings.earthquake_method)
         if idx >= 0:
@@ -483,7 +483,7 @@ class SettingsPage(QWidget):
 
     
     @staticmethod
-    def _aspect_label(w, h):
+    def _size_label(w, h):
         if not w or not h:
             return 'size unavailable'
         aspect = resolve_aspect_key(w, h)
@@ -515,9 +515,9 @@ class SettingsPage(QWidget):
             logger.warning(f'''Could not inspect subWin: {exc}''')
         (sw, sh) = surface_size
         lines = [
-            f'''Capture target {cand.child_class}: {self._aspect_label(sw, sh)}''']
+            f'''Capture target {cand.child_class}: {self._size_label(sw, sh)}''']
         if sub_size is not None:
-            lines.append(f'''Inner subWin: {self._aspect_label(*sub_size)}''')
+            lines.append(f'''Inner subWin: {self._size_label(*sub_size)}''')
         if resolve_aspect_key(sw, sh) is None:
             lines.append('Surface aspect unsupported — try resizing the game window.')
         else:

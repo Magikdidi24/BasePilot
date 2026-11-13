@@ -5,7 +5,8 @@ from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QHeaderView, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 from app.core import stats
 from app.ui.qt.theme import SPACING, TOKENS
-from app.ui.qt.widgets import Card, PageTitle, SectionTitle, hint_label, neutral_button, short_amount
+from app.ui.qt.widgets import Card, PageTitle, SectionTitle, hint_label, neutral_button
+from app.ui.qt.text import short_amount
 from app.utils import battle_history
 
 _STAR_COLOURS = {0: TOKENS['danger'], 1: TOKENS['warning'], 2: '#84CC16', 3: TOKENS['success']}

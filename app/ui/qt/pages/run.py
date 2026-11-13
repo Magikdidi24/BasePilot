@@ -9,7 +9,8 @@ from app.core import bb_strategy, schedule
 from app.ui.qt._constants import ATTACK_STRATEGIES, BUILDER_BASE_ATTACK_STRATEGIES
 from app.ui.qt.dialogs import show_error, show_under_development
 from app.ui.qt.theme import SPACING, TOKENS
-from app.ui.qt.widgets import Card, SectionTitle, StepperButton, ToggleSwitch, chip_button, danger_button, hint_label, muted_label, neutral_button, primary_button, scroll_page, segment_button, short_amount, spin_box
+from app.ui.qt.widgets import Card, SectionTitle, StepperButton, ToggleSwitch, chip_button, danger_button, hint_label, muted_label, neutral_button, primary_button, scroll_page, segment_button, spin_box
+from app.ui.qt.text import short_amount
 from app.utils.common import ui_settings_name
 from app.utils.player_list_store import load_players
 from app.utils.logger import setup_logger
@@ -189,11 +190,9 @@ class RunPage(QWidget):
         row.addStretch()
         card.card_layout.addLayout(row)
         names = ', '.join(bb_strategy.TROOP_NAMES[t] for t in bb_strategy.PROFILES)
-        hint = QLabel('The bot reads the troops on your bar and plays each its own way: the tanks first (the machine, Boxer Giants, '
-                      'P.E.K.K.As), Bombers and Raged Barbarians behind them, the support last, Baby Dragons apart; each ability '
-                      'once its troop is engaged, one at a time. Battles are always played to the end. Recognised: ' + names + '.')
-        hint.setWordWrap(True)
-        hint.setStyleSheet(f'''color: {TOKENS['text_muted']};''')
+        hint = hint_label('The bot reads the troops on your bar and plays each its own way: the tanks first (the machine, Boxer Giants, '
+                          'P.E.K.K.As), Bombers and Raged Barbarians behind them, the support last, Baby Dragons apart; each ability '
+                          'once its troop is engaged, one at a time. Battles are always played to the end. Recognised: ' + names + '.')
         card.card_layout.addWidget(hint)
         return card
 
