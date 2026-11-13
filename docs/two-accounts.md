@@ -24,12 +24,13 @@ same moment. It costs no extra CPU, needs no second client, and is unattended.
 
 Its limits: only one account is farming at any moment, and the account switch itself is
 OCR on the username list, so an account whose name reads badly can fail the switch (the
-log says which name it could not find). Names numbered alike (`Farm_1`, `Farm_2`, `Farm 1`)
-are told apart by their number: a name whose number does not read fails the switch rather
-than picking the other account. What cannot be told apart is a name that is a word, or part
-of a word, of another one (`Farm` / `Farm 2`, `Bob` / `King Bob`, `Bob` / `KingBob`), or names
-a letter apart (`KingBob` / `KingRob`): give each account a name that no other one contains
-and that differs from the others by more than a letter.
+log says which name it could not find). Names numbered alike (`Farm_1` / `Farm_2`, `Farm 1` /
+`Farm 2`) are told apart by their number: a name whose number does not read fails the switch
+rather than picking the other account. What cannot be told apart is a name that is a word, or
+part of a word, of another one (`Farm` / `Farm 2`, `Bob` / `King Bob`, `Bob` / `KingBob`), names
+with the same letters and digits (`Farm_1` / `Farm 1`), or names a letter apart (`KingBob` /
+`KingRob`): give each account a name that no other one contains and that differs from the
+others by more than a letter.
 
 ## Both at once — profiles
 
@@ -67,7 +68,9 @@ option again — **except the window pin**, which it never inherits. That one is
 point: each session has to be pointed at its own client, so the second window opens
 unpinned and asks you to choose (*Settings → Game window*). Templates you captured on the
 main profile are still found, so there is nothing to re-capture. The Run page's choices and its
-scheduled start times are kept per profile too: a new profile's Run page starts from the defaults.
+scheduled start times are kept per profile too: a new profile's Run page starts as a copy of the
+main one's, scheduled times included (change them if the two accounts should not start
+together), then keeps its own; the loot minimums follow the settings it copied.
 
 The window title carries the profile (`BasePilot — second`) so you can tell the two
 windows apart on the taskbar. No profile means the main directory, exactly as before, so
