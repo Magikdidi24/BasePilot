@@ -355,6 +355,13 @@ class ReturnHomeWaitTests(WaitLoopTestCase):
         self.bot._wait_for_return_home_or_chest_claim()  # not asked: no tap
         self.bot.input.click.assert_not_called()
 
+    def test_no_okay_on_the_way_home_while_a_gem_shows(self):
+        self.on_screen(okay=(50, 60), gemicon=(400, 400), returnhome=(640, 690))
+        with self.assertLogs('BotCore', 'WARNING') as logs:
+            self.assertEqual(self.bot._wait_for_return_home_or_chest_claim(dismiss_okay=True), ('return', 640, 690))
+        self.bot.input.click.assert_not_called()
+        self.assertIn('not pressing Okay', logs.output[0])
+
     def test_the_labels_are_read_after_a_second(self):
         self.bot.vision.find_label.side_effect = lambda frame, label, **kw: (630, 700) if label == 'Claim Reward' else MISS
         self.assertEqual(self.bot._wait_for_return_home_or_chest_claim(), ('chest', 630, 700))

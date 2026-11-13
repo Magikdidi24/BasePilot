@@ -369,10 +369,14 @@ wall upgrades for the first pre-Attack snapshot that would otherwise count as an
 
     
     def _status(self, msg):
-        '''Show ``msg`` on the Run page's status line, when a callback listens.'''
+        '''Show ``msg`` on the Run page's status line, when a callback listens (best-effort:
+        a failing UI callback never stops the bot).'''
         cb = getattr(self, '_status_callback', None)  # Bot.__new__ in tests sets none
         if cb:
-            cb(msg)
+            try:
+                cb(msg)
+            except Exception:
+                logger.debug('Status callback failed', exc_info = True)
 
     def _check_stop(self):
         if self.stop_event.is_set():
@@ -485,7 +489,7 @@ wall upgrades for the first pre-Attack snapshot that would otherwise count as an
         return (frame, None)
 
     def _wall_menu_signature(self, frame):
-        '''A thumbnail of the builder-menu ROI, for telling "the list moved" from "the
+        '''A thumbnail of the menu ROI the Wall row is read in, for telling "the list moved" from "the
         list is at its end". None when there is no frame.
 
         The same ROI the row OCR reads, so no new geometry. On the old builder popup the
@@ -766,8 +770,8 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         if state is None:
             return None
         # Storages field: real OCR'd amounts (from the last stable loot snapshot) plus
-        # the game's bar-fill flags. The flat-swatch "full" templates fire from ~90%
-        # up, so they are labeled "~full", never "full".
+        # the full-storage flags read from the bars, which fire from ~96% up, so they
+        # are labeled "~full", never "full".
         flags = []
         if state.gold_full:
             flags.append('gold ~full')
@@ -832,7 +836,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         if getattr(self, '_stop_when_full', False):
             return None  # the run ends right after (_stop_if_storages_full) instead of waiting here
         if not (getattr(self, '_gold_pinned', False) and getattr(self, '_elixir_pinned', False)):
-            # Icons say ~full but the values are still moving — real headroom remains
+            # The bars say ~full but the values are still moving — real headroom remains
             # (live: idled at 18M/21M gold, wasting ~3M of farmable gold). Keep
             # farming until both numbers pin at their caps.
             logger.info('Idle gate: storages ~full but still filling (gold pinned=%s, elixir pinned=%s) — farming on', getattr(self, '_gold_pinned', False), getattr(self, '_elixir_pinned', False))
@@ -865,7 +869,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             if not state.storages_full:
                 if state.builders is None:
                     # Unreadable builder chip = probably not a clean home frame (mid-
-                    # recovery, reload dialog) — the missing full-icons prove nothing.
+                    # recovery, reload dialog) — bars not reading full prove nothing.
                     # Stay idle; the next wake re-reads (live repro: one wake exited on
                     # "builders ? free, storages filling" right after a disconnect).
                     logger.info('Idle: degraded read (%s) — staying idle', state.summary())
@@ -911,7 +915,8 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
 
 
     def _upgrade_walls(self, resources = (RESOURCE_ELIXIR, RESOURCE_GOLD)):
-        '''Open builder menu, scroll to Wall, add walls → remove if both red → Okay.'''
+        '''One wall from the Build panel: open it on its Buildings tab, OCR-scroll to the Wall
+        card, tap it, and buy the selected wall the gem-safe way (:meth:`_buy_selected_wall`).'''
         frame = self.window.screenshot()
         if frame is None:
             return None
@@ -949,9 +954,9 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
                     return None
                 continue
             candidate = None
-            # The end of the list is the end of the hunt: the Wall row is the last entry,
-            # so once the list has stopped travelling there is nothing further down to
-            # find, and another nudge would only cost time. Two still stops are required
+            # The end of the list is the end of the hunt: once the list has stopped
+            # travelling there is nothing further down to find (the Wall row was the last
+            # entry of the old builder popup), and another nudge would only cost time. Two still stops are required
             # because the list also sits still for a beat mid-flick.
             new_signature = self._wall_menu_signature(frame)
             if signature is not None and new_signature is not None and float(np.mean(np.abs(new_signature - signature))) < _WALL_MENU_BOTTOM_DIFF:
@@ -1079,9 +1084,9 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         order: the clan visit, a wall pass, an upgrade pass, the idle gate (Maxer and Rusher wait
         there with full storages), then the full-storage stop. True when the farm loop ends there
         (Stop when storages are full).'''
-        self._maybe_clan_assist()
+        self._safely('Clan assist', self._maybe_clan_assist)
         self._safely('Wall pass', self._maybe_upgrade_walls, upgrade_walls)
-        self._maybe_auto_upgrade()
+        self._safely('Upgrade pass', self._maybe_auto_upgrade)
         self._safely('Idle gate', self._maybe_idle, deadline)
         return bool(self._safely('Full storages', self._stop_if_storages_full))
 
@@ -2077,14 +2082,19 @@ With ``dismiss_okay``, an ``okay.png`` confirm on the way is clicked first (at m
 Returns (``"return"`` | ``"chest"``, x, y) or (None, None, None) on timeout.
 '''
         okay_clicks = 0
+        gem_seen = False
 
         def look(frame, elapsed):
-            nonlocal okay_clicks
+            nonlocal okay_clicks, gem_seen
             if self._battle_rewards.handle(frame):
                 return 0
             if dismiss_okay and okay_clicks < 2:
                 (ox, oy) = self.vision.find_template(frame, 'okay.png')
-                if ox:
+                if ox and gem_prompt_visible(self.vision, frame):  # an Okay beside a gem buys something
+                    if not gem_seen:
+                        logger.warning('Return home: gem icon on screen — not pressing Okay')
+                    gem_seen = True
+                elif ox:
                     self.input.click(ox, oy, pause = 0.1)
                     okay_clicks += 1
                     return 0
@@ -2325,7 +2335,7 @@ Returns (``"return"`` | ``"chest"``, x, y) or (None, None, None) on timeout.
 
     def _wake_home_and_wait_for_attack(self, timeout = 30):
         '''
-After switching accounts: dismiss idle UI, then poll the **top half** for village type
+After switching accounts: dismiss idle UI, then poll the **bottom half** for village type
 (``mbuilder.png`` = Builder Base; ``builder.png`` or ``gbuilder.png`` = Home Village). If Builder Base,
 leave via :meth:`_leave_builder_base_with_nboat`. When Home Village is detected, return
 ``attack.png`` coordinates from the **bottom half** (battle bar) once visible — same
@@ -2557,7 +2567,7 @@ optionally run the clock boost chain, then leave Builder Base.
     
     def _wait_for_player_name(self, text, timeout = 25, error = True, region = None, **ocr_kwargs):
         '''
-Poll screenshots until OCR finds ``text`` (substring match) and return its click center;
+Poll screenshots until OCR finds ``text`` (as :meth:`VisionService.find_word_on_screen` matches it) and return its click center;
 after each failed OCR pass, drag upward in the lower-right to scroll the account list.
 Raises RuntimeError while the "Log in to Supercell ID" prompt shows instead.
 

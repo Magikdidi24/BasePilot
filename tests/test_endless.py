@@ -102,6 +102,23 @@ class FullStorageStopTests(unittest.TestCase):
         self.assertIsNone(bot._run_loop(1, 0, upgrade_walls=True))
         self.assertEqual(order.mock_calls, [call.clan(), call.walls(True), call.upgrade(), call.idle(None), call.full()] * 2)
 
+    def test_a_failing_errand_never_ends_the_farm_loop(self):
+        bot = make_bot()
+        order = Mock()
+        (bot._maybe_upgrade_walls, bot._maybe_idle, bot._stop_if_storages_full) = (order.walls, order.idle, order.full)
+        bot._maybe_clan_assist = Mock(side_effect=RuntimeError('HUD read failed'))  # before its own try
+        bot._maybe_auto_upgrade = Mock(side_effect=RuntimeError('boom'))
+        order.full.return_value = False
+        with self.assertLogs('BotCore', 'ERROR'):
+            self.assertFalse(bot._between_raids(True, None))
+        self.assertEqual(order.mock_calls, [call.walls(True), call.idle(None), call.full()])
+
+    def test_a_status_callback_that_fails_is_only_logged(self):
+        bot = make_bot()
+        bot._status_callback = Mock(side_effect=RuntimeError('UI gone'))
+        bot._status('Upgrades: nothing free')  # does not raise
+        bot._status_callback.assert_called_once_with('Upgrades: nothing free')
+
     def test_a_home_village_run_stops_once_full_after_the_spending(self):
         bot = make_bot()
         bot._stop_when_full = True
