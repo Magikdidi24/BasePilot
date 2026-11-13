@@ -5,7 +5,7 @@ import math
 import random
 import unittest
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 import cv2
 import numpy as np
@@ -338,7 +338,7 @@ class FightTests(unittest.TestCase):
         self.assertTrue(abs(taps[-1][0] - taps[1][0]) <= 10 and abs(taps[-1][1] - taps[1][1]) <= 10)  # where the first one landed
         self.assertEqual([a.card for a in abilities.items], [(275, 688), (365, 688), (455, 688)])  # one each
 
-    def test_a_first_troop_that_does_not_land_goes_again_from_the_next_side(self):
+    def test_an_opening_that_does_not_land_goes_again_from_the_next_side(self):
         bot = make_bot()
         pekkas = [bb_strategy.Card('pekka', (275 + 90 * k, 688)) for k in range(2)]
         fronts = [('A', lambda o: (300, 200)), ('B', lambda o: (800, 300)), ('C', lambda o: (500, 500))]
@@ -348,10 +348,53 @@ class FightTests(unittest.TestCase):
                 patch.object(bot, '_bb_landed', side_effect=[False, True]) as landed:
             abilities = bot._deploy_bb_army(np.zeros((767, 1227, 3), np.uint8))
         taps = [c.args[:2] for c in bot.input.click.call_args_list]
-        # the first P.E.K.K.A on side A (a no-deploy spot), again on side B, where everyone follows
-        self.assertEqual(taps, [(275, 688), (300, 200), (275, 688), (800, 300), (365, 688), (800, 300), (159, 705), (800, 300)])
+        # the P.E.K.K.A pack and the machine at once on side A (a no-deploy spot), then again on side B
+        pack = [(275, 688), (365, 688), (159, 705)]
+        self.assertEqual(taps, [t for card in pack for t in (card, (300, 200))] + [t for card in pack for t in (card, (800, 300))])
         self.assertEqual(landed.call_count, 2)
-        self.assertEqual([a.card for a in abilities.items], [(275, 688), (365, 688), (159, 705)])  # its ability once
+        self.assertEqual([a.card for a in abilities.items], pack)  # each one's ability once
+        self.assertEqual({c.kwargs['pause'] for c in bot.input.click.call_args_list}, {0.2, 0.1})  # the pack as one burst
+
+    def test_any_other_army_opens_with_its_first_troop(self):
+        bot = make_bot()
+        witches = [bb_strategy.Card('witch', (275 + 90 * k, 688)) for k in range(2)]
+        fronts = [('A', lambda o: (300, 200)), ('B', lambda o: (800, 300)), ('C', lambda o: (500, 500))]
+        with patch.object(bot, '_read_bb_bar', side_effect=[(witches, (159, 705)), ([], None)]), \
+                patch.object(bot, '_bb_fronts', return_value=fronts), \
+                patch.object(bot, '_bb_swaps_shown', return_value=True), \
+                patch.object(bot, '_bb_landed', side_effect=[False, True]) as landed:
+            bot._deploy_bb_army(np.zeros((767, 1227, 3), np.uint8))
+        taps = [c.args[:2] for c in bot.input.click.call_args_list]
+        # the machine alone on side A (a no-deploy spot), again on side B, the witches after it
+        self.assertEqual(taps[:4], [(159, 705), (300, 200), (159, 705), (800, 300)])
+        self.assertEqual(taps[4::2], [(275, 688), (365, 688)])
+        self.assertEqual(landed.call_count, 2)
+        self.assertEqual({c.kwargs['pause'] for c in bot.input.click.call_args_list}, {0.25, 0.2})  # no burst
+
+    def test_the_landing_check_comes_off_the_bombers_wait(self):
+        bot = make_bot()
+        cards = [bb_strategy.Card('pekka', (275, 688)), bb_strategy.Card('bomber', (724, 688))]
+        clock = [100.0]
+
+        def landed():  # the check takes a second
+            clock[0] += 1.0
+            return True
+        with patch.object(bot, '_read_bb_bar', side_effect=[(cards, None), ([], None)]), \
+                patch.object(bot, '_bb_fronts', return_value=[('A', lambda o: (300, 200)), ('B', lambda o: (800, 300))]), \
+                patch.object(bot, '_bb_swaps_shown', return_value=True), \
+                patch.object(bot, '_bb_landed', side_effect=landed), \
+                patch('app.core.bot.time.monotonic', side_effect=lambda: clock[0]):
+            bot._deploy_bb_army(np.zeros((767, 1227, 3), np.uint8))
+        self.assertIn(call(1.5), bot.stop_event.wait.call_args_list)  # 2.5 s from the pack, the check's second included
+
+    def test_the_opening_is_the_pack_or_the_first_troop(self):
+        pekkas = [bb_strategy.Card('pekka', (275 + 90 * k, 688)) for k in range(5)] + [bb_strategy.Card('bomber', (724, 688))]
+        steps = bb_strategy.plan(pekkas, (159, 705), lambda offset: (300, 200))
+        self.assertEqual(bb_strategy.opening(steps), 6)  # the five P.E.K.K.As and the machine, not the Bomber
+        witches = [bb_strategy.Card('witch', (275 + 90 * k, 688)) for k in range(6)]
+        self.assertEqual(bb_strategy.opening(bb_strategy.plan(witches, (159, 705), lambda offset: (300, 200))), 1)
+        flanked = [bb_strategy.Card('pekka', (275 + 90 * k, 688)) for k in range(2)] + [bb_strategy.Card('barbarian', (455 + 90 * k, 688)) for k in range(3)]
+        self.assertEqual(bb_strategy.opening(bb_strategy.plan(flanked, None, lambda offset: (300, 200))), 2)  # not the flankers
 
 
 class LiveStatusTests(unittest.TestCase):

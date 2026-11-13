@@ -1,7 +1,7 @@
 """October 2026 Build panel: the readers on live 16:10 crops, and the gem-safety rules."""
 import unittest
 from types import SimpleNamespace
-from unittest.mock import Mock, call, patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 
@@ -222,7 +222,8 @@ class BotFlowTests(unittest.TestCase):
         del taps[-1]
         cards = taps[0::2]
         self.assertEqual(cards, [(570, 1150 - lift), (710, 1150 - lift), (250, 1100), (430, 1150 - lift)])
-        self.assertIn(call(2.5), bot.stop_event.wait.call_args_list)  # the Bomber waits for the pack to draw fire
+        waits = [c.args[0] for c in bot.stop_event.wait.call_args_list]
+        self.assertTrue(any(2.4 < w <= 2.5 for w in waits), waits)  # the Bomber waits for the pack to draw fire (less the check)
         points = taps[1::2]
         corner = corners['left'] if points[0][0] < 960 else corners['right']
         (ux, uy) = (960 - corner[0], -15 - corner[1])

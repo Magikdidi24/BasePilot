@@ -374,6 +374,19 @@ def pekka_push(cards):
     return any(c.troop == 'pekka' for c in cards)
 
 
+def opening(steps):
+    '''How many of ``steps`` land before the bot checks that the first troop landed: a
+    P.E.K.K.A push's pack and machine at once, any other army's first troop. Live, the
+    first P.E.K.K.A landed alone and checked, the others 1-3 s behind her, took the first
+    volley: 12-43 % health left 10 s in, the others 85-100 % (three battles in five).'''
+    if not pekka_push(steps):
+        return 1
+    n = 1
+    while n < len(steps) and steps[n].profile.role == TANK and not steps[n].wait:
+        n += 1
+    return n
+
+
 def plan(cards, machine, front):
     '''Deploy steps, in order: the machine (``machine``: its card, or None), then the cards
     role by role (see the module doc), each kind's cards left to right; for a P.E.K.K.A

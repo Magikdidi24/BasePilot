@@ -1,4 +1,5 @@
 import time
+from dataclasses import replace
 from datetime import datetime
 from app.core.battle_rewards import BattleRewards
 import random
@@ -44,7 +45,10 @@ _BB_SPEED_TEMPLATE = 'bbspeed1x.png'
 _BB_SPEED_MIN = 0.9
 _BB_SPEED_RETRY = 3  # s before another tap if it still reads 1x (a lost tap)
 _BB_LANDED_CHECK_AFTER = 0.6  # s after a deploy before the bar is read again (a landed troop's card is green by then)
-_BB_SIDES_TRIED = 3  # sides of the base the first troop tries before a map edge
+_BB_SIDES_TRIED = 3  # sides of the base the opening (bb_strategy.opening) tries before a map edge
+# s after a card's tap (the Home Village's troops: 0.2 s) and after its landing spot's (its
+# spells' spots: 0.1-0.3 s apart), for a pack landed at once: ~0.3 s a troop, against 0.45 s
+_BB_BURST_PAUSES = (0.2, 0.1)
 _NO_MASTER_BUILDER = 0.7  # mbuilder.png under this: not the Builder Base's home
 _VILLAGE_DETECT_RETRIES = 3
 _BB_CORE_WEIGHTS = {'core': 3.0, 'reach': 0.3}  # the scouting's core weight of these plans (best: its own, 1.2)
@@ -1462,13 +1466,16 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         lift = int(round(_BB_CARD_ABOVE_SWAP * h / 1600))  # 16:10 reference px; the bar scales with the height
         return (bb_strategy.read_bar(self.vision, frame, swaps, lift, machine[0] if machine else None), machine)
 
-    def _land_bb_steps(self, steps, abilities):
+    def _land_bb_steps(self, steps, abilities, burst = False):
+        '''Land ``steps``; ``burst``: as fast as the game takes the taps (a pack that must
+        arrive together).'''
+        (card_pause, point_pause) = _BB_BURST_PAUSES if burst else (0.25, _EDRAG_DELAY)
         for step in steps:
             self._check_stop()
             if step.wait and self.stop_event.wait(step.wait):
                 self._check_stop()
-            self.input.click(*step.card, pause = 0.25, rand = False)
-            self.input.click(*step.point, pause = _EDRAG_DELAY, rand = False)
+            self.input.click(*step.card, pause = card_pause, rand = False)
+            self.input.click(*step.point, pause = point_pause, rand = False)
             fired = step.profile.ability_on_landing
             if fired:  # its card again: the ability as it lands (the Bomber's Bouncing Bomb for the first wall)
                 self.input.click(*step.card, pause = 0.2, rand = False)
@@ -1569,8 +1576,9 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
     def _deploy_bb_army(self, frame, stage = bb_learning.FIRST):
         '''Read the bar and play the plan of :mod:`app.core.bb_strategy`: the machine, then
         each troop by its role, along the side of the base the scouting picked for the
-        ``stage``. Once the first troop is down, the rest follow; a first troop that did not
-        land (its spot is no-deploy) goes again from the next side. A troop still on the bar
+        ``stage``. Once the opening is down (the first troop, or a P.E.K.K.A push's pack and
+        machine at once: :func:`~app.core.bb_strategy.opening`), the rest follow; an opening
+        that did not land (its spot is no-deploy) goes again from the next side. A troop still on the bar
         after the deploy lands once more at the entry. Returns the stage's
         :class:`~app.core.bb_strategy.Abilities`, or None when no card is on the bar.'''
         (h, _w) = frame.shape[:2]
@@ -1582,14 +1590,19 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         abilities = bb_strategy.Abilities()
         for (k, (label, front)) in enumerate(fronts):
             steps = bb_strategy.plan(cards, machine, front)
+            first = bb_strategy.opening(steps)
             if k == 0:
                 logger.info('Builder Base: deploying %s %s', ', '.join((s.troop or 'unknown') for s in steps), label)
-            self._land_bb_steps(steps[:1], abilities)
+            self._land_bb_steps(steps[:first], abilities, burst = first > 1)
+            checked = time.monotonic()
             if not check or k == len(fronts) - 1 or self._bb_landed():
                 break
-            abilities.forget([steps[0].card], 0.05 * h)
-            logger.warning('Builder Base: the first troop did not land at %s — attacking %s instead', steps[0].point, fronts[k + 1][0])
-        self._land_bb_steps(steps[1:], abilities)
+            abilities.forget([s.card for s in steps[:first]], 0.05 * h)
+            logger.warning('Builder Base: the opening did not land at %s — attacking %s instead', steps[0].point, fronts[k + 1][0])
+        rest = steps[first:]
+        if rest and rest[0].wait:  # the check took part of it (a push's Bomber waits from the machine)
+            rest[0] = replace(rest[0], wait = max(0.0, rest[0].wait - (time.monotonic() - checked)))
+        self._land_bb_steps(rest, abilities)
         if self.stop_event.wait(_BB_LANDED_CHECK_AFTER):
             self._check_stop()
         frame = self.window.screenshot()
