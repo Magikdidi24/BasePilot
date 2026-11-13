@@ -1,6 +1,5 @@
 """Logs page: each visit shows the end of basepilot.log once (every visit used to append the
 whole file again under what was already shown)."""
-import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -17,9 +16,7 @@ from tests.helpers import QtTestCase
 class LogsPageTests(QtTestCase):
     def setUp(self):
         super().setUp()
-        folder = tempfile.TemporaryDirectory()
-        self.addCleanup(folder.cleanup)
-        self.log = Path(folder.name) / 'basepilot.log'
+        self.log = Path(self.data_dir) / 'basepilot.log'
         log_path = patch.object(logs_page, 'get_log_path', return_value=self.log)
         log_path.start()
         self.addCleanup(log_path.stop)

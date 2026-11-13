@@ -1,8 +1,6 @@
 """Debug frames: a frame the bot or the clan assistant could not make sense of goes to
 debug/<prefix>_<unix time>.jpg in the data dir (here a temporary one); no frame, or a failed
 write, gives None and never raises."""
-import os
-import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -11,19 +9,16 @@ import numpy as np
 
 from app.core import bot, clan
 from app.utils.common import read_image
+from tests.helpers import DataDirTestCase
 
 FRAME = np.full((40, 60, 3), 200, np.uint8)
 DUMPERS = (('bot', bot._dump_debug_frame), ('clan', clan._dump_debug_frame))
 
 
-class DebugFrameTests(unittest.TestCase):
+class DebugFrameTests(DataDirTestCase):
     def setUp(self):
-        folder = tempfile.TemporaryDirectory()
-        self.addCleanup(folder.cleanup)
-        self.data = folder.name
-        env = patch.dict(os.environ, {'LOCALAPPDATA': folder.name, 'HOME': folder.name})  # never the user's data dir
-        env.start()
-        self.addCleanup(env.stop)
+        super().setUp()
+        self.data = self.data_dir
 
     def test_a_frame_goes_to_the_debug_dir_as_a_jpeg(self):
         for (name, dump) in DUMPERS:

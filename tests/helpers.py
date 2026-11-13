@@ -1,6 +1,8 @@
 """Helpers shared by the tests: live crops of the game (no player name or gem count in them),
 pasted back on a black frame where they were taken."""
+import atexit
 import os
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,6 +16,26 @@ from app.utils.common import read_image
 FIXTURES = Path(__file__).parent / 'fixtures'
 GPG = (1227, 767)  # (w, h): the default Google Play Games window, 16:10
 WAYDROID = (1920, 1200)  # (w, h): where the October 2026 UI was first measured
+
+# The whole test run reads and writes a throwaway data dir (LOCALAPPDATA on Windows, HOME on
+# Linux), never the user's: templates the app captured there would win over the bundled ones,
+# and debug frames would land in it. Loggers set up before this module was imported keep the
+# real log.
+_RUN_DATA_DIR = tempfile.mkdtemp(prefix='basepilot-tests-')
+
+
+def _remove_run_data_dir():
+    from app.utils import logger as log_setup  # a logger set up after this module opened its file there
+    for (path, handlers) in list(log_setup._shared_handlers.items()):
+        if str(path).startswith(_RUN_DATA_DIR):
+            for handler in handlers:
+                handler.close()
+    shutil.rmtree(_RUN_DATA_DIR, ignore_errors=True)
+
+
+atexit.register(_remove_run_data_dir)
+os.environ['LOCALAPPDATA'] = _RUN_DATA_DIR
+os.environ['HOME'] = _RUN_DATA_DIR
 
 
 def canvas(*crops, size=GPG):
@@ -42,18 +64,9 @@ def bare_bot(frame=None):
     return bot
 
 
-class QtTestCase(unittest.TestCase):
-    """A QApplication for the class and, for each test, a temporary data dir (LOCALAPPDATA on
-    Windows, HOME on the Linux CI): what a page reads or writes there is never the user's.
-    Qt's native settings store (the registry on Windows) is not redirected: patch the page's
-    QSettings with :meth:`temp_settings`."""
-
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')  # no window on the desktop
-        from PySide6.QtWidgets import QApplication  # lazy: the Linux CI has no Qt
-        cls.app = QApplication.instance() or QApplication([])
+class DataDirTestCase(unittest.TestCase):
+    """For each test, a fresh temporary data dir (LOCALAPPDATA on Windows, HOME on the Linux
+    CI): what the code reads or writes there is never the user's, nor another test's."""
 
     def setUp(self):
         super().setUp()
@@ -63,6 +76,20 @@ class QtTestCase(unittest.TestCase):
         env = patch.dict(os.environ, {'LOCALAPPDATA': folder.name, 'HOME': folder.name})
         env.start()
         self.addCleanup(env.stop)
+
+
+class QtTestCase(DataDirTestCase):
+    """A QApplication for the class, and a temporary data dir for each test. Qt's native
+    settings store (the registry on Windows) is not redirected: patch the page's QSettings
+    with :meth:`temp_settings`."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')  # no window on the desktop
+        from PySide6.QtWidgets import QApplication  # lazy: the Linux CI has no Qt
+        cls.app = QApplication.instance() or QApplication([])
+
 
     def temp_settings(self, name='ui.ini'):
         """A QSettings on an ini file of the temporary data dir, synced before the dir goes:

@@ -28,7 +28,6 @@ def make_bot(frames=()):
     bot.window.screenshot.side_effect = lambda: shots.pop(0) if len(shots) > 1 else shots[0]
     bot.vision = VisionService()
     bot.config = Config()
-    bot._update_config_size = Mock()
     return bot
 
 

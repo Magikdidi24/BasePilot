@@ -19,7 +19,9 @@ class CaptureNamingTests(QtTestCase):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
         out = Path(folder.name)
-        dlg = TemplateCaptureDialog()
+        with patch('app.ui.qt.template_capture.WindowService') as window:  # no real capture of the game
+            window.return_value.screenshot.return_value = None
+            dlg = TemplateCaptureDialog()
         dlg._frame = np.zeros((731, 1299, 3), dtype=np.uint8)
         dlg._aspect_key = '16_9'
         dlg._selected_crop = lambda: np.full((20, 40, 3), 200, dtype=np.uint8)
