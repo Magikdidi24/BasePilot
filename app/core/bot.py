@@ -47,9 +47,6 @@ _BB_SPEED_RETRY = 3  # s before another tap if it still reads 1x (a lost tap)
 _BB_LANDED_CHECK_AFTER = 0.6  # s after a deploy before the bar is read again (a landed troop's card is green by then)
 _BB_SIDES_TRIED = 3  # sides of the base the opening (bb_strategy.opening) tries before a map edge
 _BB_SCOUTING_KEPT = 400  # frames kept in scouting/ of the data dir (~80 MB): the bases attacked, as scouted
-# s after a card's tap (the Home Village's troops: 0.2 s) and after its landing spot's (its
-# spells' spots: 0.1-0.3 s apart), for a pack landed at once: ~0.3 s a troop, against 0.45 s
-_BB_BURST_PAUSES = (0.2, 0.1)
 _NO_MASTER_BUILDER = 0.7  # mbuilder.png under this: not the Builder Base's home
 _VILLAGE_DETECT_RETRIES = 3
 _BB_CORE_WEIGHTS = {'core': 3.0, 'reach': 0.3}  # the scouting's core weight of these plans (best: its own, 1.2)
@@ -1467,16 +1464,15 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         lift = int(round(_BB_CARD_ABOVE_SWAP * h / 1600))  # 16:10 reference px; the bar scales with the height
         return (bb_strategy.read_bar(self.vision, frame, swaps, lift, machine[0] if machine else None), machine)
 
-    def _land_bb_steps(self, steps, abilities, burst = False):
-        '''Land ``steps``; ``burst``: as fast as the game takes the taps (a pack that must
-        arrive together).'''
-        (card_pause, point_pause) = _BB_BURST_PAUSES if burst else (0.25, _EDRAG_DELAY)
+    def _land_bb_steps(self, steps, abilities):
         for step in steps:
             self._check_stop()
             if step.wait and self.stop_event.wait(step.wait):
                 self._check_stop()
-            self.input.click(*step.card, pause = card_pause, rand = False)
-            self.input.click(*step.point, pause = point_pause, rand = False)
+            # 0.25 s, 0.2 s: live, a pack landed at 0.2 s, 0.1 s took one card in two of a
+            # stage's second bar (the others came back to the bar)
+            self.input.click(*step.card, pause = 0.25, rand = False)
+            self.input.click(*step.point, pause = _EDRAG_DELAY, rand = False)
             fired = step.profile.ability_on_landing
             if fired:  # its card again: the ability as it lands (the Bomber's Bouncing Bomb for the first wall)
                 self.input.click(*step.card, pause = 0.2, rand = False)
@@ -1595,7 +1591,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             first = bb_strategy.opening(steps)
             if k == 0:
                 logger.info('Builder Base: deploying %s %s', ', '.join((s.troop or 'unknown') for s in steps), label)
-            self._land_bb_steps(steps[:first], abilities, burst = first > 1)
+            self._land_bb_steps(steps[:first], abilities)
             checked = time.monotonic()
             if not check or k == len(fronts) - 1 or self._bb_landed():
                 break

@@ -353,7 +353,8 @@ class FightTests(unittest.TestCase):
         self.assertEqual(taps, [t for card in pack for t in (card, (300, 200))] + [t for card in pack for t in (card, (800, 300))])
         self.assertEqual(landed.call_count, 2)
         self.assertEqual([a.card for a in abilities.items], pack)  # each one's ability once
-        self.assertEqual({c.kwargs['pause'] for c in bot.input.click.call_args_list}, {0.2, 0.1})  # the pack as one burst
+        # at the usual pace: live, 0.2 s and 0.1 s took one card in two of a stage's second bar
+        self.assertEqual({c.kwargs['pause'] for c in bot.input.click.call_args_list}, {0.25, 0.2})
 
     def test_any_other_army_opens_with_its_first_troop(self):
         bot = make_bot()
@@ -369,7 +370,6 @@ class FightTests(unittest.TestCase):
         self.assertEqual(taps[:4], [(159, 705), (300, 200), (159, 705), (800, 300)])
         self.assertEqual(taps[4::2], [(275, 688), (365, 688)])
         self.assertEqual(landed.call_count, 2)
-        self.assertEqual({c.kwargs['pause'] for c in bot.input.click.call_args_list}, {0.25, 0.2})  # no burst
 
     def test_the_landing_check_comes_off_the_bombers_wait(self):
         bot = make_bot()
