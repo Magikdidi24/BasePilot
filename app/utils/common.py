@@ -44,7 +44,13 @@ def _maybe_migrate_legacy_data(new_dir):
     _migration_checked = True
     old_dir = _legacy_data_dir()
     marker = new_dir / _LEGACY_MIGRATED_MARKER
-    if not old_dir.is_dir() or (new_dir / 'settings.json').exists() or marker.exists():
+    if not old_dir.is_dir() or marker.exists():
+        return
+    if (new_dir / 'settings.json').exists():  # set up already: settings deleted later stay deleted
+        try:
+            marker.touch()
+        except OSError:
+            pass
         return
     import shutil
     ensure_dir(new_dir)

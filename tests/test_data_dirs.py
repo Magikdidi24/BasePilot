@@ -36,10 +36,15 @@ class LegacyMigrationTests(unittest.TestCase):
 
     def test_nothing_is_copied_once_the_new_dir_has_its_settings(self):
         (self.old / 'window.json').write_text('old window', encoding='utf-8')
+        (self.old / 'display_restore.devmode').write_bytes(b'old mode')
         self.new.mkdir()
         (self.new / 'settings.json').write_text('{}', encoding='utf-8')
         common._maybe_migrate_legacy_data(self.new)
         self.assertFalse((self.new / 'window.json').exists())
+        (self.new / 'settings.json').unlink()  # deleted later by hand
+        common._migration_checked = False  # the next launch
+        common._maybe_migrate_legacy_data(self.new)
+        self.assertEqual(sorted(p.name for p in self.new.iterdir()), [common._LEGACY_MIGRATED_MARKER])  # no old display mode back
 
     def test_the_first_launch_copies_everything(self):
         (self.old / 'settings.json').write_text('{}', encoding='utf-8')
