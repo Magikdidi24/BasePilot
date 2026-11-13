@@ -231,7 +231,7 @@ class Bot:
         logger.info(f'''Bot started. Method: {method}, Time: {'endless' if unlimited else f'{duration // 60}m'}, StopWhenFull: {self._stop_when_full}, StarBonus: {star_bonus}, MultiRun: {mr}, UpgradeWalls: {upgrade_walls}, WallThreshold: {self._wall_upgrade_threshold}, AutoUpgrade: {self._auto_upgrade_mode}, ReserveBuilders: {self._reserve_builders}, Earthquake: {earthquake_method}, BuilderBase: {builder_base}, ClanDonate: {self._clan_options.donate}, ClanRequest: {self._clan_options.request}, ClanDryRun: {self._clan_options.dry_run}, LootFilter: {self._loot_filter.summary() if self._loot_filter.enabled else 'off'}''')
 
         try:
-
+            self._wait_while_minimized()  # the village check taps on what it sees
             if not multi_run_players is None:
                 self._ensure_correct_village(builder_base = False)
                 queue = [ p for p in multi_run_players if p.enabled ]
@@ -239,6 +239,7 @@ class Bot:
                     raise RuntimeError('Multi-run: no players marked Run')
                 for player in queue:
                     self._check_stop()
+                    self._wait_while_minimized()  # blind, the switch would skip this account
                     try:
                         self._switch_account_and_load_home(player.name)
                     except InterruptedError:
@@ -388,17 +389,20 @@ wall upgrades for the first pre-Attack snapshot that would otherwise count as an
         if self.stop_event.is_set():
             raise InterruptedError('Bot stopped by user')
 
-    def _wait_while_minimized(self):
+    def _wait_while_minimized(self, deadline = None):
         '''A minimized game captures black: each cycle then fails blind, and four of them
         back the run off for 5 min, still off after the window is back (live, 14/11/2026: 11
-        min lost to one minimize). Wait for the window instead; Hide game on the Run page
-        keeps the game out of the way while it still plays.'''
+        min lost to one minimize). Wait for the window instead, until the run's ``deadline``
+        (time.time(); None: endless); Hide game on the Run page keeps the game out of the
+        way while it still plays.'''
         if not self.window.is_minimized():
             return None
         msg = 'Game window minimized: the run waits for it (Hide game on the Run page keeps it out of the way and playing)'
         logger.warning(msg)
         self._status(msg)
         while self.window.is_minimized():
+            if deadline is not None and time.time() >= deadline:
+                return None  # the run's time is up: its loop ends it
             if self.stop_event.wait(_MINIMIZED_POLL_SECONDS):
                 self._check_stop()
         logger.info('Game window back: the run goes on')
@@ -1144,7 +1148,9 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         troop_failures = 0
         while deadline is None or time.time() < deadline:
             self._check_stop()
-            self._wait_while_minimized()
+            self._wait_while_minimized(deadline)
+            if deadline is not None and time.time() >= deadline:
+                break
             outcome = 'no_attack'
             try:
                 outcome = self._find_match_and_attack(method_id)
@@ -1223,9 +1229,12 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         if self._safely('Full storages', self._stop_if_storages_full):
             return None
         failures = 0
-        while not duration_seconds or time.time() - start_time < duration_seconds:
+        deadline = start_time + duration_seconds if duration_seconds else None
+        while deadline is None or time.time() < deadline:
             self._check_stop()
-            self._wait_while_minimized()
+            self._wait_while_minimized(deadline)
+            if deadline is not None and time.time() >= deadline:
+                break
             try:
                 attacked = self._bb_attack_once()
             except InterruptedError:

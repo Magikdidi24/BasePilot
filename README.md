@@ -168,8 +168,9 @@ reopen Clash, then *Restore my display* — the running game keeps 16:9.
 so the bot cannot see it (the run waits until the window is back) and the game, left
 without input, drops its connection. Press **Hide game** on the Run page instead: the game
 window moves off the screen, still running, and the bot keeps playing it. Its taskbar
-button (or **Show game**) brings it back; closing BasePilot does too. A game window behind
-other windows also works.
+button (or **Show game**) brings it back; closing BasePilot does too. If BasePilot was
+closed some other way (a crash), start it again with the same profile and press **Show
+game**. A game window behind other windows also works.
 
 Command line, for scheduled or overnight runs:
 

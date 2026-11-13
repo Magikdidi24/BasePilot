@@ -496,11 +496,13 @@ class RunPage(QWidget):
         btn_row.addWidget(self._btn_hide)
         card.card_layout.addLayout(btn_row)
         self._game_window_service = None  # made on first use: it looks for the game window
-        self._refresh_hide_button()
-        if sys.platform == 'win32':
-            self._hide_timer = QTimer(self)
+        self._hide_check_failed = False
+        # checks a hidden game every second, and only while there is one (a game hidden by the
+        # last BasePilot too)
+        self._hide_timer = QTimer(self) if sys.platform == 'win32' else None
+        if self._hide_timer is not None:
             self._hide_timer.timeout.connect(self._keep_game_hidden)
-            self._hide_timer.start(_HIDE_CHECK_MS)
+        self._refresh_hide_button()
         return card
 
     def _game_window(self):
@@ -510,30 +512,52 @@ class RunPage(QWidget):
         return self._game_window_service
 
     def _toggle_game_hidden(self):
-        if is_game_hidden():
-            self._game_window().show_game(activate = True)
-        else:
-            why = self._game_window().hide_game()
-            if why:
-                show_error(self.window(), 'Hide game', why)
+        try:
+            if is_game_hidden():
+                if not self._game_window().show_game(activate = True):
+                    show_error(self.window(), 'Show game', 'The game window was not found. Open the game, then press Show game again.')
+            else:
+                why = self._game_window().hide_game()
+                if why:
+                    show_error(self.window(), 'Hide game', why)
+        except Exception as e:
+            _hide_logger.warning('Hide game failed', exc_info = True)
+            show_error(self.window(), 'Hide game', f'It failed: {e}')
         self._refresh_hide_button()
 
     def _keep_game_hidden(self):
-        '''Every second: a hidden game brought forward comes back, a minimized one hides again.'''
-        if is_game_hidden():
-            try:
-                self._game_window().keep_hidden()
-            except Exception:
+        '''Every second while the game is hidden: brought forward, it comes back; minimized, it
+        hides again (:meth:`~app.services.window.WindowService.keep_hidden`).'''
+        try:
+            gave_up = self._game_window().keep_hidden()
+            if gave_up:
+                _hide_logger.warning(gave_up)
+            self._hide_check_failed = False
+        except Exception:
+            if not self._hide_check_failed:  # once, not every second while it lasts
+                self._hide_check_failed = True
                 _hide_logger.warning('Hide game: checking the game window failed', exc_info = True)
         self._refresh_hide_button()
 
     def _refresh_hide_button(self):
-        self._btn_hide.setText('Show game' if is_game_hidden() else 'Hide game')
+        hidden = is_game_hidden()
+        self._btn_hide.setText('Show game' if hidden else 'Hide game')
+        if self._hide_timer is not None and hidden != self._hide_timer.isActive():
+            if hidden:
+                self._hide_timer.start(_HIDE_CHECK_MS)
+            else:
+                self._hide_timer.stop()
 
     def show_hidden_game(self):
-        '''BasePilot closing: a hidden game comes back where it was, behind the other windows.'''
-        if is_game_hidden():
-            self._game_window().show_game()
+        '''BasePilot closing: a hidden game comes back where it was, behind the other windows.
+        If it cannot (the game is not found), the next BasePilot's Show game still can.'''
+        if not is_game_hidden():
+            return None
+        try:
+            if not self._game_window().show_game():
+                _hide_logger.warning('Hide game: the game window could not be brought back on closing; Show game will do it next time')
+        except Exception:
+            _hide_logger.warning('Hide game: bringing the game back on closing failed', exc_info = True)
 
     
     def _clear_minutes_selection(self):

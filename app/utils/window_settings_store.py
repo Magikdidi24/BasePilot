@@ -93,26 +93,42 @@ def _hidden_window_path():
     return get_user_app_data_dir() / HIDDEN_WINDOW_FILENAME
 
 
-def save_hidden_home(rect):
-    '''Where the game window was (left, top, right, bottom) before Hide game moved it off
-    the desktop. On disk, so a BasePilot that closed without showing it still can.'''
+def save_hidden_home(rect, hwnd = 0, top_class = ''):
+    '''Where the game window was before Hide game moved it off the desktop (left, top,
+    right, bottom, as a window placement counts them), and the window itself (``hwnd``,
+    ``top_class``): it comes back even when the game surface cannot be found again. On
+    disk, so a BasePilot that closed without showing it still can.'''
     path = _hidden_window_path()
     ensure_dir(path.parent)
-    path.write_text(json.dumps({'home': [int(v) for v in rect]}), encoding = 'utf-8')
+    record = {'home': [int(v) for v in rect], 'hwnd': int(hwnd or 0), 'class': str(top_class or '')}
+    path.write_text(json.dumps(record), encoding = 'utf-8')
 
 
-def load_hidden_home():
-    '''The saved place of a hidden game window, or None when the game is not hidden.'''
+def _hidden_record():
+    '''The saved record ({} when unreadable), or None when the game is not hidden.'''
     path = _hidden_window_path()
     if not path.is_file():
         return None
     try:
-        home = json.loads(path.read_text(encoding = 'utf-8-sig')).get('home')
-        if isinstance(home, list) and len(home) == 4 and all(isinstance(v, int) for v in home):
-            return tuple(home)
-    except (ValueError, OSError, AttributeError):
-        pass
+        record = json.loads(path.read_text(encoding = 'utf-8-sig'))
+    except (ValueError, OSError):
+        return {}
+    return record if isinstance(record, dict) else {}
+
+
+def load_hidden_home():
+    '''The saved place of a hidden game window, or None (not hidden, or unreadable).'''
+    home = (_hidden_record() or {}).get('home')
+    if isinstance(home, list) and len(home) == 4 and all(isinstance(v, int) for v in home):
+        return tuple(home)
     return None
+
+
+def load_hidden_window():
+    '''``(hwnd, top_class)`` of the hidden game window, ``(0, '')`` when unknown.'''
+    record = _hidden_record() or {}
+    hwnd = record.get('hwnd')
+    return (hwnd if isinstance(hwnd, int) else 0, str(record.get('class') or ''))
 
 
 def is_game_hidden():

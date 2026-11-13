@@ -93,7 +93,7 @@ on screen at the same time**, and that is where it stops today:
 - **BasePilot captures and clicks a Google Play Games surface.** It looks for a window
   with a `CROSVM*` render surface, captures it with `PrintWindow`, and injects clicks
   straight into it with `SendMessage` — which is why it works on a window that is behind
-  others or minimized. Another emulator (LDPlayer, BlueStacks, MuMu — all of which do run
+  others or off the screen (not minimized: that captures black). Another emulator (LDPlayer, BlueStacks, MuMu — all of which do run
   several instances) draws into a different surface class, so BasePilot will not even list
   it in *Settings → Game window*, and its input path would have to be checked separately:
   several emulators ignore injected messages and need real input or ADB.
