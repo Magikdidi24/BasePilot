@@ -64,6 +64,7 @@ class ProfileSeedTests(QtTestCase):
         main = self.temp_settings('main.ini')
         main.setValue('run/minutes', 42)
         main.setValue('schedule/times', '08:00')
+        main.setValue('schedule/enabled', True)
         main.setValue('geometry', 'x')
         alt = self.temp_settings('alt.ini')
         stores = {'UI': main, 'UI-alt': alt}
@@ -72,11 +73,22 @@ class ProfileSeedTests(QtTestCase):
               patch('app.ui.qt.pages.run.QSettings', side_effect=lambda org, name: stores[name])):
             RunPage(controller, lambda name: None)
             self.assertEqual((alt.value('run/minutes', type=int), alt.value('schedule/times')), (42, '08:00'))
+            self.assertFalse(alt.contains('schedule/enabled'))  # no window pin of its own yet: not switched on
             self.assertFalse(alt.contains('geometry'))  # the main window's own keys stay where they are
             alt.setValue('run/minutes', 7)  # from now on the profile keeps its own choices
             main.setValue('run/minutes', 50)
             RunPage(controller, lambda name: None)
             self.assertEqual(alt.value('run/minutes', type=int), 7)
+
+    def test_a_pinned_profile_keeps_its_schedule_on(self):
+        main = self.temp_settings('main.ini')
+        main.setValue('schedule/enabled', True)
+        alt = self.temp_settings('alt.ini')
+        with (patch.dict(os.environ, {'BASEPILOT_PROFILE': 'alt'}),
+              patch('app.ui.qt.pages.run.load_window_selection', return_value=Mock(**{'is_set.return_value': True})),
+              patch('app.ui.qt.pages.run.QSettings', side_effect=lambda org, name: {'UI': main, 'UI-alt': alt}[name])):
+            RunPage(Mock(**{'is_running.return_value': False}), lambda name: None)
+        self.assertTrue(alt.value('schedule/enabled', type=bool))
 
     def test_the_main_profile_copies_nothing(self):
         main = self.temp_settings('main.ini')

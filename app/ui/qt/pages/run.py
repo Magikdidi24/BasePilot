@@ -14,6 +14,7 @@ from app.ui.qt.widgets import Card, SectionTitle, StepperButton, ToggleSwitch, c
 from app.ui.qt.text import short_amount
 from app.utils.common import ui_settings_name
 from app.utils.player_list_store import load_players
+from app.utils.window_settings_store import load_window_selection
 from app.utils.logger import setup_logger
 from app.utils.profile_settings_store import ATTACK_MIN_DARK_K_MAX, ATTACK_MIN_LOOT_K_MAX, load_profile_settings, save_profile_settings
 logger = setup_logger('Schedule')
@@ -579,6 +580,10 @@ class RunPage(QWidget):
             return None
         main = QSettings('BasePilot', 'UI')
         keys = [k for k in main.allKeys() if k.startswith(_RUN_KEY_PREFIXES)]
+        if not load_window_selection().is_set():
+            # a profile with no window of its own would start on the main profile's client, at
+            # the main profile's times: its times come over, switched off until it is pinned
+            keys = [k for k in keys if k != 'schedule/enabled']
         for key in keys:
             self._settings.setValue(key, main.value(key))
         if keys:

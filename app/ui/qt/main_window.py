@@ -6,6 +6,7 @@ import threading
 from PySide6.QtCore import QObject, QSettings, QTimer, Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow, QStackedWidget, QStatusBar, QSystemTrayIcon, QVBoxLayout, QWidget
 from app import __version__
+from app.core.upgrade_policy import MODE_OFF
 from app.ui.qt.branding import app_icon, logo_pixmap
 from app.ui.qt.bot_controller import BotController
 from app.ui.qt.dialogs import show_error
@@ -133,7 +134,7 @@ class MainWindow(QMainWindow):
             return None
 
 
-    def autostart_run(self, minutes, upgrade_walls, auto_upgrade = 'off', auto_donate = False, auto_request = False):
+    def autostart_run(self, minutes, upgrade_walls, auto_upgrade = MODE_OFF, auto_donate = False, auto_request = False):
         '''CLI ``--autostart``: configure the Run page and press Start.'''
         self._run_page.apply_autostart(minutes, upgrade_walls, auto_upgrade, auto_donate, auto_request)
 

@@ -408,7 +408,7 @@ class BuildPanelUpgrader:
         self.config = config
         self.stop_event = stop_event
         self._failed = {}  # card label -> time.monotonic() of its failed start
-        self.tried = 0  # cards the last run_pass tried to start: started, or failed and on cooldown
+        self.tried = 0  # cards the last run_pass tried to start: started, or failed (not on a gem prompt) and on cooldown
 
     def _frame(self):
         frame = self.window.screenshot()
@@ -481,7 +481,8 @@ class BuildPanelUpgrader:
             if mode == MODE_DRY:
                 return f'{what}: would start {pick.label} ({pick.cost})'
             result = self._start(pick)
-            self.tried += 1
+            if not result.startswith('gem prompt'):  # a gem prompt: no builder free after all
+                self.tried += 1
             if result != 'started':
                 self._failed[pick.label] = time.monotonic()
         finally:

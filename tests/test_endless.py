@@ -153,7 +153,7 @@ class FullStorageStopTests(unittest.TestCase):
         bot.stop_event.wait.assert_not_called()  # but no idling: the run ends instead
 
     @patch('app.core.bot.read_village_state')
-    def test_the_spend_burst_goes_on_while_passes_start_something(self, state):
+    def test_the_spend_burst_goes_on_while_passes_try_a_card(self, state):
         full = SimpleNamespace(storages_full=True, free_builders=2, builders=(2, 6), lab_idle=False,
                                gold_full=True, elixir_full=True, summary=lambda: 'full')
         state.return_value = full

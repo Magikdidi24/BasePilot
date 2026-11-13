@@ -4,6 +4,7 @@ import threading
 from PySide6.QtCore import QObject, Signal
 from app.core.bot import Bot
 from app.core.clan import ClanOptions
+from app.core.upgrade_policy import MODE_OFF
 from app.core.loot_filter import LootFilter
 from app.utils.logger import setup_logger
 from app.utils.profile_settings_store import load_profile_settings
@@ -59,7 +60,7 @@ class BotController(QObject):
         '''Why the last run ended on its own ("storages full"), or None.'''
         return self._bot.finish_reason
 
-    def start(self, *, method, minutes, star_bonus, upgrade_walls, multi_run_players, builder_base = False, auto_upgrade = 'off', auto_donate = False, auto_request = False, stop_when_full = False):
+    def start(self, *, method, minutes, star_bonus, upgrade_walls, multi_run_players, builder_base = False, auto_upgrade = MODE_OFF, auto_donate = False, auto_request = False, stop_when_full = False):
         '''``minutes <= 0`` = endless, until Stop — single runs, either village.
         ``stop_when_full``: the run ends once gold and elixir are both full.'''
         if self.is_running():

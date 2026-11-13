@@ -155,9 +155,15 @@ class StartCountTests(unittest.TestCase):
                 self.assertEqual(self.up.tried, 1, note)
 
     def test_a_failed_start_is_counted_and_sits_out_its_cooldown(self):
-        self.up._start.return_value = 'gem prompt closed, not started:'
+        self.up._start.return_value = 'no Confirm button, not started:'
         note = self.one('maxer', bp.Chip(1, 6, False))
         self.assertEqual(self.up.tried, 1, note)
+        self.assertIn('Cannon', self.up._failed)
+
+    def test_a_gem_prompt_is_not_counted(self):  # no builder free after all: the burst stops there
+        self.up._start.return_value = 'gem prompt closed, not started:'
+        note = self.one('maxer', bp.Chip(1, 6, False))
+        self.assertEqual(self.up.tried, 0, note)
         self.assertIn('Cannon', self.up._failed)
 
     def test_a_dry_run_tries_nothing(self):

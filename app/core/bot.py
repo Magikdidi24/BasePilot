@@ -596,7 +596,8 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         '''Interval-gated Build panel pass (:meth:`_build_panel_pass`). ``force=True``
         bypasses the interval (used when storages fill up — the idle gate needs a spend
         attempt NOW, not in 10 minutes). A failure here must never take down the farm
-        loop. True when the pass started an upgrade or a research.'''
+        loop. True when the pass tried to start an upgrade or a research (see
+        :meth:`_build_panel_pass`).'''
         mode = getattr(self, '_auto_upgrade_mode', MODE_OFF)
         if mode == MODE_OFF:
             return None
@@ -858,7 +859,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             # (after its own grace period) and walks back to the home screen.
             self._home_screen_recovery()
             # Idling can last hours; clanmates still ask for troops in that time.
-            self._maybe_clan_assist()
+            self._safely('Clan assist', self._maybe_clan_assist)
             # A builder or the lab may have freed up: one pass spends on it right here
             # (it only reads the chips when nothing is free).
             self._maybe_auto_upgrade(force = True)

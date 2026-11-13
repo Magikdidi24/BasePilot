@@ -6,6 +6,12 @@ from unittest.mock import Mock
 import numpy as np
 
 from app.core.clan import ClanAssistant, ClanOptions
+from app.utils.profile_settings_store import ProfileSettings
+
+try:
+    from app.ui.qt.bot_controller import _clan_options
+except ImportError:  # no PySide6 (the Linux CI)
+    _clan_options = None
 
 FRAME = np.zeros((1200, 1920, 3), np.uint8)
 OKAY = (960, 900)
@@ -61,6 +67,14 @@ class ChatPointTests(unittest.TestCase):
                 clan = assistant({})
                 clan.options = ClanOptions(chat_point=(0.5, 0.5), chat_point_aspect=picked_on)
                 self.assertEqual(clan._chat_click_point(frame), expected)
+
+
+@unittest.skipIf(_clan_options is None, 'needs PySide6')
+class ClanOptionsTests(unittest.TestCase):
+    def test_the_chat_point_keeps_the_aspect_it_was_picked_on(self):
+        profile = ProfileSettings(clan_chat_point=[0.5, 0.25], clan_chat_point_aspect='16_9')
+        options = _clan_options(profile, donate=True, request=False)
+        self.assertEqual((options.chat_point, options.chat_point_aspect), ((0.5, 0.25), '16_9'))
 
 
 if __name__ == '__main__':
