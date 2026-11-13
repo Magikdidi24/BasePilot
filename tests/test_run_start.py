@@ -20,7 +20,7 @@ class StartArgumentsTests(QtTestCase):
         self.pages = 0
 
     def start(self, builder_base, mode, **boxes):
-        '''Start from a fresh page with the given switches; the controller's keyword arguments.'''
+        """Start from a fresh page with the given switches; the controller's keyword arguments."""
         self.pages += 1  # a fresh UI store for each page
         settings = self.temp_settings(f'ui{self.pages}.ini')
         controller = Mock(**{'is_running.return_value': False})

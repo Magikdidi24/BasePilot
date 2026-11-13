@@ -7,11 +7,10 @@ from unittest.mock import Mock, call, patch
 import cv2
 import numpy as np
 
-from app.config import Config
 from app.core import village_state
 from app.core.bot import _IDLE_RECHECK_SECONDS
 from app.core.village_state import storages_full
-from tests.helpers import QtTestCase, bare_bot
+from tests.helpers import QtTestCase, bare_bot, canvas
 
 try:
     from PySide6.QtWidgets import QApplication
@@ -40,12 +39,7 @@ def make_bot():
 def builder_base_home():
     """The Builder Base home at 1227x767: its HUD (651 626 gold, 1 356 974 elixir) and its
     Build button, pasted back where they were taken."""
-    frame = np.zeros((767, 1227, 3), np.uint8)
-    frame[383:767] = cv2.imread(str(FIXTURES / 'gpg767_builder_base_home_bottom.jpg'))
-    hud = cv2.imread(str(FIXTURES / 'gpg767_hud_bb_home.png'))
-    frame[:hud.shape[0], 900:900 + hud.shape[1]] = hud
-    Config().set_target_size_from_frame(frame)
-    return frame
+    return canvas(('gpg767_builder_base_home_bottom.jpg', 0, 383), ('gpg767_hud_bb_home.png', 900, 0))
 
 
 class BuilderBaseBarsTests(unittest.TestCase):

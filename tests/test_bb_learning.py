@@ -10,21 +10,17 @@ from unittest.mock import Mock, patch
 import cv2
 import numpy as np
 
-from app.config import Config
 from app.core import bb_learning, bb_results, bb_scout
 from app.core.results_screen import settled_result
 from app.services import ppocr
 from app.utils import battle_history
-from tests.helpers import bare_bot
+from tests.helpers import bare_bot, canvas
 
 FIXTURES = Path(__file__).parent / 'fixtures'
 
 
 def results_frame(name):
-    frame = np.zeros((767, 1227, 3), np.uint8)
-    frame[75:700] = cv2.imread(str(FIXTURES / f'gpg767_bb_result_{name}.jpg'))
-    Config().set_target_size_from_frame(frame)
-    return frame
+    return canvas((f'gpg767_bb_result_{name}.jpg', 0, 75))
 
 
 @unittest.skipUnless(ppocr.available(), 'needs the OCR models in app/data/ocr')

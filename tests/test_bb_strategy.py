@@ -10,7 +10,6 @@ from unittest.mock import Mock, patch
 import cv2
 import numpy as np
 
-from app.config import Config
 from app.core import bb_scout, bb_strategy
 from app.core.build_panel import find_close
 from app.services.vision import VisionService
@@ -367,10 +366,7 @@ class CartTests(unittest.TestCase):
     @staticmethod
     def home(name):
         """The Builder Base village, back from a battle (y 76-552 of a 1227x767 frame)."""
-        frame = np.zeros((767, 1227, 3), np.uint8)
-        frame[76:552] = cv2.imread(str(FIXTURES / f'gpg767_bb_home_cart_{name}.jpg'))
-        Config().set_target_size_from_frame(frame)
-        return frame
+        return canvas((f'gpg767_bb_home_cart_{name}.jpg', 0, 76))
 
     def test_the_full_cart_wherever_the_view_left_it(self):
         bot = make_bot(VisionService)
@@ -399,9 +395,7 @@ class CartTests(unittest.TestCase):
         self.assertEqual(self.collect([None, (848, 393)]), ([(848, 393), (613, 600), (1072, 78)], 1))
 
     def test_the_cart_window_x(self):
-        frame = np.zeros((767, 1227, 3), np.uint8)
-        frame[60:700, 600:1227] = cv2.imread(str(FIXTURES / 'gpg767_bb_cart_window.jpg'))  # live, after Collect
-        Config().set_target_size_from_frame(frame)
+        frame = canvas(('gpg767_bb_cart_window.jpg', 600, 60))  # live, after Collect
         self.assertLessEqual(math.dist(find_close(VisionService, frame), (1072, 78)), 6)
 
     def test_no_tap_at_all_without_a_full_cart(self):

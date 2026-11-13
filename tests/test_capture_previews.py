@@ -22,7 +22,7 @@ NO_CAPTURE = 'Could not capture the game window. Open Clash of Clans (and check 
 @unittest.skipIf(QApplication is None, 'needs PySide6')
 class CapturePreviewTests(QtTestCase):
     def open(self, frame):
-        '''Both dialogs on the same capture: ``(picker, capture)``.'''
+        """Both dialogs on the same capture: ``(picker, capture)``."""
         with (patch('app.ui.qt.point_picker.WindowService') as picker_window,
               patch('app.ui.qt.template_capture.WindowService') as capture_window):
             picker_window.return_value.screenshot.return_value = frame

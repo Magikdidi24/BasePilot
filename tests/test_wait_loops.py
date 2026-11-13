@@ -6,7 +6,7 @@ from unittest.mock import Mock, call, patch
 
 import numpy as np
 
-from app.core.bot import Bot
+from tests.helpers import bare_bot
 
 FRAME = np.zeros((767, 1227, 3), np.uint8)
 BOTTOM_HALF = (0, 383, 1227, 384)
@@ -36,10 +36,8 @@ class WaitLoopTestCase(unittest.TestCase):
             patcher = patch(target, new=value)
             patcher.start()
             self.addCleanup(patcher.stop)
-        bot = self.bot = Bot.__new__(Bot)
-        bot.stop_event = Mock(**{'is_set.return_value': False, 'wait.side_effect': self.clock.wait})
-        bot.window = Mock(**{'screenshot.return_value': FRAME})
-        bot.input = Mock()
+        bot = self.bot = bare_bot(FRAME)
+        bot.stop_event.wait.side_effect = self.clock.wait
         bot.config = Mock(aspect_key='16_10', **{'get_point.return_value': (640, 700)})
         bot.vision = Mock(**{'find_control.return_value': MISS, 'find_template.return_value': MISS,
                              'find_label.return_value': MISS, 'find_word_on_screen.return_value': MISS})
@@ -52,7 +50,7 @@ class WaitLoopTestCase(unittest.TestCase):
             setattr(bot, name, Mock(return_value=value))
 
     def slow(self, result, seconds):
-        '''A scan that takes ``seconds`` of simulated time, then answers ``result``.'''
+        """A scan that takes ``seconds`` of simulated time, then answers ``result``."""
         def scan(*args, **kwargs):
             self.clock.now += seconds
             return result
@@ -251,7 +249,7 @@ class AttackWaitTests(WaitLoopTestCase):
                          [call(FRAME, 'attack.png', region=BOTTOM_HALF, ocr=ocr) for ocr in (False, False, False, True)])
 
     def ocr_after_popups(self, popups):
-        '''The label flag of the look after ``popups`` closed popups, 0.25 s each.'''
+        """The label flag of the look after ``popups`` closed popups, 0.25 s each."""
         self.bot._dismiss_okay_or_exit_on_frame.side_effect = [True] * popups + [False]
         self.bot.vision.find_control.return_value = (100, 700)
         self.assertEqual(self.bot._wait_for_attack_with_nudge(), (100, 700))
@@ -331,7 +329,7 @@ class WakeHomeWaitTests(WaitLoopTestCase):
 
 class ReturnHomeWaitTests(WaitLoopTestCase):
     def on_screen(self, **hits):
-        '''find_template answers from ``hits`` (template name without .png -> point).'''
+        """find_template answers from ``hits`` (template name without .png -> point)."""
         self.bot.vision.find_template.side_effect = lambda frame, name, **kw: hits.get(name[:-len('.png')], MISS)
 
     def looked_at(self):

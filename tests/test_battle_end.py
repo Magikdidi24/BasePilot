@@ -6,13 +6,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-import cv2
 import numpy as np
 
-from app.config import Config
 from app.services import ppocr
 from app.core.loot_filter import read_enemy_loot
-from tests.helpers import bare_bot
+from tests.helpers import bare_bot, canvas
 
 FIXTURES = Path(__file__).parent / 'fixtures'
 FRAME = np.zeros((767, 1227, 3), np.uint8)
@@ -74,10 +72,7 @@ class LootDuringBattleTests(unittest.TestCase):
         # live 1227x767 raid, the panel below the defender's name (left out of the crops)
         want = {'start': (920388, 864274, 8397), 'raided': (694566, 538228, 5639)}
         for (name, loot) in want.items():
-            frame = np.zeros((767, 1227, 3), np.uint8)
-            crop = cv2.imread(str(FIXTURES / f'gpg767_hv_battle_loot_{name}.png'))
-            frame[58:58 + crop.shape[0], 0:crop.shape[1]] = crop
-            Config().set_target_size_from_frame(frame)
+            frame = canvas((f'gpg767_hv_battle_loot_{name}.png', 0, 58))
             self.assertEqual(read_enemy_loot(frame), loot, name)
 
 

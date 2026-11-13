@@ -44,15 +44,17 @@ class WindowToolTests(QtTestCase):
     def test_the_surface_size_shows_when_sub_windows_cannot_be_listed(self):
         page = self.page()
         with (self.service(**{'window_pixel_size.return_value': (1920, 1200), 'enumerate_descendants.side_effect': OSError('denied')}),
-              self.assertLogs('SettingsPage', 'WARNING')):
+              self.assertLogs('SettingsPage', 'WARNING') as logs):
             page._on_test_window()
+        self.assertIn('denied', logs.output[0])  # the error itself, not None
         self.assertEqual(page._window_status.text(), 'Capture target CROSVM_1: 1920x1200 (16:10)\nSurface OK to use.')
 
     def test_the_info_dialog_opens_when_sub_windows_cannot_be_listed(self):
         page = self.page()
         with (self.service(**{'enumerate_descendants.side_effect': OSError('denied')}),
-              patch.object(self.settings, 'WindowInfoDialog') as dialog, self.assertLogs('SettingsPage', 'WARNING')):
+              patch.object(self.settings, 'WindowInfoDialog') as dialog, self.assertLogs('SettingsPage', 'WARNING') as logs):
             page._on_window_info()
+        self.assertIn('denied', logs.output[0])
         dialog.assert_called_once_with(page, GAME, None)  # None: says the list could not be read, not that it is empty
         dialog.return_value.exec.assert_called_once_with()
 

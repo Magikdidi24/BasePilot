@@ -5,9 +5,9 @@ from unittest.mock import Mock, patch
 import cv2
 import numpy as np
 
-from app.core.bot import Bot
 from app.services import ppocr
 from app.services.vision import CONTROL_LABELS, VisionService
+from tests.helpers import bare_bot
 
 FRAME = np.zeros((731, 1299, 3), dtype=np.uint8)
 
@@ -97,13 +97,7 @@ class LabelTests(unittest.TestCase):
 
 class BotFlowTests(unittest.TestCase):
     def setUp(self):
-        self.bot = Bot.__new__(Bot)
-        self.bot.stop_event = Mock()
-        self.bot.stop_event.is_set.return_value = False
-        self.bot.stop_event.wait.return_value = False
-        self.bot.window = Mock()
-        self.bot.window.screenshot.return_value = FRAME
-        self.bot.input = Mock()
+        self.bot = bare_bot(FRAME)
         self.bot.vision = Mock()
         self.bot.config = SimpleNamespace(aspect_key='16_9')
         self.bot._update_config_size = Mock()

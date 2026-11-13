@@ -5,13 +5,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock
 
-import cv2
-import numpy as np
-
-from app.config import Config
 from app.core.bot import Bot
 from app.services import ppocr
 from app.services.vision import VisionService
+from tests.helpers import canvas
 
 FIXTURES = Path(__file__).parent / 'fixtures'
 HAVE_OCR = ppocr.available()
@@ -25,10 +22,7 @@ def make_bot():
 
 
 def dialog():
-    frame = np.zeros((767, 1227, 3), np.uint8)
-    frame[120:700, 270:980] = cv2.imread(str(FIXTURES / 'gpg767_bb_star_bonus_dialog.png'))
-    Config().set_target_size_from_frame(frame)
-    return frame
+    return canvas(('gpg767_bb_star_bonus_dialog.png', 270, 120))
 
 
 @unittest.skipUnless(HAVE_OCR, 'needs the OCR models in app/data/ocr')

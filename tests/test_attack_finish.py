@@ -8,12 +8,13 @@ from unittest.mock import Mock, call
 from app.core.strategies import EdragStrategy, TroopSpamStrategy
 
 # Sentinels: every reader of a frame is mocked, and a mismatch shows as a plain diff.
-FRAME = object()
+FRAME = object()  # the frame the attack starts on
+FIRST = object()  # the capture once the troops are down, for the golden drags and the heroes
 AFTER = object()  # the second capture, for the spells
 KINDS = ('spam', 'edrag')
 
 
-def strategy(kind, captures=(FRAME, AFTER), stop_after=None, stopped_in_golden=False):
+def strategy(kind, captures=(FIRST, AFTER), stop_after=None, stopped_in_golden=False):
     """A strategy whose troops always go down; ``steps`` records the end of the attack.
     ``stop_after`` names the step after which Stop is set ('troops' or 'heroes')."""
     stop = Mock(**{'wait.return_value': False, 'is_set.return_value': False})
@@ -49,14 +50,14 @@ class AttackFinishTests(unittest.TestCase):
             with self.subTest(kind):
                 (s, steps, stop) = strategy(kind)
                 self.assertTrue(s.execute(FRAME))
-                self.assertEqual(steps.mock_calls, [call.golden(FRAME, stop), call.heroes(FRAME), call.spells(AFTER)])
+                self.assertEqual(steps.mock_calls, [call.golden(FIRST, stop), call.heroes(FIRST), call.spells(AFTER)])
 
     def test_a_stop_during_the_golden_drags_ends_the_attack(self):
         for kind in KINDS:
             with self.subTest(kind):
                 (s, steps, stop) = strategy(kind, stopped_in_golden=True)
                 self.assertTrue(s.execute(FRAME))
-                self.assertEqual(steps.mock_calls, [call.golden(FRAME, stop)])
+                self.assertEqual(steps.mock_calls, [call.golden(FIRST, stop)])
 
     def test_a_stop_as_the_troops_end_captures_nothing(self):
         for kind in KINDS:
@@ -83,7 +84,7 @@ class AttackFinishTests(unittest.TestCase):
     def test_no_second_capture_skips_the_spells(self):
         for kind in KINDS:
             with self.subTest(kind):
-                (s, steps, _stop) = strategy(kind, captures=(FRAME, None))
+                (s, steps, _stop) = strategy(kind, captures=(FIRST, None))
                 self.assertTrue(s.execute(FRAME))
                 self.assertEqual([c[0] for c in steps.mock_calls], ['golden', 'heroes'])
 

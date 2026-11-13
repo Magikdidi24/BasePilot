@@ -28,7 +28,7 @@ def screen(spots=SPOTS):
 
 
 def resize_scale(c):
-    '''The ``scale`` a _resize_template_for_screen call asked for.'''
+    """The ``scale`` a _resize_template_for_screen call asked for."""
     return c.args[2] if len(c.args) > 2 else c.kwargs.get('scale', 1)
 
 

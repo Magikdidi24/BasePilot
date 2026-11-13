@@ -7,9 +7,8 @@ import cv2
 import numpy as np
 
 from app.config import Config
-from app.core.bot import Bot
 from app.services.vision import VisionService
-from tests.helpers import FIXTURES, canvas
+from tests.helpers import FIXTURES, bare_bot, canvas
 
 
 def home(name):
@@ -17,13 +16,9 @@ def home(name):
 
 
 def make_bot():
-    bot = Bot.__new__(Bot)
+    bot = bare_bot()
     bot.vision = VisionService
     bot._update_config_size = Mock()
-    bot.stop_event = Mock()
-    bot.stop_event.wait.return_value = False
-    bot.stop_event.is_set.return_value = False
-    bot.input = Mock()
     bot.config = Mock()
     bot.config.get_point.return_value = [600, 700]
     return bot
