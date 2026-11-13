@@ -72,7 +72,9 @@ class FuzzyNameTests(unittest.TestCase):
 
 
 class AccountNumberTests(OcrTestCase):
-    """Accounts numbered alike: the switch never takes one for another (it skips instead)."""
+    """Accounts numbered alike, the number glued to the name or after a separator: the switch
+    never takes one for another (it skips instead). A name that is a whole word of another
+    one ("Bob" in "Bob 2") cannot be told apart (docs/two-accounts.md)."""
     def test_a_longer_number_is_another_account(self):
         for (raw, name) in (('Farm_12', 'farm_1'), ('Farm_1', 'farm_12'), ('Bob2', 'bob'), ('Farm12', 'farm1'),
                             ('Bob_2', 'bob'), ('Farm.2', 'farm'), ('Bob-1', 'bob'), ('Farm_1_2', 'farm_1')):
@@ -98,6 +100,13 @@ class AccountNumberTests(OcrTestCase):
         self.assertEqual(self.find('Farm 1', 'Farm 1'), (130, 50))
         self.assertEqual(self.find('Level 12 Farm 1', 'Farm 1'), (220, 50))  # the middle of "Farm 1"
         self.assertEqual(self.find('King Bob 2', 'King Bob 2'), (150, 50))
+
+    def test_a_name_the_ocr_splits_differently_is_found(self):
+        self.assertEqual(self.find('Chief 42', 'Chief_42'), (140, 50))  # the underscore read as a blank
+        self.assertEqual(self.find('KingBob 2', 'King Bob 2'), (145, 50))  # a blank lost
+
+    def test_a_run_of_words_is_never_taken_for_a_fragment_of_the_name(self):
+        self.assertEqual(self.find('Bob 2', 'King Bob 2'), (None, None))  # another account's name
 
     def test_a_spaced_name_is_not_found_on_another_account(self):
         for (row, name) in (('Farm 2', 'Farm 1'), ('King Bob', 'King Bob 2'), ('King Rob 3', 'King Bob 2')):

@@ -187,8 +187,8 @@ last miss. A hit at the bot's scale costs no extra match; thresholds stay the ca
         '''``(score, (x, y))`` of the best TM_CCOEFF_NORMED match, as matchTemplate + minMaxLoc
 gives it, 4-7x faster on captures. Coarse-to-fine: a half-resolution search ranks the
 best few spots and only those are scored at full resolution, exactly. Kept in colour:
-several templates (full-storage icons) differ from other art only by colour, and a
-grayscale coarse pass picked wrong spots above the threshold at 1080p/1440p. Templates
+some templates differ from other art only by colour (the old HUD's full-storage icons did),
+and a grayscale coarse pass picked wrong spots above the threshold at 1080p/1440p. Templates
 under 24 px or small search areas are matched directly.'''
         (th, tw) = tpl.shape[:2]
         (ih, iw) = img.shape[:2]
@@ -447,7 +447,7 @@ Normalize high-contrast UI text to **black glyphs on white** (single channel, 0 
         return forward and backward
 
     @staticmethod
-    def _ocr_query_matches(raw, query_norm, *, case_sensitive, match_alnum_only, fuzzy_min_ratio):
+    def _ocr_query_matches(raw, query_norm, *, case_sensitive, match_alnum_only, fuzzy_min_ratio, fragments = True):
         if not query_norm:
             return False
         
@@ -467,7 +467,7 @@ Normalize high-contrast UI text to **black glyphs on white** (single channel, 0 
             if aq and aq in ar and not inside_number(ar, aq):
                 return True
             # a fragment of the name (a word of it) holds all of its number, or it is another account's
-            if aq and ar and ar in aq and len(ar) >= max(4, int(0.55 * len(aq))) and _digit_count(ar) == _digit_count(aq):
+            if fragments and aq and ar and ar in aq and len(ar) >= max(4, int(0.55 * len(aq))) and _digit_count(ar) == _digit_count(aq):
                 return True
         if not fuzzy_min_ratio is None:
             # [recovered: pycdc left an empty "if match_alnum_only / elif case_sensitive" and kept
@@ -592,19 +592,23 @@ Returns:
     word's mean probability (0-100) as the confidence.
 '''
         qnorm = None
-        span = 1
+        parts = 1
         if query is not None:
             qnorm = query.strip() if case_sensitive else query.strip().lower()
-            span = len(qnorm.split())  # "Farm 1" reads as the words "Farm" and "1"
+            # "Farm 1" reads as the words "Farm" and "1", and so may "Chief_42" ("Chief", "42") or
+            # "King Bob 2" ("KingBob", "2"): runs of up to as many words as the name has parts
+            parts = len(re.findall(r'[^\W_]+', qnorm))
         words = []
         for (i, line) in enumerate(VisionService._ocr_lines(screen_img, region, charset = charset, single_line = single_line, roi_upscale = roi_upscale)):
             (_x0, y0, _x1, y1) = line.box
             candidates = ppocr.words(line)
-            if span > 1:
-                runs = (candidates[k:k + span] for k in range(len(candidates) - span + 1))
-                candidates = candidates + [(' '.join(w[0] for w in run), run[0][1], run[-1][2], float(np.mean([w[3] for w in run]))) for run in runs]
-            for (text, left, right, prob) in candidates:
-                if qnorm is not None and not VisionService._ocr_query_matches(text, qnorm, case_sensitive = case_sensitive, match_alnum_only = match_alnum_only, fuzzy_min_ratio = fuzzy_min_ratio):
+            runs = [candidates[k:k + n] for n in range(2, parts + 1) for k in range(len(candidates) - n + 1)]
+            candidates = [(c, True) for c in candidates] + [
+                ((' '.join(w[0] for w in run), run[0][1], run[-1][2], float(np.mean([w[3] for w in run]))), False) for run in runs]
+            for ((text, left, right, prob), single) in candidates:
+                # a run of words is the name or holds it, never a fragment of it: "Bob 2" is a
+                # fragment of "King Bob 2" and another account's name
+                if qnorm is not None and not VisionService._ocr_query_matches(text, qnorm, case_sensitive = case_sensitive, match_alnum_only = match_alnum_only, fuzzy_min_ratio = fuzzy_min_ratio, fragments = single):
                     continue
                 words.append(OcrWordBox(left = int(round(left)), top = y0, width = max(1, int(round(right - left))),
                                         height = max(1, y1 - y0), text = text, confidence = 100.0 * prob, line = i))
@@ -791,8 +795,8 @@ frame, a little wider than its ink on the left where a 1 can still be missing, a
         '''
 Parse a HUD resource quantity from OCR text (digits only; commas and spaces ignored).
 
-Used with :meth:`extract_top_right_hud_numbers` clusters: HUD shows gold / elixir / dark
-elixir left‑to‑right in the OCR ROI — take clusters sorted by horizontal center for the triplet.
+Used with :meth:`extract_top_right_hud_numbers` clusters, one number per HUD row (see
+:meth:`parse_hud_resources_triplet` for their order, top to bottom).
 '''
         digits = re.sub('\\D', '', (text or '').strip())
         if not digits:
@@ -862,7 +866,7 @@ inside OCR token**, (2) plain substring, (3) long name fragment, (4) fuzzy; then
 then OCR confidence — so a short side label does not beat the full username.
 Extra kwargs go to :meth:`find_words_ocr` (e.g. ``match_alnum_only``, ``fuzzy_min_ratio``).
 '''
-        matches = VisionService.find_words_ocr(screen_img, region = region, query = word_or_phrase, **kwargs)  # [recovered: pycdc dropped the **kwargs merge -> the name search ran without white_text, match_alnum_only or fuzzy_min_ratio]
+        matches = VisionService.find_words_ocr(screen_img, region = region, query = word_or_phrase, **kwargs)  # [recovered: pycdc dropped the **kwargs merge -> the name search ran without match_alnum_only or fuzzy_min_ratio]
         if not matches:
             return (None, None)
         case_sensitive = bool(kwargs.get('case_sensitive', False))
