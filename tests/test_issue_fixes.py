@@ -146,6 +146,20 @@ class AutoUpgradeGateTests(unittest.TestCase):
         bot._maybe_auto_upgrade(force=True)
         bot._build_panel_pass.assert_called_once_with('maxer')
 
+    def test_build_art_outside_the_bottom_right_is_not_the_build_button(self):
+        bot = Bot.__new__(Bot)
+        bot._auto_upgrade_mode = 'maxer'
+        bot.window = Mock(**{'screenshot.return_value': FRAME})
+
+        def find(frame, name, region=None, **kw):  # the art shows bottom left only
+            (x, y) = (100, 650)
+            inside = region is None or (region[0] <= x < region[0] + region[2] and region[1] <= y < region[1] + region[3])
+            return (x, y) if name == 'build.png' and inside else (None, None)
+        bot.vision = Mock(**{'find_template.side_effect': find})
+        bot._build_panel_pass = Mock()
+        self.assertIsNone(bot._maybe_auto_upgrade(force=True))
+        bot._build_panel_pass.assert_not_called()  # the panel pass would not see it either
+
 
 class CoarseToFineTests(unittest.TestCase):
     def test_same_spot_and_score_as_a_full_match(self):

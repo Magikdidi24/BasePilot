@@ -10,7 +10,7 @@ from app.core.clan import ClanAssistant, ClanOptions, missing_templates
 from app.core.loot_filter import TEMPLATE_NEXT_BASE, LootFilter, combine_reads, meets, read_enemy_loot
 from app.core.strategies import EdragStrategy, TroopSpamStrategy, _EDRAG_DELAY
 from app.core import bb_learning, bb_results, bb_scout, bb_strategy, hv_results, results_screen
-from app.core.build_panel import TAB_BUILDINGS, BuildPanelUpgrader, find_close, gem_prompt_visible, panel_tab, wall_upgrade_button
+from app.core.build_panel import BuildPanelUpgrader, TAB_BUILDINGS, find_build_button, find_close, gem_prompt_visible, panel_tab, wall_upgrade_button
 from app.core.upgrade_menu import RESOURCE_ELIXIR, RESOURCE_GOLD
 from app.core.upgrade_policy import AUTO_UPGRADE_MODES, LIVE_UPGRADE_MODES, MODE_OFF
 from app.core.village_state import is_october_hud, read_hud_triplet_stable, read_village_state, read_village_state_stable, storages_full
@@ -425,7 +425,7 @@ wall upgrades for the first pre-Attack snapshot that would otherwise count as an
             return True
         if self.vision.find_template(frame, 'mbuilder.png', region = bottom)[0]:
             return bool(getattr(self, '_builder_base', False))  # the other village, unless that is where we farm
-        return bool(self.vision.find_template(frame, 'attack.png', region = bottom)[0] and self.vision.find_template(frame, 'build.png')[0])
+        return bool(self.vision.find_template(frame, 'attack.png', region = bottom)[0] and find_build_button(self.vision, frame)[0])
 
     
     def _build_panel_roi(self, frame):
@@ -441,7 +441,7 @@ wall upgrades for the first pre-Attack snapshot that would otherwise count as an
         screen ate (a wall just bought: the tap only deselects it) goes again, once the
         Build button shows with no panel. True once the list had time to render.'''
         for attempt in range(2):
-            (bx, by) = self.vision.find_template(frame, 'build.png', region = VisionService.bottom_half_region(frame))
+            (bx, by) = find_build_button(self.vision, frame)
             if not bx:
                 logger.info('Wall upgrade: Build button not found — skipping this pass')
                 return False
@@ -602,7 +602,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         self._auto_upgrade_last_scan = now
         try:
             frame = self.window.screenshot()
-            if frame is not None and self.vision.find_template(frame, 'build.png', region = VisionService.bottom_half_region(frame))[0]:
+            if frame is not None and find_build_button(self.vision, frame)[0]:
                 return self._build_panel_pass(mode)
             # Not home, or the Build button is covered. The pre-October 2026 builder-popup
             # reader that took over here drove the new HUD blind: nothing is tapped instead.
@@ -2388,7 +2388,7 @@ Each iteration dismisses ``okay.png`` / ``exit.png`` if present, then village / 
         (hx, hy) = self._find_home_village_builder(frame, chip_roi)
         if hx:
             return 'home'
-        if self.vision.find_template(frame, 'attack.png', region = chip_roi)[0] and self.vision.find_template(frame, 'build.png', region = chip_roi)[0] \
+        if self.vision.find_template(frame, 'attack.png', region = chip_roi)[0] and find_build_button(self.vision, frame)[0] \
                 and not self.vision.find_template(frame, 'mbuilder.png', threshold = _NO_MASTER_BUILDER, region = chip_roi)[0]:
             return 'home'
         return None
