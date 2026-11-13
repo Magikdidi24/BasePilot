@@ -1,6 +1,5 @@
 """Start at set times: the times written on the Run page, when each is due, and the page
 pressing Start by itself at that time (settings in a temporary file, not the user's)."""
-import os
 import unittest
 from datetime import datetime, time
 from unittest.mock import Mock, patch
@@ -9,7 +8,6 @@ from app.core import schedule
 from tests.helpers import QtTestCase
 
 try:
-    os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
     from PySide6.QtWidgets import QApplication
     from app.ui.qt.pages.run import RunPage
 except ImportError:  # no PySide6

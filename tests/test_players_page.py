@@ -1,4 +1,3 @@
-import os
 import unittest
 from unittest.mock import patch
 
@@ -6,7 +5,6 @@ from app.utils.player_list_store import PlayerEntry
 from tests.helpers import QtTestCase
 
 try:
-    os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
     from PySide6.QtWidgets import QApplication
     from app.ui.qt.pages.players import PlayersPage
 except ImportError:  # the CI test job installs no Qt

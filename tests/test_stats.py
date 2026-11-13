@@ -1,7 +1,6 @@
 """Stats: sessions summed from the battle history, the CSV export, the Stats page, and the
 Home Village raids written to the history."""
 import csv
-import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,7 +11,6 @@ from app.core.bot import Bot
 from tests.helpers import QtTestCase
 
 try:
-    os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
     from PySide6.QtWidgets import QApplication
     from app.ui.qt.pages.stats import StatsPage
 except ImportError:  # the CI test job installs no Qt

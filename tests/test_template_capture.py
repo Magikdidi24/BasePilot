@@ -1,4 +1,3 @@
-import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,7 +6,6 @@ from unittest.mock import patch
 import numpy as np
 
 try:
-    os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
     from PySide6.QtWidgets import QApplication
     from app.ui.qt.template_capture import TemplateCaptureDialog
 except ImportError:  # the CI test job installs no Qt

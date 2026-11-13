@@ -1,6 +1,5 @@
 """Minimum loot before a Home Village attack: the fields on the Run page (Home Village only,
 the same profile values as Settings), and the Next button the loot filter presses."""
-import os
 import unittest
 from dataclasses import replace
 from unittest.mock import Mock, patch
@@ -16,7 +15,6 @@ from app.utils.profile_settings_store import ProfileSettings
 from tests.helpers import QtTestCase, bare_bot
 
 try:
-    os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
     from PySide6.QtWidgets import QApplication
     from app.ui.qt.pages.run import RunPage
 except ImportError:  # the CI test job installs no Qt

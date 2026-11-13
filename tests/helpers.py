@@ -51,6 +51,7 @@ class QtTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')  # no window on the desktop
         from PySide6.QtWidgets import QApplication  # lazy: the Linux CI has no Qt
         cls.app = QApplication.instance() or QApplication([])
 

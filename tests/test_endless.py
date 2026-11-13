@@ -1,5 +1,4 @@
 """Endless runs in either village, and "Stop when storages are full"."""
-import os
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,7 +14,6 @@ from app.core.village_state import storages_full
 from tests.helpers import QtTestCase, bare_bot
 
 try:
-    os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
     from PySide6.QtWidgets import QApplication
     from app.ui.qt.pages.run import RunPage
 except ImportError:  # no PySide6: the page tests are skipped

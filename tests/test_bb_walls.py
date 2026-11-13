@@ -123,7 +123,6 @@ class SettingsTests(unittest.TestCase):
 
 
 try:
-    os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
     from PySide6.QtWidgets import QApplication
     from app.ui.qt.pages.run import RunPage
 except ImportError:  # no PySide6

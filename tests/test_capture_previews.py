@@ -1,7 +1,6 @@
 """The capture preview of the point picker and the template capture dialogs: the frame scaled
 into each dialog's own box, the "Capture WxH (aspect)" line under it, and the message when
 there is no capture (the game window mocked)."""
-import os
 import unittest
 from unittest.mock import patch
 
@@ -9,7 +8,6 @@ import numpy as np
 
 from tests.helpers import QtTestCase
 
-os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 try:
     from PySide6.QtWidgets import QApplication
 

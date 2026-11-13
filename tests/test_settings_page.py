@@ -1,10 +1,8 @@
 """The Settings page, built offscreen: each card's Save writes the whole profile and each Reset
 brings the saved values back (a temporary data dir and app store, never the user's)."""
-import os
 import unittest
 from unittest.mock import patch
 
-os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 try:
     from PySide6.QtWidgets import QApplication, QPushButton
 
