@@ -6,6 +6,7 @@ import random
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import cv2
@@ -133,6 +134,11 @@ class PlanLearnerTests(unittest.TestCase):
         learner.add(battle('core', 100))  # live, the window slides on
         self.assertEqual(learner.summary('pekka', ['core']), 'core 9 % (40)')  # 4 / 46
 
+    def test_a_stage_opened_from_no_plans_side_scores_nothing(self):
+        record = battle('core', 160, 'best')
+        record['s2'] = {'side': 'map edge', 'front': 0}  # no base found at the stage's first deploy, its plan drawn after
+        self.assertEqual(bb_learning.PlanLearner.scores(record), [('pekka', 1, 'core', 1.0)])
+
     def test_beliefs_come_from_the_battles_with_their_sides(self):
         records = [{'t': 'x', 'village': 'builder', 'army': 'pekka', 'plan': 'core', 'plan1': 'core', 'damage': 100},  # a side drawn at random
                    battle('reach', 160, 'core', army='other'),
@@ -186,6 +192,32 @@ class BotPlanTests(unittest.TestCase):
         (_scouting, _entries, _mortar, alike) = bot._bb_plan_entries(frame, [Mock(troop='witch')])
         self.assertIn('core', alike)
         self.assertNotIn('reach', alike)
+
+    def test_a_redeploy_keeps_its_plan_when_its_side_is_gone(self):
+        bot = make_bot()
+        bot._bb_plans = Mock()
+        bot._bb_stage_plans = {1: ('pekka', 'mortar'), 2: ('pekka', 'mortar')}  # the second base's Multi Mortar destroyed since
+        frame = self.battle('blue_middle')  # no Multi Mortar seen on it
+        (_scouting, entries, mortar, alike) = bot._bb_plan_entries(frame, [Mock(troop='pekka')], 2)
+        bot._bb_plans.choose.assert_not_called()
+        self.assertEqual(bot._bb_stage_plans[2], ('pekka', 'mortar'))  # the history names the plan the stage opened with
+        self.assertIsNone(mortar)
+        self.assertEqual(entries[0], bb_scout.scout(frame).entries[0])  # in from the best side this time
+        self.assertIn('best', alike)
+
+    def test_the_fronts_carry_what_the_history_keeps_of_their_side(self):
+        bot = make_bot()
+        bot.config = SimpleNamespace(get_point=lambda key: {'left': (105, 364), 'top': (614, -10), 'right': (1126, 364)}[key])
+        bot._bb_plans = Mock()
+        bot._bb_plans.choose.return_value = 'best'
+        bot._bb_plans.summary.return_value = ''
+        fronts = bot._bb_fronts(self.battle('green_middle'), [Mock(troop='pekka')])
+        self.assertTrue(all(len(f) == 3 for f in fronts))
+        (plans_side, next_side, edge) = (fronts[0][2], fronts[1][2], fronts[-1][2])
+        self.assertIn('best', plans_side['plans'])
+        self.assertIsNotNone(plans_side['mortar'])  # a Multi Mortar on that base
+        self.assertNotIn('plans', next_side)  # another side stands for no plan
+        self.assertEqual(edge, {'side': 'map edge'})
 
     def test_the_second_stage_draws_its_own_plan_and_a_redeploy_keeps_it(self):
         bot = make_bot()

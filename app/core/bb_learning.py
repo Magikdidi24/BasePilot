@@ -23,8 +23,8 @@ edge) scores nothing. Plans are believed per army and kind of base:
 a P.E.K.K.A push's bases with a Multi Mortar seen apart from the others, as ``mortar`` is
 only drawn there and has to be compared with the other plans on the same bases.
 
-Only the newest :data:`WINDOW` battles count: the army levels up and the bases change, so
-old battles stop speaking for the plans.
+Only the newest :data:`WINDOW` battles that score a plan count: the army levels up and the
+bases change, so old battles stop speaking for the plans.
 
 The plan of a stage is drawn by Thompson sampling: each plan's share is a Beta belief, one
 draw each, the highest plays. Plans that win get played more, the others now and then, so a
@@ -150,8 +150,10 @@ class PlanLearner(_Learner):
                 continue  # played before the sides were fixed, or not from the plan's side
             if stage == SECOND and damage < 100:
                 continue  # the battle never reached the second base
+            alike = side.get('plans')  # the plans that went in from this side: one attack
+            if not alike:
+                continue  # opened from no plan's side (a map edge, the plan drawn on a redeploy)
             key = bases(army, side.get('mortar') is not None)
-            alike = side.get('plans') or [plan]  # the plans that went in from this side: one attack
             out.extend((key, stage, p, cls._share(damage, stage)) for p in cls.plans if p in alike)
         return out
 

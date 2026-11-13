@@ -1556,8 +1556,9 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         '''``(scouting, entries, mortar, alike)`` of the stage's attack plan
         (:mod:`app.core.bb_learning`): each stage draws its own among the plans that apply
         (the second base is another base, scored apart), from the beliefs of its army on
-        this kind of base (a Multi Mortar seen or not); a redeploy within the stage keeps it.
-        The army is the first stage's: the second one's bar holds what is left of it.
+        this kind of base (a Multi Mortar seen or not); a redeploy within the stage keeps it
+        (from the best side when its own is gone). The army is the first stage's: the second
+        one's bar holds what is left of it.
         ``mortar``: the Multi Mortar seen on the base (px), or None; ``alike``: the plans
         that go in from the same side as the drawn one on this base (on 53 live bases, core
         took another side than best on 10, reach on 5, the Multi Mortar's on 15 of 26).'''
@@ -1577,18 +1578,21 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
             (sides['mortar'], entries['mortar']) = (scouting, bb_scout.towards(scouting, mortar))
         available = list(entries)
         plan = plans.get(stage)
-        if plan is None or plan[1] not in available:
+        if plan is None:
             learner = self._bb_learner()
             bases = bb_learning.bases(army, mortar is not None)
             plan = plans[stage] = (army, learner.choose(bases, available, stage = stage))
             logger.info('Builder Base: stage %d attack plan "%s" (%s; expected damage of the stage: %s)', stage, plan[1],
                         bases, learner.summary(bases, available, stage = stage))
-        if plan[1] == 'mortar':
+        # A redeploy keeps the stage's plan: the stage is scored from the side it opened from.
+        # When that plan's side is gone (its Multi Mortar destroyed), the troops go in from the best one.
+        name = plan[1] if plan[1] in entries else 'best'
+        if name == 'mortar':
             logger.info('Builder Base: Multi Mortar at %s — the P.E.K.K.As go for it first', mortar)
-        chosen = entries[plan[1]]
+        chosen = entries[name]
         # the plans that go in from this side here are the same attack: the stage scores them all
-        alike = [name for name in available if bb_scout.same_side(entries[name][0], chosen[0], frame.shape[0])]
-        return (sides[plan[1]], chosen, mortar, alike)
+        alike = [p for p in available if bb_scout.same_side(entries[p][0], chosen[0], frame.shape[0])]
+        return (sides[name], chosen, mortar, alike)
 
     def _bb_record_result(self, start):
         '''Read the results screen once settled, log it, and score the battle's plan.'''

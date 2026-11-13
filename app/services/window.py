@@ -30,6 +30,7 @@ SWP_NOACTIVATE = 0x0010
 _SM_VIRTUAL_SCREEN = (76, 77, 78, 79)  # left, top, width, height of the desktop over every monitor
 _HIDE_GAP = 200  # px between the desktop's right edge and a hidden game window
 _HIDE_SLIVER = 8  # px of a minimized game window left on the desktop while Hide game restores it
+_HIDDEN_FIND_EVERY = 10  # s between two looks for a game closed while hidden (all windows are walked)
 
 
 class _BITMAPINFOHEADER(ctypes.Structure):
@@ -310,8 +311,9 @@ fails. Candidates with a CROSVM surface are sorted first.
             return None
 
 
-    def _resolve_hwnd(self, selection):
-        '''Resolve the game-surface HWND from a pinned selection, or auto-detect when unset.'''
+    def _resolve_hwnd(self, selection, quiet = False):
+        '''Resolve the game-surface HWND from a pinned selection, or auto-detect when unset.
+        ``quiet``: no warning about two matching windows (a check that runs again and again).'''
         if not selection.is_set():
             return self._auto_detect_child()
         surfaces = []
@@ -324,7 +326,7 @@ fails. Candidates with a CROSVM surface are sorted first.
             surfaces.append(surface_hwnd)
         if not surfaces:
             return 0
-        if len(surfaces) > 1:
+        if len(surfaces) > 1 and not quiet:
             # Two emulator windows with the same title cannot be told apart by a pin that
             # only records title and class, and two BasePilot profiles would then both
             # drive the first one. Say so rather than picking silently.
@@ -455,7 +457,11 @@ Outer window size in pixels (``GetWindowRect``), same basis as :meth:`screenshot
         if saved and self.user32.IsWindow(saved) and self._get_class(saved) == saved_class:
             return saved
         if quiet:
-            surface = self._resolve_hwnd(load_window_selection())
+            now = time.monotonic()
+            if now < getattr(self, '_next_hidden_find', 0):
+                return 0
+            self._next_hidden_find = now + _HIDDEN_FIND_EVERY
+            surface = self._resolve_hwnd(load_window_selection(), quiet = True)
         else:
             surface = self.hwnd if self._ensure_hwnd() else 0
         return (self.user32.GetAncestor(surface, GA_ROOT) or surface) if surface else 0
@@ -571,12 +577,12 @@ Outer window size in pixels (``GetWindowRect``), same basis as :meth:`screenshot
             if home is not None:
                 save_hidden_home(home, top, self._get_class(top))
         foreground = self.user32.GetForegroundWindow()
-        if foreground and (self.user32.GetAncestor(foreground, GA_ROOTOWNER) or foreground) == top:
+        if foreground and (foreground == top or self.user32.GetAncestor(foreground, GA_ROOTOWNER) == top):
             self.show_game()
         elif self.user32.IsIconic(top):
             why = self.hide_game()
-            if why:
-                forget_hidden_home()  # it stays minimized, as the user left it
+            if why:  # given up: minimized as the user left it (it would come back maximized), or back in its place
+                forget_hidden_home()
                 return f'The game was minimized and could not be hidden again: {why}'
         elif not off_desktop(self._rect(top), self._desktop()):
             forget_hidden_home()

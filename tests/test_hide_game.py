@@ -158,10 +158,12 @@ class HideGameTests(DataDirTestCase):
         self.assertEqual(user32.rect, HOME)
 
     def test_brought_forward_it_comes_back(self):
-        for foreground in (10, 20):  # its taskbar button or Alt+Tab, or one of its dialogs
-            with self.subTest(foreground=foreground):
+        for (foreground, owned) in ((10, False), (20, False), (10, True)):  # its taskbar button or Alt+Tab, one of its dialogs
+            with self.subTest(foreground=foreground, owned=owned):
                 (window, user32) = service()
                 window.hide_game()
+                if owned:  # the game window itself has an owner
+                    user32.GetAncestor = lambda hwnd, flag: 99 if flag == 3 else 10
                 user32.foreground = foreground
                 self.assertEqual(window.keep_hidden(), '')
                 self.assertEqual(user32.rect, HOME)
@@ -207,9 +209,13 @@ class HideGameTests(DataDirTestCase):
         self.assertTrue(is_game_hidden())  # the way back is kept
         self.assertFalse(window.show_game())  # nothing to show yet: still kept
         self.assertTrue(is_game_hidden())
+        looked = window._resolve_hwnd.call_count
+        window.keep_hidden()
+        self.assertEqual(window._resolve_hwnd.call_count, looked)  # looked for at most every 10 s: all windows are walked
         # Play Games opens it again where it was last, off the desktop, as window 30
         user32.alive = {30}
         window._resolve_hwnd.return_value = 30
+        window._next_hidden_find = 0  # 10 s later
         user32.GetAncestor = lambda hwnd, flag: hwnd
         user32.GetClassNameW = lambda hwnd, buf, n: setattr(buf, 'value', GAME) or 1
         window.keep_hidden()

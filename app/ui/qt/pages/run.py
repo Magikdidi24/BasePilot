@@ -515,7 +515,7 @@ class RunPage(QWidget):
         try:
             if is_game_hidden():
                 if not self._game_window().show_game(activate = True):
-                    show_error(self.window(), 'Show game', 'The game window was not found. Open the game, then press Show game again.')
+                    show_error(self.window(), 'Show game', 'The game window could not be brought back. Is the game open? Press Show game again once it is.')
             else:
                 why = self._game_window().hide_game()
                 if why:
@@ -550,11 +550,10 @@ class RunPage(QWidget):
 
     def show_hidden_game(self):
         '''BasePilot closing: a hidden game comes back where it was, behind the other windows.
-        If it cannot (the game is not found), the next BasePilot's Show game still can.'''
-        if not is_game_hidden():
-            return None
+        If it cannot (the game is not found), the next BasePilot's Show game still can. Never
+        raises: the window's own closing goes on.'''
         try:
-            if not self._game_window().show_game():
+            if is_game_hidden() and not self._game_window().show_game():
                 _hide_logger.warning('Hide game: the game window could not be brought back on closing; Show game will do it next time')
         except Exception:
             _hide_logger.warning('Hide game: bringing the game back on closing failed', exc_info = True)

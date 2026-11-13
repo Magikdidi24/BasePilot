@@ -91,8 +91,8 @@ the map's smooth tiled ground (not the forest, the cliffs or the water), the bas
 stands lit on it (buildings, walls), closed over the gaps between them like the game's
 no-deploy zone. Troops land in a band just off the base, out of the HUD. Each spot of
 that band is scored by the buildings in reach (not the walls) and its distance to the
-base's centre; the best spot of each side of the base is an entry, and the attack takes
-one of the three best sides at random, so it does not always come from the same place.
+base's centre; the best spot of each side of the base is an entry, and the attack goes in
+from the best one (which one is best is what the plans below differ by).
 The frame each stage is planned on is kept in `scouting\` of `%LOCALAPPDATA%\BasePilot`
 (the newest 400, about 80 MB): the bases a scanner of their defences is to be built from.
 If the first troop does not land (a no-deploy spot), it goes again from the next side
@@ -131,23 +131,31 @@ front split between two outer buildings.) The attack comes from the side of the
 Multi Mortar, whose splash is what stops them: the scouting looks for its four tube
 openings (dark, round, a lighter rim each, close together in a fairly regular
 quadrilateral), which every level has, from the wooden one to the gold one. With no
-Multi Mortar found, the side is picked as above.
+Multi Mortar found, the side is picked as above. During the fight, the battle's Overall
+Damage (bottom right, 0 to 200 % over the two bases) is read every 3 s; each rise goes into
+the battle's record as its `curve`, and the result's log line says when the first base fell.
 
 The bot learns which way of picking the side wins (`app/core/bb_learning.py`). At the end
 of each battle it reads the results screen once its animation is over (stars, gold or
 silver; total damage; gold and trophies won) and writes the battle to `battles.jsonl` in
-`%LOCALAPPDATA%\BasePilot`. Four plans: **best** (the blend above), **core** (the side
-nearest the base's centre), **reach** (the most buildings in reach), **mortar** (the Multi
-Mortar's side, for a P.E.K.K.A push). Each stage draws its own plan by Thompson sampling on
-what the plans did so far, per army and per stage: plans that win are played more, the
-others now and then. The first stage's plan is scored by the battle's total damage (what it
-destroyed and the troops it left for the second base), the second stage's by its own part
-of it (the damage over 100 %). Older battles, recorded with one plan, count for the only
-stage they can belong to. The P.E.K.K.A push starts with the Multi Mortar first (the
-player's play) leading, and yields only to a plan that does clearly better. Its battles
-before 13 November 2026 were played with the Bomber first; they still count, and the
-beliefs move with what the pack does. The log gives each draw and the damage each plan is
-expected to bring.
+`%LOCALAPPDATA%\BasePilot`, with the side each stage went in from (`s1`, `s2`: where it lies,
+the buildings in reach of it, its distance to the base's centre and to the Multi Mortar,
+the plans it stands for, and whether it took the opening). Four plans, each one side, the
+best by its own measure: **best** (the blend above), **core** (the side nearest the base's
+centre), **reach** (the most buildings in reach), **mortar** (the Multi Mortar's side, for a
+P.E.K.K.A push). Each stage draws its own plan by Thompson sampling on what the plans did
+so far: plans that win are played more, the others now and then. Beliefs are kept per army
+and per kind of base (for a P.E.K.K.A push, bases with a Multi Mortar seen apart from the
+others, since only they offer the mortar plan). The first stage is scored by its damage up
+to 100 % (did its side clear the first base), the second by the damage over 100 %. Plans
+that go in from the same side of a base are the same attack there and are all scored (on
+53 live bases, core took another side than best on 10, reach on 5, the Multi Mortar's side
+was another on 15 of the 26 with one). A stage that did not open from its plan's side (the
+opening landed on another side, or on a map edge) scores nothing, a redeploy within a stage
+keeps its plan, and only the newest 40 battles that score count. Battles from before 14
+November 2026, when the side was drawn at random among the three best, do not count. The
+P.E.K.K.A push starts with the Multi Mortar first (the player's play) leading. The log
+gives each draw and the stage damage each plan is expected to bring.
 
 After the battle, Return Home is tapped and the bot waits for the results screen to go
 (tapping it once more if it is still up 3 s later), so the next step starts on the village.

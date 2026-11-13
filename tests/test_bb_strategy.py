@@ -200,7 +200,7 @@ class ScoutTests(unittest.TestCase):
 
     def test_one_side_per_base_its_best(self):
         frame = self.battle('green_middle')
-        self.assertEqual(len({bb_scout.scout(frame).entries[0] for _ in range(3)}), 1)  # no draw: the plans are tried, not the sides
+        self.assertEqual(len({bb_scout.scout(frame).entries[0] for _ in range(20)}), 1)  # no draw: the plans are tried, not the sides
 
     def test_what_the_history_keeps_of_a_side(self):
         scouting = bb_scout.scout(self.battle('green_middle'))
@@ -408,7 +408,7 @@ class FightTests(unittest.TestCase):
                 patch('app.core.bot.save_frame') as save:
             bot._deploy_bb_army(frame, stage=2)
             bot._deploy_bb_army(frame, stage=2)  # troops back on the bar within the stage
-        save.assert_called_with(frame, 'scouting', 'stage2', keep=400)
+        self.assertEqual(save.call_args_list, [call(frame, 'scouting', 'stage2', keep=400)] * 2)  # each deploy keeps its frame
         self.assertEqual(bot._bb_stage_sides, {2: {'side': 'A', 'front': 0}})  # the side the stage opened from
 
     def test_the_opening_is_the_pack_or_the_first_troop(self):
