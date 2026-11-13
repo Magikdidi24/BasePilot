@@ -54,12 +54,14 @@ def canvas(*crops, size=GPG):
 
 
 def bare_bot(frame=None):
-    """A Bot without __init__: a stop event that never fires, a window (its screenshot is
-    ``frame`` when one is given) and a mocked input."""
+    """A Bot without __init__: a stop event that never fires, a window that is not minimized
+    (its screenshot is ``frame`` when one is given) and a mocked input."""
     from app.core.bot import Bot  # lazy: the frame helpers need no bot
     bot = Bot.__new__(Bot)
     bot.stop_event = Mock(**{'is_set.return_value': False, 'wait.return_value': False})
-    bot.window = Mock() if frame is None else Mock(**{'screenshot.return_value': frame})
+    bot.window = Mock(**{'is_minimized.return_value': False})  # a bare Mock answers truthy: "minimized"
+    if frame is not None:
+        bot.window.screenshot.return_value = frame
     bot.input = Mock()
     return bot
 

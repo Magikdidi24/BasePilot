@@ -91,6 +91,7 @@ _LOOT_POLL = 1.0  # s between two reads of the available loot
 _HV_ARMIES = {1: 'sneaky', 2: 'superminion', 3: 'valkyrie', 4: 'edrag'}  # attack method -> army, for the learned Earthquakes
 _BATTLE_CARD_MAX_X = 0.28  # Battle menu: the Battle card ends here, the Ranked Battle card starts at ~0.29 W (16:10 live)
 _IDLE_RECHECK_SECONDS = 300  # while idling (storages full, nothing startable): wake, recover the screen, re-read state
+_MINIMIZED_POLL_SECONDS = 2  # while the game window is minimized: how often to look for it again
 _FULL_STOP_FRAMES = 2  # "Stop when storages are full": both bars full on this many frames in a row
 _FULL_STOP_GAP = 0.5  # s between those frames
 _CLAN_UNCALIBRATED_BACKOFF_SECONDS = 3600  # no chat button picked: say so once, not once per raid
@@ -386,6 +387,22 @@ wall upgrades for the first pre-Attack snapshot that would otherwise count as an
     def _check_stop(self):
         if self.stop_event.is_set():
             raise InterruptedError('Bot stopped by user')
+
+    def _wait_while_minimized(self):
+        '''A minimized game captures black: each cycle then fails blind, and four of them
+        back the run off for 5 min, still off after the window is back (live, 14/11/2026: 11
+        min lost to one minimize). Wait for the window instead; Hide game on the Run page
+        keeps the game out of the way while it still plays.'''
+        if not self.window.is_minimized():
+            return None
+        msg = 'Game window minimized: the run waits for it (Hide game on the Run page keeps it out of the way and playing)'
+        logger.warning(msg)
+        self._status(msg)
+        while self.window.is_minimized():
+            if self.stop_event.wait(_MINIMIZED_POLL_SECONDS):
+                self._check_stop()
+        logger.info('Game window back: the run goes on')
+        self._status('Running...')
 
     
     def _update_config_size(self, frame):
@@ -1127,6 +1144,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         troop_failures = 0
         while deadline is None or time.time() < deadline:
             self._check_stop()
+            self._wait_while_minimized()
             outcome = 'no_attack'
             try:
                 outcome = self._find_match_and_attack(method_id)
@@ -1207,6 +1225,7 @@ the Build panel stays open when no Wall card was read, and it shifts the HUD lef
         failures = 0
         while not duration_seconds or time.time() - start_time < duration_seconds:
             self._check_stop()
+            self._wait_while_minimized()
             try:
                 attacked = self._bb_attack_once()
             except InterruptedError:

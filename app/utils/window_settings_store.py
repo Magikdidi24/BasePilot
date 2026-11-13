@@ -84,3 +84,44 @@ def clear_window_selection():
 
 
 
+
+
+HIDDEN_WINDOW_FILENAME = 'hidden_window.json'
+
+
+def _hidden_window_path():
+    return get_user_app_data_dir() / HIDDEN_WINDOW_FILENAME
+
+
+def save_hidden_home(rect):
+    '''Where the game window was (left, top, right, bottom) before Hide game moved it off
+    the desktop. On disk, so a BasePilot that closed without showing it still can.'''
+    path = _hidden_window_path()
+    ensure_dir(path.parent)
+    path.write_text(json.dumps({'home': [int(v) for v in rect]}), encoding = 'utf-8')
+
+
+def load_hidden_home():
+    '''The saved place of a hidden game window, or None when the game is not hidden.'''
+    path = _hidden_window_path()
+    if not path.is_file():
+        return None
+    try:
+        home = json.loads(path.read_text(encoding = 'utf-8-sig')).get('home')
+        if isinstance(home, list) and len(home) == 4 and all(isinstance(v, int) for v in home):
+            return tuple(home)
+    except (ValueError, OSError, AttributeError):
+        pass
+    return None
+
+
+def is_game_hidden():
+    '''True while a hidden game window's place is saved (cheap: the UI asks every second).'''
+    return _hidden_window_path().is_file()
+
+
+def forget_hidden_home():
+    try:
+        _hidden_window_path().unlink()
+    except FileNotFoundError:
+        pass

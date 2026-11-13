@@ -1,5 +1,6 @@
 '''Run page — attack, schedule, modes, live status, controls.'''
 from __future__ import annotations
+import sys
 from dataclasses import replace
 from datetime import datetime
 from PySide6.QtCore import QSettings, Qt, QTimer, Signal
@@ -14,11 +15,13 @@ from app.ui.qt.widgets import Card, SectionTitle, StepperButton, ToggleSwitch, c
 from app.ui.qt.text import short_amount
 from app.utils.common import ui_settings_name
 from app.utils.player_list_store import load_players
-from app.utils.window_settings_store import load_window_selection
+from app.utils.window_settings_store import is_game_hidden, load_window_selection
 from app.utils.logger import setup_logger
 from app.utils.profile_settings_store import ATTACK_MIN_DARK_K_MAX, ATTACK_MIN_LOOT_K_MAX, load_profile_settings, save_profile_settings
 logger = setup_logger('Schedule')
+_hide_logger = setup_logger('HideGame')
 _SCHEDULE_CHECK_MS = 15000  # how often the set start times are checked
+_HIDE_CHECK_MS = 1000  # how often a hidden game window is checked (brought forward, minimized)
 
 
 def _when(text):
@@ -484,8 +487,53 @@ class RunPage(QWidget):
         self._btn_stop.setEnabled(False)
         self._btn_stop.clicked.connect(self._controller.stop)
         btn_row.addWidget(self._btn_stop)
+        self._btn_hide = neutral_button('Hide game', parent = card)
+        self._btn_hide.setMinimumHeight(42)
+        self._btn_hide.setToolTip('Moves the game window off the screen, still running: the bot plays on while you use the PC.\n'
+                                  'Do not minimize the game instead: minimized, the bot cannot see it.\n'
+                                  'Its taskbar button, or Show game, brings it back.')
+        self._btn_hide.clicked.connect(self._toggle_game_hidden)
+        btn_row.addWidget(self._btn_hide)
         card.card_layout.addLayout(btn_row)
+        self._game_window_service = None  # made on first use: it looks for the game window
+        self._refresh_hide_button()
+        if sys.platform == 'win32':
+            self._hide_timer = QTimer(self)
+            self._hide_timer.timeout.connect(self._keep_game_hidden)
+            self._hide_timer.start(_HIDE_CHECK_MS)
         return card
+
+    def _game_window(self):
+        if self._game_window_service is None:
+            from app.services.window import WindowService
+            self._game_window_service = WindowService()
+        return self._game_window_service
+
+    def _toggle_game_hidden(self):
+        if is_game_hidden():
+            self._game_window().show_game(activate = True)
+        else:
+            why = self._game_window().hide_game()
+            if why:
+                show_error(self.window(), 'Hide game', why)
+        self._refresh_hide_button()
+
+    def _keep_game_hidden(self):
+        '''Every second: a hidden game brought forward comes back, a minimized one hides again.'''
+        if is_game_hidden():
+            try:
+                self._game_window().keep_hidden()
+            except Exception:
+                _hide_logger.warning('Hide game: checking the game window failed', exc_info = True)
+        self._refresh_hide_button()
+
+    def _refresh_hide_button(self):
+        self._btn_hide.setText('Show game' if is_game_hidden() else 'Hide game')
+
+    def show_hidden_game(self):
+        '''BasePilot closing: a hidden game comes back where it was, behind the other windows.'''
+        if is_game_hidden():
+            self._game_window().show_game()
 
     
     def _clear_minutes_selection(self):

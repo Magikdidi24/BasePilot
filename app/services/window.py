@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 import cv2
 from app.utils.logger import setup_logger
-from app.utils.window_settings_store import WindowSelection, load_window_selection
+from app.utils.window_settings_store import WindowSelection, forget_hidden_home, is_game_hidden, load_hidden_home, load_window_selection, save_hidden_home
 logger = setup_logger('WindowService')
 WM_LBUTTONDOWN = 513
 WM_LBUTTONUP = 514
@@ -17,6 +17,17 @@ _CHILD_CLASS_PREFIX = 'CROSVM'
 _MINIMIZED_COORD = -30000  # Windows parks minimized windows at (-32000, -32000)
 
 _PW_RENDERFULLCONTENT = 2
+GA_ROOT = 2
+HWND_BOTTOM = 1
+SW_SHOWNORMAL = 1
+SW_SHOWMAXIMIZED = 3
+SW_SHOWNOACTIVATE = 4
+WPF_RESTORETOMAXIMIZED = 2
+SWP_NOSIZE = 0x0001
+SWP_NOACTIVATE = 0x0010
+_SM_VIRTUAL_SCREEN = (76, 77, 78, 79)  # left, top, width, height of the desktop over every monitor
+_HIDE_GAP = 200  # px between the desktop's right edge and a hidden game window
+_HIDE_SLIVER = 8  # px of a minimized game window left on the desktop while Hide game restores it
 
 
 class _BITMAPINFOHEADER(ctypes.Structure):
@@ -34,10 +45,25 @@ class _BITMAPINFOHEADER(ctypes.Structure):
         ('biClrImportant', wintypes.DWORD)]
 
 
+class _WINDOWPLACEMENT(ctypes.Structure):
+    _fields_ = [
+        ('length', wintypes.UINT),
+        ('flags', wintypes.UINT),
+        ('showCmd', wintypes.UINT),
+        ('ptMinPosition', wintypes.POINT),
+        ('ptMaxPosition', wintypes.POINT),
+        ('rcNormalPosition', wintypes.RECT)]
+
+
 def bgra_dib_to_bgr(buffer, width, height):
     '''Top-down 32-bit DIB bytes (B, G, R, A) to an OpenCV BGR frame, in one copy (it used to
     go bytes() -> PIL -> numpy -> cvtColor: 6-20 ms per frame at 1080p-1440p).'''
     return cv2.cvtColor(np.frombuffer(buffer, np.uint8).reshape(height, width, 4), cv2.COLOR_BGRA2BGR)
+
+
+def off_desktop(rect, desktop):
+    '''True when ``rect`` (left, top, right, bottom) has no pixel on ``desktop``.'''
+    return rect[0] >= desktop[2] or rect[2] <= desktop[0] or rect[1] >= desktop[3] or rect[3] <= desktop[1]
 
 
 @dataclass
@@ -397,7 +423,7 @@ Outer window size in pixels (``GetWindowRect``), same basis as :meth:`screenshot
         if self.is_minimized():
             if not WindowService._minimized_logged:
                 WindowService._minimized_logged = True
-                logger.warning('Game window is minimized — capture is blank while it stays that way. Restore the Clash of Clans window (it may sit behind other windows, just not minimized). Logged once per run.')
+                logger.warning('Game window is minimized — capture is blank while it stays that way. Restore the Clash of Clans window (it may sit behind other windows, just not minimized), or use Hide game on the Run page to keep it out of the way. Logged once per run.')
             return None
         WindowService._minimized_logged = False
         
@@ -412,6 +438,104 @@ Outer window size in pixels (``GetWindowRect``), same basis as :meth:`screenshot
         except Exception as e:
             logger.error(f'''Screenshot failed: {e}''')
             return None
+
+    # Hide game. Minimized, the game surface captures black: the bot cannot see it, and the
+    # game left without input drops its connection. Restored but off the desktop, Google
+    # Play Games keeps drawing it, PrintWindow keeps capturing it and the taps still land
+    # (measured live on 14/11/2026: a Builder Base battle went on, x4 tapped, with the
+    # window off-screen), and the desktop is free for other work.
+
+    def _game_frame(self):
+        '''The Google Play Games window around the game surface (0: no game window).'''
+        if not self._ensure_hwnd():
+            return 0
+        return self.user32.GetAncestor(self.hwnd, GA_ROOT) or self.hwnd
+
+    def _rect(self, hwnd):
+        rect = wintypes.RECT()
+        self.user32.GetWindowRect(hwnd, ctypes.byref(rect))
+        return (rect.left, rect.top, rect.right, rect.bottom)
+
+    def _desktop(self):
+        (x, y, w, h) = (self.user32.GetSystemMetrics(i) for i in _SM_VIRTUAL_SCREEN)
+        return (x, y, x + w, y + h)
+
+    def _placement(self, hwnd):
+        wp = _WINDOWPLACEMENT()
+        wp.length = ctypes.sizeof(_WINDOWPLACEMENT)
+        return wp if self.user32.GetWindowPlacement(hwnd, ctypes.byref(wp)) else None
+
+    def hide_game(self):
+        '''Move the game window off the desktop, restored, to the bottom of the window stack
+        (the last window Windows activates when another one closes). Its place is saved for
+        :meth:`show_game`. Returns '' once hidden, else why it was not.'''
+        top = self._game_frame()
+        if not top:
+            return 'Game window not found.'
+        wp = self._placement(top)
+        if wp is None:
+            return 'Could not read the game window.'
+        iconic = bool(self.user32.IsIconic(top))
+        if wp.showCmd == SW_SHOWMAXIMIZED or (iconic and wp.flags & WPF_RESTORETOMAXIMIZED):
+            return 'The game window is maximized: make it a window again first.'
+        desktop = self._desktop()
+        if not iconic and off_desktop(self._rect(top), desktop):
+            return ''  # hidden already
+        normal = wp.rcNormalPosition
+        if not iconic or load_hidden_home() is None:
+            # minimized while hidden (Show desktop), its restore place is off the desktop: keep the saved one
+            save_hidden_home((normal.left, normal.top, normal.right, normal.bottom))
+        size = (normal.right - normal.left, normal.bottom - normal.top)
+        if iconic:
+            # SetWindowPlacement pulls a place wholly off the desktop back onto it: restore the
+            # window with a sliver on screen, then slide it out.
+            wp.showCmd = SW_SHOWNOACTIVATE
+            wp.rcNormalPosition = wintypes.RECT(desktop[2] - _HIDE_SLIVER, normal.top, desktop[2] - _HIDE_SLIVER + size[0], normal.top + size[1])
+            self.user32.SetWindowPlacement(top, ctypes.byref(wp))
+        self.user32.SetWindowPos(top, HWND_BOTTOM, desktop[2] + _HIDE_GAP, normal.top, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE)
+        rect = self._rect(top)
+        if (rect[2] - rect[0], rect[3] - rect[1]) != size:
+            # past a monitor of another scale, Windows resizes the window: the capture would change size
+            self.show_game()
+            return 'The game window changed size off the desktop (a monitor with another scale): left where it was.'
+        logger.info('Game window hidden off the desktop at %s: it keeps running (Show game, or its taskbar button, brings it back)', rect[:2])
+        return ''
+
+    def show_game(self, activate = False):
+        '''Bring a hidden game window back to its saved place (Windows pulls a place no
+        monitor shows any more onto the desktop). ``activate``: in front of every window;
+        otherwise it keeps its place in the window stack, behind the user's work.'''
+        home = load_hidden_home()
+        forget_hidden_home()
+        top = self._game_frame()
+        wp = self._placement(top) if top else None
+        if wp is None:
+            return False
+        if home is not None:
+            wp.rcNormalPosition = wintypes.RECT(*home)
+        wp.showCmd = SW_SHOWNORMAL if activate else SW_SHOWNOACTIVATE
+        self.user32.SetWindowPlacement(top, ctypes.byref(wp))
+        if activate:
+            self.user32.SetForegroundWindow(top)
+        logger.info('Game window shown at %s', self._rect(top)[:2])
+        return True
+
+    def keep_hidden(self):
+        '''The UI's check, every second while the game is hidden:
+        - brought forward (its taskbar button, Alt+Tab): the user wants it, it comes back;
+        - minimized (Show desktop): hidden again, restored, so the bot keeps seeing it;
+        - back on the desktop some other way: no longer hidden.'''
+        if not is_game_hidden():
+            return None
+        top = self._game_frame()
+        if not top:
+            return None
+        if self.user32.GetForegroundWindow() == top:
+            self.show_game()
+        elif self.user32.IsIconic(top):
+            self.hide_game()
+        elif not off_desktop(self._rect(top), self._desktop()):
+            forget_hidden_home()
 
 
 

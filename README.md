@@ -164,6 +164,13 @@ reopen Clash, then *Restore my display* — the running game keeps 16:9.
    *Settings → Reserve builders* keeps builders free for walls, so it only applies with
    **Upgrade walls** on.
 
+**Using the PC while it runs.** Don't minimize the game: a minimized game captures black,
+so the bot cannot see it (the run waits until the window is back) and the game, left
+without input, drops its connection. Press **Hide game** on the Run page instead: the game
+window moves off the screen, still running, and the bot keeps playing it. Its taskbar
+button (or **Show game**) brings it back; closing BasePilot does too. A game window behind
+other windows also works.
+
 Command line, for scheduled or overnight runs:
 
 ```

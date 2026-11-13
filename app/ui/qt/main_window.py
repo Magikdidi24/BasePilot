@@ -184,6 +184,10 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         if self._controller.is_running():
             self._controller.stop()
+        try:
+            self._run_page.show_hidden_game()  # never leave the game off the screen with nothing to bring it back
+        except Exception:
+            pass
         if not self._taskbar is None:
             self._taskbar.teardown()
         if self._tray is not None:
